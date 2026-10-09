@@ -1,0 +1,106 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { Orchestrator } from '../src/orchestrator.js';
+import { TaskRun } from '../src/task-run.js';
+import { openHaneDatabase } from '../src/storage/sqlite-database.js';
+import { SqliteTaskRepository } from '../src/storage/sqlite-task-repository.js';
+
+test('persists the task result and ordered audit in SQLite without credentials', async () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const provider = {
+    async complete({ role }) {
+      return role === 'reviewer' ? 'reviewer evidence\nverdict: approved' : `${role} evidence`;
+    },
+  };
+  const orchestrator = new Orchestrator({ provider, repository, idFactory: () => 'persisted-run' });
+  await orchestrator.start({ objective: 'Persist a fully audited task.' });
+
+  const saved = repository.findById('persisted-run');
+  assert.equal(saved.status, 'completed');
+  assert.equal(saved.outputs.reviewer, 'reviewer evidence\nverdict: approved');
+  assert.equal(saved.audit[0].type, 'task_created');
+  assert.equal(saved.audit.at(-1).detail.nextStatus, 'completed');
+  assert.equal(JSON.stringify(saved).includes('apiKey'), false);
+  repository.close();
+});
+
+test('persists and restores the provider label', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({ id: 'labelled-run', objective: 'Remember the provider.', providerLabel: 'openrouter' });
+  task.transition('planned');
+  repository.save(task.snapshot());
+
+  assert.equal(repository.findById('labelled-run').providerLabel, 'openrouter');
+
+  const unlabelled = new TaskRun({ id: 'plain-run', objective: 'No provider recorded.' });
+  repository.save(unlabelled.snapshot());
+  assert.equal(repository.findById('plain-run').providerLabel, null);
+  repository.close();
+});
+
+test('appends audit entries across incremental saves without rewriting stored history', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({ id: 'incremental-run', objective: 'Persist incrementally.', now: () => 'fixed-timestamp' });
+  task.transition('planned');
+  repository.save(task.snapshot());
+  const afterFirst = repository.findById('incremental-run');
+  assert.equal(afterFirst.audit.length, 2);
+
+  task.reserveProviderCall('planner');
+  repository.save(task.snapshot());
+  const afterSecond = repository.findById('incremental-run');
+
+  assert.equal(afterSecond.audit.length, 3);
+  assert.deepEqual(afterSecond.audit.slice(0, 2), afterFirst.audit);
+  repository.close();
+});
+
+test('accepts a shared database handle', () => {
+  const database = openHaneDatabase(':memory:');
+  const repository = new SqliteTaskRepository({ database });
+  const task = new TaskRun({ id: 'shared-run', objective: 'Share one database handle.' });
+  task.transition('planned');
+  repository.save(task.snapshot());
+
+  const saved = repository.findById('shared-run');
+  assert.equal(saved.status, 'planned');
+  database.close();
+});
+
+test('lists missions most recently active first without loading bodies', async () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const provider = {
+    async complete({ role }) {
+      return role === 'reviewer' ? 'reviewer evidence\nverdict: approved' : `${role} evidence`;
+    },
+  };
+  const run = async (id) => {
+    const orchestrator = new Orchestrator({ provider, repository, idFactory: () => id, });
+    await orchestrator.start({ objective: `Mission ${id}.`, });
+  };
+
+  await run('older-run');
+  await run('newer-run');
+
+  const missions = repository.list();
+  assert.deepEqual(missions.map((mission) => mission.id), ['newer-run', 'older-run']);
+  assert.deepEqual(Object.keys(missions[0]), ['id', 'objective', 'status', 'maxProviderCalls', 'providerCalls', 'updatedAt']);
+  assert.equal(missions[0].status, 'completed');
+  assert.equal(missions[0].providerCalls, 3);
+  assert.match(missions[0].updatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.ok(missions[0].updatedAt >= missions[1].updatedAt);
+  assert.equal('outputs' in missions[0], false);
+  assert.equal('audit' in missions[0], false);
+  repository.close();
+});
+
+test('rejects a save that would move provider calls backwards', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({ id: 'monotonic-run', objective: 'Protect the call budget.' });
+  task.reserveProviderCall('planner');
+  repository.save(task.snapshot());
+
+  const rewound = new TaskRun({ id: 'monotonic-run', objective: 'Protect the call budget.' });
+  assert.throws(() => repository.save(rewound.snapshot()), /provider calls/);
+  repository.close();
+});

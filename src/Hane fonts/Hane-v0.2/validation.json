@@ -1,0 +1,38 @@
+[
+  {
+    "style": "Regular",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "bounds": [
+      -222,
+      992
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "woff2_roundtrip": "OK"
+  },
+  {
+    "style": "Medium",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "bounds": [
+      -228,
+      1005
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "woff2_roundtrip": "OK"
+  }
+]

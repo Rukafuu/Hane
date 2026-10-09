@@ -1,0 +1,24 @@
+/* Hane Sans 0.3 — Regular, Medium e SemiBold com densidade óptica para interface.
+   Pilha recomendada (Segoe apenas como fallback):
+   font-family: 'Hane Sans', 'Segoe UI Variable Text', 'Segoe UI', ui-sans-serif, system-ui, sans-serif; */
+@font-face {
+  font-family: 'Hane Sans';
+  src: url('./HaneSans-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hane Sans';
+  src: url('./HaneSans-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hane Sans';
+  src: url('./HaneSans-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}

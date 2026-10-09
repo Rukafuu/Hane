@@ -1,0 +1,95 @@
+[
+  {
+    "style": "Regular",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "us_weight_class": 400,
+    "version": "Version 0.300",
+    "bounds": [
+      -243,
+      1024
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "rendered": true,
+    "ink_coverage": 0.0546,
+    "ink_coverage_v0_2": 0.034,
+    "stroke_balance": {
+      "drawn_thin": 36.9,
+      "generated_thin": 40.0,
+      "drawn_stem": 280.6,
+      "generated_stem": 315.0,
+      "thin_ratio": 0.92,
+      "stem_ratio": 0.89
+    },
+    "woff2_roundtrip": "OK"
+  },
+  {
+    "style": "Medium",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "us_weight_class": 500,
+    "version": "Version 0.300",
+    "bounds": [
+      -249,
+      1034
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "rendered": true,
+    "ink_coverage": 0.0623,
+    "ink_coverage_v0_2": 0.0434,
+    "stroke_balance": {
+      "drawn_thin": 40.0,
+      "generated_thin": 48.0,
+      "drawn_stem": 292.5,
+      "generated_stem": 335.5,
+      "thin_ratio": 0.83,
+      "stem_ratio": 0.87
+    },
+    "woff2_roundtrip": "OK"
+  },
+  {
+    "style": "SemiBold",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "us_weight_class": 600,
+    "version": "Version 0.300",
+    "bounds": [
+      -256,
+      1046
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "rendered": true,
+    "ink_coverage": 0.0726,
+    "ink_coverage_v0_2": null,
+    "stroke_balance": {
+      "drawn_thin": 44.4,
+      "generated_thin": 56.0,
+      "drawn_stem": 326.9,
+      "generated_stem": 364.0,
+      "thin_ratio": 0.79,
+      "stem_ratio": 0.9
+    },
+    "woff2_roundtrip": "OK"
+  }
+]

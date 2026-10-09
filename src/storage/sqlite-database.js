@@ -1,0 +1,26 @@
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+import { migrate } from './migrations.js';
+
+/**
+ * Opens the shared Hane SQLite database with the PRAGMAs and schema every
+ * store relies on. The schema itself is owned by the numbered migrations.
+ * @param {string} filename
+ * @returns {InstanceType<typeof DatabaseSync>}
+ */
+export function openHaneDatabase(filename) {
+  const database = new DatabaseSync(filename);
+  database.exec('PRAGMA foreign_keys = ON;');
+  return migrate(database);
+}
+
+/** @returns {string} the package-owned database path, independent of the current working directory. */
+export function defaultDatabasePath() {
+  const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.resolve(moduleDirectory, '..', '..');
+  const directory = path.join(root, 'outputs');
+  mkdirSync(directory, { recursive: true });
+  return path.join(directory, 'hane.sqlite');
+}
