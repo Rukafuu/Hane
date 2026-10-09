@@ -94,6 +94,7 @@ test('POST /api/missions runs a mission to completion and persists it', async (t
   const mission = await (await fetch(`${baseUrl}/api/missions/${queued.id}`)).json();
   assert.equal(mission.status, 'completed');
   assert.equal(mission.objective, 'Investigate flaky checkout tests.');
+  assert.equal(mission.providerLabel, 'openrouter');
   assert.equal(mission.outputs.reviewer, 'reviewer output\nverdict: approved');
   assert.equal(mission.audit.at(-1).detail.nextStatus, 'completed');
   assert.equal(JSON.stringify(mission).includes('sk-test-value'), false);

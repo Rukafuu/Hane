@@ -111,8 +111,9 @@ async function startMission({ request, response, repository, providerConfigStore
   }
 
   let provider;
+  let providerLabel;
   try {
-    provider = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? defaultProvider });
+    ({ provider, label: providerLabel } = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? defaultProvider }));
   } catch (error) {
     if (error instanceof UnknownProviderError) return respondJson(response, 404, { error: error.message });
     if (error instanceof CredentialMissingError || error instanceof ProviderConfigError) return respondJson(response, 409, { error: error.message });
@@ -127,7 +128,7 @@ async function startMission({ request, response, repository, providerConfigStore
 
   running.add(missionId);
   try {
-    await orchestrator.start({ objective, maxProviderCalls, onEvent });
+    await orchestrator.start({ objective, maxProviderCalls, providerLabel, onEvent });
   } catch (error) {
     broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {
@@ -142,7 +143,7 @@ async function resolveProvider({ providerConfigStore, credentialManager, createP
     throw new UnknownProviderError(`Unknown provider "${requestedLabel}". hint: hane provider list`);
   }
   const config = resolveProviderConfig(providerConfigStore, requestedLabel);
-  return createProvider({ config, credentialManager });
+  return { provider: await createProvider({ config, credentialManager }), label: config.label };
 }
 
 async function resumeMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, broadcast, running, id, action }) {
@@ -179,7 +180,7 @@ async function resumeMission({ request, response, repository, providerConfigStor
 
   let provider;
   try {
-    provider = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? defaultProvider });
+    ({ provider } = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? mission.providerLabel ?? defaultProvider }));
   } catch (error) {
     if (error instanceof UnknownProviderError) return respondJson(response, 404, { error: error.message });
     if (error instanceof CredentialMissingError || error instanceof ProviderConfigError) return respondJson(response, 409, { error: error.message });
