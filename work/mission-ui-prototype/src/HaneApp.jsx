@@ -1,3 +1,5 @@
+import SettingsCenter, { SettingsSection } from "./SettingsCenter.jsx";
+import { readPreference, writePreference, normalizeAppearance, normalizeGeneral, validateLibrary, appearanceStyle } from "./preferences.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise, ArrowSquareOut, At, BracketsCurly, CaretLeft, CaretRight, Check, CircleNotch, Clock, Code,
@@ -32,25 +34,9 @@ const CONNECTOR_CATALOG = Object.freeze([
   { id: "mcp", name: "Servidores MCP", detail: "Ferramentas declaradas por servidor", mode: "MCP", status: "Ainda não integrado" },
 ]);
 
-const DEFAULT_APPEARANCE = Object.freeze({
-  theme: "midnight",
-  accent: "#78a9ff",
-  font: "system",
-  textSize: "comfortable",
-});
 
-const THEME_PRESETS = Object.freeze({
-  midnight: "#78a9ff",
-  forest: "#7cb58d",
-  paper: "#ed799a",
-});
-const ACCENT_SWATCHES = Object.freeze([
-  { value: "#78a9ff", label: "Azul Meia-noite" },
-  { value: "#7cb58d", label: "Verde Floresta" },
-  { value: "#ed799a", label: "Rosa Hane" },
-  { value: "#a78bfa", label: "Lilás" },
-  { value: "#e5b85c", label: "Âmbar" },
-]);
+
+
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad)/.test(navigator.userAgent ?? "");
 const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
@@ -165,12 +151,12 @@ function OnboardingMessage({ step, hasProvider, github, githubAvailable, githubD
     <div className="message-content">
       <header><strong>Hane</strong><small>Guia de início</small><Status kind="queued">Sua escolha</Status></header>
       <div className="onboarding-progress" aria-label={`Etapa ${step + 1} de 5`}><span>Etapa {step + 1} de 5</span><i><b style={{ width: `${((step + 1) / 5) * 100}%` }} /></i></div>
-      {step === 0 && <><p>Bem-vindo. Antes de qualquer missão, quer conectar um provedor de IA? Você pode configurar agora ou seguir e decidir depois.</p>{hasProvider ? <><span className="onboarding-granted"><Check weight="bold" /> Provedor disponível</span>{next()}</> : <><div className="onboarding-commands"><CmdLine command="node bin/hane.js provider add --label <nome> --base-url <url> --model <id>" onCopy={onCopy} /><CmdLine command="node bin/hane.js provider set-secret <nome>" onCopy={onCopy} /></div><button type="button" className="onboarding-action" onClick={onOpenProviders}>Ver configuração <CaretRight /></button>{next("Configuro depois")}</>}</>}
-      {step === 1 && <><p>Quer permitir uma pasta local? Hane só poderá lê-la quando uma missão receber explicitamente <code>workspace.read</code>.</p>{workspace.granted ? <><span className="onboarding-granted"><Check weight="bold" /> “{workspace.name}” autorizada</span>{next()}</> : workspace.supported ? <><button type="button" className="onboarding-action" disabled={busy === "workspace"} onClick={onRequestWorkspace}>{busy === "workspace" ? "Escolhendo…" : "Escolher pasta"} <CaretRight /></button>{next("Pular por enquanto")}</> : <><span className="onboarding-note">Use Chrome ou Edge para escolher uma pasta local.</span>{next("Continuar")}</>}</>}
-      {step === 2 && <><p>Quer conectar o GitHub? A autorização é oficial e você decide depois, por missão, quando um repositório pode ser lido.</p>{github ? <><span className="onboarding-granted"><Check weight="bold" /> Conectado como @{github.accountLabel}</span>{next()}</> : githubDevice ? <div className="github-device"><span>Abra <a href={githubDevice.verificationUri} target="_blank" rel="noreferrer">github.com/login/device</a> e informe:</span><strong>{githubDevice.userCode}</strong><button type="button" className="onboarding-action primary" disabled={busy === "github"} onClick={onCheckGitHub}>{busy === "github" ? "Verificando…" : "Já autorizei"}</button></div> : githubAvailable ? <><button type="button" className="onboarding-action" disabled={busy === "github"} onClick={onConnectGitHub}>Conectar GitHub <CaretRight /></button>{next("Pular por enquanto")}</> : <><span className="onboarding-note">GitHub pode ser conectado quando o servidor tiver um Client ID.</span>{next("Continuar")}</>}</>}
-      {step === 3 && <><p>Assim funciona: você descreve a missão, o runtime planeja, executa e revisa. Ações importantes continuam exigindo sua aprovação.</p>{next("Entendi")}</>}
+      {step === 0 && <><p>Bem-vindo. Antes de qualquer execução, quer conectar um provedor de IA? Você pode configurar agora ou seguir e decidir depois.</p>{hasProvider ? <><span className="onboarding-granted"><Check weight="bold" /> Provedor disponível</span>{next()}</> : <><div className="onboarding-commands"><CmdLine command="node bin/hane.js provider add --label <nome> --base-url <url> --model <id>" onCopy={onCopy} /><CmdLine command="node bin/hane.js provider set-secret <nome>" onCopy={onCopy} /></div><button type="button" className="onboarding-action" onClick={onOpenProviders}>Ver configuração <CaretRight /></button>{next("Configuro depois")}</>}</>}
+      {step === 1 && <><p>Quer permitir uma pasta local? Hane só poderá lê-la quando uma execução receber explicitamente <code>workspace.read</code>.</p>{workspace.granted ? <><span className="onboarding-granted"><Check weight="bold" /> “{workspace.name}” autorizada</span>{next()}</> : workspace.supported ? <><button type="button" className="onboarding-action" disabled={busy === "workspace"} onClick={onRequestWorkspace}>{busy === "workspace" ? "Escolhendo…" : "Escolher pasta"} <CaretRight /></button>{next("Pular por enquanto")}</> : <><span className="onboarding-note">Use Chrome ou Edge para escolher uma pasta local.</span>{next("Continuar")}</>}</>}
+      {step === 2 && <><p>Quer conectar o GitHub? A autorização é oficial e você decide depois, por execução, quando um repositório pode ser lido.</p>{github ? <><span className="onboarding-granted"><Check weight="bold" /> Conectado como @{github.accountLabel}</span>{next()}</> : githubDevice ? <div className="github-device"><span>Abra <a href={githubDevice.verificationUri} target="_blank" rel="noreferrer">github.com/login/device</a> e informe:</span><strong>{githubDevice.userCode}</strong><button type="button" className="onboarding-action primary" disabled={busy === "github"} onClick={onCheckGitHub}>{busy === "github" ? "Verificando…" : "Já autorizei"}</button></div> : githubAvailable ? <><button type="button" className="onboarding-action" disabled={busy === "github"} onClick={onConnectGitHub}>Conectar GitHub <CaretRight /></button>{next("Pular por enquanto")}</> : <><span className="onboarding-note">GitHub pode ser conectado quando o servidor tiver um Client ID.</span>{next("Continuar")}</>}</>}
+      {step === 3 && <><p>Assim funciona: você descreve a execução, o runtime planeja, executa e revisa. Ações importantes continuam exigindo sua aprovação.</p>{next("Entendi")}</>}
       {step === 4 && <div className="agent-creator"><p>Agora crie o primeiro Hane do seu jeito. Isso define um perfil visual local; os papéis técnicos continuam visíveis e auditáveis.</p><label>Nome<input value={profile.name} maxLength="32" onChange={(event) => onProfileChange({ ...profile, name: event.target.value })} placeholder="Nome do Hane" /></label><label>Cor<input type="color" value={profile.color} onChange={(event) => onProfileChange({ ...profile, color: event.target.value })} /></label><label>Forma<select value={profile.shape} onChange={(event) => onProfileChange({ ...profile, shape: event.target.value })}><option value="pebble">Pedra</option><option value="petal">Pétala</option><option value="drop">Gota</option><option value="cloud">Nuvem</option></select></label><label>Imagem ou GIF<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (!file || file.size > 2_000_000) return; const reader = new FileReader(); reader.onload = () => onProfileChange({ ...profile, image: reader.result }); reader.readAsDataURL(file); }} /></label><Avatar person={{ ...onboardingAgent, ...profile }} size="md" state="idle" /> <button type="button" className="onboarding-action primary" disabled={!profile.name.trim()} onClick={onCreateProfile}>Criar Hane <CaretRight /></button></div>}
-      {step >= 5 && <div className="onboarding-complete"><span><Check weight="bold" /></span><div><strong>Seu Hane está pronto.</strong><p>O perfil foi salvo neste navegador e já aparece na lista de agentes. Você pode criar quantos quiser.</p></div><button type="button" className="onboarding-action primary" onClick={onCreateMission}>Criar primeira missão <CaretRight /></button><button type="button" className="onboarding-action" onClick={onCreateAnother}>Criar outro Hane <CaretRight /></button></div>}
+      {step >= 5 && <div className="onboarding-complete"><span><Check weight="bold" /></span><div><strong>Seu Hane está pronto.</strong><p>O perfil foi salvo neste navegador e já aparece na lista de agentes. Você pode criar quantos quiser.</p></div><button type="button" className="onboarding-action primary" onClick={onCreateMission}>Criar primeira execução <CaretRight /></button><button type="button" className="onboarding-action" onClick={onCreateAnother}>Criar outro Hane <CaretRight /></button></div>}
     </div>
   </article>;
 }
@@ -181,7 +167,7 @@ function PanelEmpty({ children }) {
 
 function auditSummary(entry) {
   const role = entry.detail?.role ? `${roles[entry.detail.role]?.name ?? entry.detail.role} · ` : "";
-  if (entry.type === "task_created") return "Missão registrada no armazenamento local.";
+  if (entry.type === "task_created") return "Execução registrada no armazenamento local.";
   if (entry.type === "state_changed") return `${role}estado: ${entry.detail?.nextStatus ?? "atualizado"}.`;
   if (entry.type === "provider_call_reserved") return `${role}chamada ${entry.detail?.providerCall ?? ""} reservada.`;
   if (entry.type === "agent_output_recorded") return `${role}saída persistida (${entry.detail?.characters ?? 0} caracteres).`;
@@ -236,38 +222,6 @@ function GitHubConnector({ connector, github, device, available, busy, onConnect
   </div>;
 }
 
-function SettingsSheet({ providers, onboarding, githubDevice, workspace, busy, appearance, onAppearanceChange, onBack, onProviders, onConnectGitHub, onCheckGitHub }) {
-  const appearanceStyle = { "--user-accent": appearance.accent, "--user-font": appearance.font === "mono" ? "var(--font-mono)" : appearance.font === "hane" ? '"Hane Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' : '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' };
-  return <main className="settings-sheet" data-hane-theme={appearance.theme} data-text-size={appearance.textSize} style={appearanceStyle} aria-label="Configurações do Hane">
-    <section><header><strong>Configurações do Hane</strong><button type="button" onClick={onBack}>Voltar à missão <CaretRight /></button></header>
-      <p className="settings-intro">Configurações globais ficam separadas do contexto da missão. Credenciais nunca entram nesta tela.</p>
-    </section>
-    <section><header><strong>Provedores de IA</strong><button type="button" onClick={onProviders}>Gerenciar <CaretRight /></button></header>
-      <div className="settings-row"><span className="setting-icon"><At weight="bold" /></span><span><strong>{providers.length} configurado{providers.length === 1 ? "" : "s"}</strong><small>{providers.length ? providers.map((item) => item.label).join(", ") : "Adicione via CLI; a UI não recebe segredos."}</small></span></div>
-    </section>
-    <section><header><strong>Conectores</strong><span className="settings-muted">estado lido do servidor</span></header>
-      <p className="settings-intro">Conectores só poderão ser usados após credencial, escopo por missão e aprovação humana por ação. O token do GitHub fica apenas no Credenciário do Windows.</p>
-      {CONNECTOR_CATALOG.map((connector) => connector.id === "github"
-        ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={busy} onConnect={onConnectGitHub} onCheck={onCheckGitHub} />
-        : <div className="settings-row" key={connector.id}><span className="setting-icon"><Plugs weight="bold" /></span><span><strong>{connector.name}</strong><small>{connector.detail} · {connector.mode}</small></span><em>{connector.status}</em></div>)}
-      <div className="settings-row"><span className={workspace.granted ? "setting-icon ok" : "setting-icon"}><FolderOpen weight={workspace.granted ? "fill" : "bold"} /></span><span><strong>Pasta local</strong><small>{workspace.granted ? `Autorizada neste navegador: “${workspace.name}” · só vale quando a missão recebe workspace.read` : "Nenhuma pasta autorizada · a escolha fica no navegador, não no servidor"}</small></span><em className={workspace.granted ? "settings-ok" : "settings-off"}>{workspace.granted ? "Autorizada" : "Não autorizada"}</em></div>
-    </section>
-    <section className="appearance-settings"><header><strong>Aparência</strong><span className="settings-muted">salvo neste dispositivo</span></header>
-      <p className="settings-intro">Escolha uma leitura mais confortável. A mudança é aplicada imediatamente em toda a interface.</p>
-      <fieldset className="theme-picker"><legend>Modo de cor</legend>
-        {[['midnight', 'Meia-noite', 'Escuro e neutro'], ['forest', 'Floresta', 'Escuro e quente'], ['paper', 'Hane claro', 'Base clara e rosa da Hane']].map(([value, label, detail]) => <label key={value} className={appearance.theme === value ? 'selected' : ''}><input type="radio" name="theme" value={value} checked={appearance.theme === value} onChange={() => onAppearanceChange({ ...appearance, theme: value, accent: THEME_PRESETS[value] })} /><i className={`theme-swatch ${value}`} /><span><strong>{label}</strong><small>{detail}</small></span></label>)}
-      </fieldset>
-      <div className="appearance-control appearance-accent"><span><strong>Cor de destaque</strong><small>Botões, foco e ações principais</small></span><div className="accent-editor"><div className="accent-current"><input type="color" value={appearance.accent} aria-label="Cor de destaque" onChange={(event) => onAppearanceChange({ ...appearance, accent: event.target.value })} /><output aria-live="polite">{appearance.accent.toUpperCase()}</output></div><div className="accent-swatches" aria-label="Amostras de cor"><span>Amostras rápidas</span><div className="accent-swatch-list">{ACCENT_SWATCHES.map((swatch) => <button type="button" key={swatch.value} className={appearance.accent.toLowerCase() === swatch.value ? "selected" : ""} aria-label={`Usar ${swatch.label}`} aria-pressed={appearance.accent.toLowerCase() === swatch.value} title={swatch.label} style={{ "--accent-swatch": swatch.value }} onClick={() => onAppearanceChange({ ...appearance, accent: swatch.value })} />)}</div></div><button type="button" className="accent-reset" onClick={() => onAppearanceChange({ ...appearance, accent: THEME_PRESETS[appearance.theme] })}>Usar cor de {appearance.theme === "midnight" ? "Meia-noite" : appearance.theme === "forest" ? "Floresta" : "Hane claro"}</button></div></div>
-      <label className="appearance-control"><span><strong>Fonte</strong><small>Aplicada em toda a interface</small></span><select value={appearance.font} onChange={(event) => onAppearanceChange({ ...appearance, font: event.target.value })}><option value="system">Sistema (mais legível)</option><option value="hane">Hane Sans (beta)</option><option value="mono">Monoespaçada</option></select></label>
-      <label className="appearance-control"><span><strong>Tamanho do texto</strong><small>Altera a leitura dos elementos persistentes</small></span><select value={appearance.textSize} onChange={(event) => onAppearanceChange({ ...appearance, textSize: event.target.value })}><option value="compact">Compacto</option><option value="comfortable">Confortável</option><option value="large">Grande</option></select></label>
-      <button type="button" className="appearance-reset" onClick={() => onAppearanceChange(DEFAULT_APPEARANCE)}>Restaurar padrão</button>
-    </section>
-    <section><header><strong>Segurança e acessibilidade</strong></header>
-      <div className="settings-row"><span className="setting-icon"><ShieldCheck weight="fill" /></span><span><strong>Aprovação explícita</strong><small>Escrita, comandos e rede continuam limitados pela missão e exigem revisão.</small></span></div>
-    </section>
-  </main>;
-}
-
 export function HaneApp() {
   const [missions, setMissions] = useState(null);
   const [providers, setProviders] = useState([]);
@@ -287,9 +241,15 @@ export function HaneApp() {
   const [capabilityGrants, setCapabilityGrants] = useState([]);
   const [onboarding, setOnboarding] = useState({ github: null, githubAvailable: false });
   const [appearance, setAppearance] = useState(() => {
-    try { return { ...DEFAULT_APPEARANCE, ...JSON.parse(localStorage.getItem("hane-appearance") || "{}") }; }
-    catch { return DEFAULT_APPEARANCE; }
+    return normalizeAppearance(readPreference("hane-appearance", {}));
   });
+  const [general, setGeneral] = useState(() => normalizeGeneral(readPreference("hane-general", {})));
+  const [library, setLibraryState] = useState(() => { try { return validateLibrary(readPreference("hane-library", { agents: readPreference("hane-custom-hanes", []).map(a => ({ ...a, description: a.job || "Hane personalizado", groupId: "" })), groups: [] })); } catch { return { agents: [], groups: [] }; } });
+  const [activeGroupId, setActiveGroupId] = useState(null);
+  const activeGroup = library.groups.find(group => group.id === activeGroupId);
+  const [groupsExpanded, setGroupsExpanded] = useState(true);
+  const [runsExpanded, setRunsExpanded] = useState(true);
+  const [persistenceError, setPersistenceError] = useState("");
   const [workspace, setWorkspace] = useState({ supported: false, name: null, granted: false });
   // Root owned by the server itself (GET /api/workspace). Unknown until fetched,
   // and a missing route stays "unavailable" rather than optimistic.
@@ -299,15 +259,16 @@ export function HaneApp() {
   const [onboardingBusy, setOnboardingBusy] = useState(null);
   const [onboardingStep, setOnboardingStep] = useState(() => Number(localStorage.getItem("hane-onboarding-step") ?? 0));
   const [onboardingDismissed, setOnboardingDismissed] = useState(() => localStorage.getItem("hane-onboarding-dismissed") === "true");
-  const [customHanes, setCustomHanes] = useState(() => JSON.parse(localStorage.getItem("hane-custom-hanes") ?? "[]"));
   const [profileDraft, setProfileDraft] = useState({ name: "", color: "#e66f98", shape: "pebble", image: null });
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(() => window.location.hash.startsWith("#settings"));
   const [panelOpen, setPanelOpen] = useState(() => {
     // A compact desktop window needs the conversation first; its audit panel
     // remains one explicit click away instead of covering the composer.
     if (window.matchMedia?.("(max-width: 980px)").matches) return false;
     return localStorage.getItem("hane-panel-open") !== "false";
   });
+  const libraryDirty = useRef(false);
+  function setLibrary(value) { libraryDirty.current = true; setLibraryState(value); }
   const rootRef = useRef(null);
   const barRef = useRef(null);
   const toastRef = useRef(null);
@@ -324,7 +285,7 @@ export function HaneApp() {
   const rowIdsRef = useRef("");
   selectedRef.current = selectedId;
 
-  const visible = useMemo(() => (missions ?? []).filter((item) => `${item.objective} ${item.id}`.toLowerCase().includes(query.toLowerCase())), [missions, query]);
+  const visible = useMemo(() => (missions ?? []).filter(item => !activeGroup || activeGroup.runs.includes(item.id)).filter((item) => `${item.objective} ${item.id}`.toLowerCase().includes(query.toLowerCase())), [missions, query, activeGroup]);
   const [selectedLabel, selectedChip] = statusInfo(mission?.status ?? (selectedId ? "queued" : "draft"));
   const currentRole = mission ? ROLE_ORDER.find((role) => mission.outputs?.[role] === undefined) : null;
   const progressPct = mission && mission.maxProviderCalls > 0 ? Math.min(100, Math.round((mission.providerCalls / mission.maxProviderCalls) * 100)) : 0;
@@ -335,7 +296,7 @@ export function HaneApp() {
   const loaded = missions !== null && !offline;
   const noProviders = providers.length === 0;
   const noMissions = (missions ?? []).length === 0;
-  const showOnboarding = loaded && noMissions && !onboardingDismissed;
+  const showOnboarding = loaded && noMissions && !activeGroup && !onboardingDismissed;
   const observedRole = currentRole ?? outputs.at(-1) ?? "planner";
   const sessionEvents = mission?.audit?.slice(-4).map((entry) => `${clock(entry.at)}  ${auditSummary(entry)}`) ?? [];
   const evidence = useMemo(() => evidenceRows(mission), [mission]);
@@ -348,9 +309,12 @@ export function HaneApp() {
 
   useEffect(() => { localStorage.setItem("hane-onboarding-step", String(onboardingStep)); }, [onboardingStep]);
   useEffect(() => { localStorage.setItem("hane-onboarding-dismissed", String(onboardingDismissed)); }, [onboardingDismissed]);
-  useEffect(() => { localStorage.setItem("hane-custom-hanes", JSON.stringify(customHanes)); }, [customHanes]);
   useEffect(() => { localStorage.setItem("hane-panel-open", String(panelOpen)); }, [panelOpen]);
-  useEffect(() => { localStorage.setItem("hane-appearance", JSON.stringify(appearance)); }, [appearance]);
+  useEffect(() => { if (!writePreference("hane-appearance", appearance)) setPersistenceError("Não foi possível salvar a aparência neste navegador."); }, [appearance]);
+  useEffect(() => { if (!writePreference("hane-general", general)) setPersistenceError("Não foi possível salvar as preferências neste navegador."); }, [general]);
+  useEffect(() => { if (!libraryDirty.current) return; if (!writePreference("hane-library", library)) setPersistenceError("Não foi possível salvar a biblioteca. Exporte um backup antes de recarregar."); }, [library]);
+  useEffect(() => { document.documentElement.dataset.haneMotion = appearance.motion; }, [appearance.motion]);
+  useEffect(() => { const onHash = () => setShowSettings(window.location.hash.startsWith("#settings")); window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
   useEffect(() => {
     document.documentElement.dataset.haneTheme = appearance.theme;
     document.body.dataset.haneTheme = appearance.theme;
@@ -366,7 +330,7 @@ export function HaneApp() {
         setOffline(false);
         setMissions(missionData.missions);
         setProviders(providerData.providers);
-        setSelectedId((current) => current ?? missionData.missions[0]?.id ?? null);
+        setSelectedId((current) => current ?? (general.startup === "latest" ? missionData.missions[0]?.id : null) ?? null);
       })
       .catch(() => {
         if (!alive) return;
@@ -385,6 +349,7 @@ export function HaneApp() {
   }, []);
 
   function openSettings() {
+    window.location.hash = "settings/general";
     setShowSettings(true);
     fetchOnboarding().then(setOnboarding).catch(() => {});
   }
@@ -466,6 +431,7 @@ export function HaneApp() {
 
   useEffect(() => {
     const root = rootRef.current;
+    if (!root) return;
     const live = root.querySelector(".live i");
     const runs = [
       pulseLoop(live ? [live] : []),
@@ -478,13 +444,13 @@ export function HaneApp() {
     const ids = visible.map((item) => item.id).join(",");
     if (rowIdsRef.current === ids) return undefined;
     rowIdsRef.current = ids;
-    const animation = staggerIn(rootRef.current.querySelectorAll(".conversation-row"), { y: 8, step: 22, duration: 260 });
+    const animation = staggerIn(rootRef.current?.querySelectorAll(".conversation-row"), { y: 8, step: 22, duration: 260 });
     return () => animation?.revert();
   }, [visible]);
 
   useEffect(() => {
     const root = rootRef.current;
-    const scope = root.querySelector(".messages");
+    const scope = root?.querySelector(".messages");
     if (!scope) return undefined;
     const targets = [root.querySelector(".conversation-header"), ...scope.children].filter(Boolean);
     const animation = staggerIn(targets, { y: 8, step: 28, duration: 300 });
@@ -508,6 +474,7 @@ export function HaneApp() {
   }, [popover]);
 
   function notify(message) {
+    if (!general.notifications && !/falha|erro|bloque|inválid|não|descreva/i.test(message)) return;
     setToast(message);
     window.clearTimeout(window.__haneToast);
     window.__haneToast = window.setTimeout(() => {
@@ -525,7 +492,7 @@ export function HaneApp() {
     spinOnce(gearRef.current);
     setPopover(null);
     setRetryTick((tick) => tick + 1);
-    notify("Recarregando missões e agentes");
+    notify("Recarregando execuções e agentes");
   }
 
   function focusComposer() {
@@ -543,7 +510,7 @@ export function HaneApp() {
     setOnboardingBusy("workspace");
     try {
       setWorkspace(await requestLocalWorkspace());
-      notify("Pasta local autorizada para leitura por missão.");
+      notify("Pasta local autorizada para leitura por execução.");
     } catch (error) {
       if (error?.name !== "AbortError") notify(error instanceof Error ? error.message : "Não foi possível autorizar a pasta.");
     } finally {
@@ -587,7 +554,7 @@ export function HaneApp() {
   function createCustomHane() {
     const name = profileDraft.name.trim();
     if (!name) return;
-    setCustomHanes((current) => [...current, { ...profileDraft, name, id: crypto.randomUUID(), job: "Hane personalizado", tone: "pink", Icon: Sparkle }]);
+    setLibrary(current => validateLibrary({ ...current, agents: [...current.agents, { ...profileDraft, name, id: crypto.randomUUID(), description: "Hane personalizado", groupId: "" }] }));
     setProfileDraft({ name: "", color: "#e66f98", shape: "pebble", image: null });
     setOnboardingStep(5);
     notify(`${name} foi criado localmente.`);
@@ -615,7 +582,7 @@ export function HaneApp() {
     const next = chosenProvider === label ? null : label;
     setChosenProvider(next);
     setPopover(null);
-    notify(next ? `Próxima missão usa ${next}` : "Provedor liberado · a API usa o padrão");
+    notify(next ? `Próxima execução usa ${next}` : "Provedor liberado · a API usa o padrão");
   }
 
   function toggleCapability(option) {
@@ -653,7 +620,7 @@ export function HaneApp() {
     if (sending) return;
     const objective = composeObjective(draft.trim(), attachments);
     if (objective.length < 3) {
-      notify("Descreva a missão em pelo menos três caracteres.");
+      notify("Descreva a execução em pelo menos três caracteres.");
       composerRef.current?.focus();
       return;
     }
@@ -664,7 +631,8 @@ export function HaneApp() {
     setSending(true);
     setCreateError("");
     try {
-      const created = await createMission(objective, chosenProvider, capabilityPayload(capabilityGrants));
+      const created = await createMission(objective, chosenProvider || general.defaultProvider, capabilityPayload(capabilityGrants), { maxProviderCalls: general.maxProviderCalls, maxToolCalls: general.maxToolCalls });
+      if (activeGroup) setLibrary(current => ({ ...current, groups: current.groups.map(group => group.id === activeGroup.id ? { ...group, runs: [...group.runs, created.id] } : group) }));
       setDraft("");
       setAttachments([]);
       setCapabilityGrants([]);
@@ -674,13 +642,13 @@ export function HaneApp() {
       setMission(null);
       setMissions((items) => [toSummary({ ...created, providerCalls: 0, updatedAt: new Date().toISOString() }), ...(items ?? []).filter((item) => item.id !== created.id)]);
       pop(sendRef.current);
-      notify("Missão criada · a equipe assumiu o trabalho");
+      notify("Execução criada · a equipe assumiu o trabalho");
     } catch (error) {
       // Shown inline, not only as a toast: a rejected mission has to stay on
       // screen with the wording the API actually returned.
       const detail = error instanceof Error && error.message ? error.message : "A API não respondeu.";
       setCreateError(detail);
-      notify(`Falha ao criar a missão: ${detail}`);
+      notify(`Falha ao criar a execução: ${detail}`);
     } finally {
       setSending(false);
     }
@@ -701,7 +669,7 @@ export function HaneApp() {
         const missing = ROLE_ORDER.filter((role) => mission.outputs?.[role] === undefined).length;
         const maxProviderCalls = Math.max(mission.maxProviderCalls, mission.providerCalls + missing);
         await retryMission(mission.id, maxProviderCalls > mission.maxProviderCalls ? { maxProviderCalls } : {});
-        notify("Missão retomada");
+        notify("Execução retomada");
       }
     } catch (error) {
       notify(`Falha: ${error.message}`);
@@ -713,18 +681,23 @@ export function HaneApp() {
   const appearanceProps = {
     "data-hane-theme": appearance.theme,
     "data-text-size": appearance.textSize,
-    style: { "--user-accent": appearance.accent, "--user-font": appearance.font === "mono" ? "var(--font-mono)" : appearance.font === "hane" ? '"Hane Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' : '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' },
+    "data-density": appearance.density,
+    style: appearanceStyle(appearance),
   };
 
-  if (showSettings) return <SettingsSheet providers={providers} onboarding={onboarding} githubDevice={githubDevice} workspace={workspace} busy={onboardingBusy} appearance={appearance} onAppearanceChange={setAppearance} onBack={() => setShowSettings(false)} onProviders={() => { setShowSettings(false); setPopover("providers"); }} onConnectGitHub={connectGitHub} onCheckGitHub={checkGitHubAuthorization} />;
+  function backToWorkspace() { window.location.hash = "workspace"; setShowSettings(false); requestAnimationFrame(() => gearRef.current?.focus()); }
+  function openSection(section) { window.location.hash = "settings/" + section; setShowSettings(true); }
+  function openGroup(id) { setActiveGroupId(id); setSelectedId(null); setOnboardingDismissed(true); backToWorkspace(); }
+  if (showSettings) return <SettingsCenter appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} library={library} onLibraryChange={setLibrary} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveGroupId(null); setSelectedId(id); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id !== "mcp").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
+
 
   return <main className={`app-shell ${panelOpen ? "" : "panel-collapsed"}`} ref={rootRef} {...appearanceProps}>
     <aside className="left-sidebar" aria-label="Navegação do Hane">
       <div className="brand-row"><img src="/brand/hane-logo.png" alt="Hane" /><button ref={gearRef} className="icon-button" aria-label="Abrir configurações do Hane" onClick={openSettings}><GearSix /></button></div>
-      <label className="search-box"><MagnifyingGlass /><input ref={searchRef} aria-label="Pesquisar missões" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar missões" /><kbd>{MOD_KEY} K</kbd></label>
-      <button className="new-chat" aria-label="Nova missão" onClick={focusComposer}><span><Plus weight="bold" /></span>Nova missão<CaretRight /></button>
+      <label className="search-box"><MagnifyingGlass /><input ref={searchRef} aria-label="Pesquisar execuções" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar execuções" /><kbd>{MOD_KEY} K</kbd></label>
+      <button className="new-chat" aria-label="Criar grupo" onClick={() => openSection("agents")}><span><Plus weight="bold" /></span>Criar grupo<CaretRight /></button>
 
-      <nav className="sidebar-scroll" aria-label="Agentes e missões">
+      <nav className="sidebar-scroll" aria-label="Agentes e execuções">
         <header className="section-head"><span>AGENTES</span><button aria-label="Recarregar dados dos agentes" onClick={reload}><ArrowsClockwise /></button></header>
         {showOnboarding ? <button className="agent-nav selected" aria-label="Abrir guia de início do Hane" onClick={() => messagesRef.current?.scrollTo({ top: 0, behavior: "smooth" })}>
           <Avatar person={onboardingAgent} size="sm" state="thinking" />
@@ -734,8 +707,8 @@ export function HaneApp() {
           const person = roles[role];
           const done = mission?.outputs?.[role] !== undefined;
           const working = mission && isActive(mission.status) && role === currentRole;
-          return <button className={`agent-nav ${role === observedRole && mission ? "selected" : ""}`} key={role} aria-label={`${person.name}: ${working ? "executando agora" : done ? "última saída pronta" : person.job}. ${mission ? "Abrir saída do agente" : "Abra ou crie uma missão para acompanhar o agente"}`} onClick={() => {
-            if (!mission) return notify("Abra ou crie uma missão para acompanhar o agente.");
+          return <button className={`agent-nav ${role === observedRole && mission ? "selected" : ""}`} key={role} aria-label={`${person.name}: ${working ? "executando agora" : done ? "última saída pronta" : person.job}. ${mission ? "Abrir saída do agente" : "Abra ou crie uma execução para acompanhar o agente"}`} onClick={() => {
+            if (!mission) return notify("Abra ou crie uma execução para acompanhar o agente.");
             focusOutput(role);
           }}>
             <Avatar person={person} size="sm" state={avatarStateFromMission({ mission, role, currentRole })} />
@@ -743,16 +716,18 @@ export function HaneApp() {
             {working ? <i className="online" /> : done ? <Check weight="bold" className="pick" /> : null}
           </button>;
         })}
-        {customHanes.map((person) => <div className="agent-nav custom-hane" key={person.id}><Avatar person={person} size="sm" /><span><strong>{person.name}</strong><small>Hane personalizado</small></span></div>)}
+        {library.agents.filter(a => !a.groupId || a.groupId === activeGroupId).map((person) => <div className="agent-nav custom-hane" key={person.id}><Avatar person={person} size="sm" /><span><strong>{person.name}</strong><small>Hane personalizado</small></span></div>)}
         {loaded && noProviders && <EmptyMini Icon={Plugs} title="Nenhum provedor" action={{ label: "Detalhes", onClick: () => setPopover("providers") }}>
-          Hane pode orientar você; conecte um provedor para executar missões.
+          Hane pode orientar você; conecte um provedor para executar execuções.
         </EmptyMini>}
-        <header className="section-head conversation-head"><span>MISSÕES</span><button aria-label="Nova missão" onClick={focusComposer}><Plus /></button></header>
+        <header className="section-head conversation-head"><button aria-expanded={groupsExpanded} onClick={() => setGroupsExpanded(!groupsExpanded)}>GRUPOS</button><button aria-label="Biblioteca de agentes" onClick={() => openSection("agents")}><UsersThree /></button></header>
+        {groupsExpanded && library.groups.filter(g => g.name.toLowerCase().includes(query.toLowerCase())).map(group => <button className={"conversation-row " + (activeGroupId === group.id ? "selected" : "")} key={group.id} onClick={() => openGroup(group.id)}><span className="group-dot" style={{background:group.color}}/><span className="conversation-copy"><strong>{group.name}</strong><small>{group.members.length} integrantes · {group.runs.length} execuções</small></span></button>)}
+        <header className="section-head conversation-head"><button aria-label="Todas as execuções" onClick={() => { setActiveGroupId(null); setSelectedId(null); }}>Todas</button><button aria-expanded={runsExpanded} onClick={() => setRunsExpanded(!runsExpanded)}>EXECUÇÕES</button><button aria-label="Nova execução" onClick={focusComposer}><Plus /></button></header>
         {missions === null && <small className="panel-note">Carregando…</small>}
         {offline && <EmptyMini Icon={Plugs} title="API do Hane offline" action={{ label: "Tentar", onClick: reload }}>Inicie com <code>hane serve</code> na porta 7788.</EmptyMini>}
-        {loaded && !noMissions && visible.length === 0 && <EmptyMini Icon={MagnifyingGlass} title="Nada encontrado" action={{ label: "Limpar", onClick: () => { setQuery(""); searchRef.current?.focus(); } }}>Nenhuma missão combina com “{query}”.</EmptyMini>}
-        {loaded && noMissions && <EmptyMini Icon={Sparkle} title="Nenhuma missão" action={{ label: "Criar", onClick: focusComposer }}>Escreva um objetivo no campo abaixo.</EmptyMini>}
-        {visible.map((item) => {
+        {loaded && !noMissions && visible.length === 0 && <EmptyMini Icon={MagnifyingGlass} title="Nada encontrado" action={{ label: "Limpar", onClick: () => { setQuery(""); searchRef.current?.focus(); } }}>Nenhuma execução combina com “{query}”.</EmptyMini>}
+        {loaded && noMissions && <EmptyMini Icon={Sparkle} title="Nenhuma execução" action={{ label: "Criar", onClick: focusComposer }}>Escreva um objetivo no campo abaixo.</EmptyMini>}
+        {runsExpanded && visible.map((item) => {
           const [label, chip] = statusInfo(item.status);
           return <button className={`conversation-row ${selectedId === item.id ? "selected" : ""}`} key={item.id} onClick={() => setSelectedId(item.id)} title={item.objective}>
             <Stack mission={item.id === mission?.id ? mission : null} currentRole={item.id === mission?.id ? currentRole : null} /><span className="conversation-copy"><strong>{item.objective}</strong><small>{label} · {item.providerCalls}/{item.maxProviderCalls} chamadas</small></span><time>{clock(item.updatedAt)}</time>
@@ -760,17 +735,18 @@ export function HaneApp() {
         })}
       </nav>
 
-      <footer className="sidebar-footer">
+      <footer className="sidebar-footer"><button onClick={() => openSection("agents")} aria-label="Biblioteca de agentes"><UsersThree/><span><strong>Biblioteca de agentes</strong><small>{library.agents.length} perfis locais</small></span></button><button onClick={() => openSection("monitor")} aria-label="Monitor de execução"><Clock/><span><strong>Monitor de execução</strong><small>Histórico real do runtime</small></span></button>
         <button aria-label={`Provedores: ${providers.length} configurado${providers.length === 1 ? "" : "s"}${chosenProvider ? `, ${chosenProvider} ativo` : ""}`} onClick={() => setPopover("providers")}><Clock /><span><strong>Provedores</strong><small>{providers.length} configurado{providers.length === 1 ? "" : "s"}{chosenProvider ? ` · ${chosenProvider} ativo` : ""}</small></span><CaretRight /></button>
       </footer>
     </aside>
 
     <section className="conversation-view">
-      <header className="conversation-header">{showOnboarding ? <Avatar person={onboardingAgent} size="sm" state="thinking" /> : <Stack mission={mission} currentRole={currentRole} />}<span className="conversation-title"><strong>{mission?.objective ?? (showOnboarding ? "Hane" : missions?.length ? "Selecione uma missão" : "Descreva uma missão abaixo")}</strong><small><i /> {mission ? `${selectedLabel} · ${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : showOnboarding ? "guia para configurar e usar o Hane" : "equipe: planejador, executor, revisor"}</small></span>{mission && <Status kind={selectedChip}>{selectedLabel}</Status>}</header>
-      <div className="messages" ref={messagesRef}>
-        {missions === null && <EmptyStage Icon={CircleNotch} title="Consultando o Hane…">Lendo o arquivo de missões local para montar a trilha.</EmptyStage>}
+      <header className="conversation-header">{showOnboarding ? <Avatar person={onboardingAgent} size="sm" state="thinking" /> : <Stack mission={mission} currentRole={currentRole} />}<span className="conversation-title"><strong>{activeGroup?.name ?? mission?.objective ?? (showOnboarding ? "Hane" : missions?.length ? "Selecione uma execução" : "Descreva uma execução abaixo")}</strong><small><i /> {mission ? `${selectedLabel} · ${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : showOnboarding ? "guia para configurar e usar o Hane" : "equipe: planejador, executor, revisor"}</small></span>{mission && <Status kind={selectedChip}>{selectedLabel}</Status>}{activeGroup && <button className="icon-button" aria-label="Configurar grupo" onClick={() => openSection("agents")}><GearSix/></button>}</header>
+      <div className="messages" ref={messagesRef}>{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && <div className="group-context"><strong>{activeGroup.description || "Grupo local"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder desejado":""}</span>)}</div><small>Execução atual: planejador → executor → revisor. Perfis e liderança personalizados ainda não são executados pelo runtime.</small></div>}
+        {loaded && !mission && !selectedId && !showOnboarding && <EmptyStage Icon={Sparkle} title={activeGroup ? activeGroup.name : "Seu espaço para colaborar"} action={{ label: activeGroup ? "Escrever objetivo" : "Criar grupo", onClick: activeGroup ? focusComposer : () => openSection("agents") }}>Organize agentes em grupos, configure um provedor e descreva o próximo objetivo. Você decide quando começar.</EmptyStage>}
+        {missions === null && <EmptyStage Icon={CircleNotch} title="Consultando o Hane…">Lendo o arquivo de execuções local para montar a trilha.</EmptyStage>}
         {offline && <EmptyStage Icon={Plugs} title="API do Hane indisponível" commands={["hane serve --port 7788"]} action={{ label: "Tentar de novo", onClick: reload }} onCopy={copyNotice}>
-          A interface fala apenas com o servidor local. Inicie o <code>hane serve</code> e reconecte para ver as missões reais.
+          A interface fala apenas com o servidor local. Inicie o <code>hane serve</code> e reconecte para ver as execuções reais.
         </EmptyStage>}
         {loaded && mission && <>
           <div className="day-divider"><span>Hoje</span></div>
@@ -787,11 +763,8 @@ export function HaneApp() {
           })}
           {["completed", "needs_attention", "failed", "awaiting_approval"].includes(mission.status) && <div className="handoff-card"><span><Avatar person={roles.reviewer} size="xs" /><CaretRight /><Avatar person={{ name: "Você", job: "", tone: "pink", Icon: Check }} size="xs" /></span><span><strong>{selectedLabel}</strong><small>{verdictEntry ? `Veredito do revisor: ${verdictEntry.detail.verdict}` : mission.status === "needs_attention" ? "Orçamento esgotado ou revisão pendente de atenção." : "Acompanhe os artefatos no painel direito."}</small></span><Status kind={selectedChip}>{selectedLabel}</Status></div>}
         </>}
-        {loaded && !mission && selectedId && <EmptyStage Icon={Warning} title="Esta missão não está no arquivo" commands={[`hane mission ${selectedId}`]} action={{ label: "Recarregar", onClick: reload }} onCopy={copyNotice}>
+        {loaded && !mission && selectedId && <EmptyStage Icon={Warning} title="Esta execução não está no arquivo" commands={[`hane mission ${selectedId}`]} action={{ label: "Recarregar", onClick: reload }} onCopy={copyNotice}>
           Pode ter sido removida do SQLite local. Recarregue para sincronizar a lista.
-        </EmptyStage>}
-        {loaded && !mission && !selectedId && !noMissions && <EmptyStage Icon={UsersThree} title="Selecione uma missão" action={{ label: "Abrir a mais recente", onClick: () => setSelectedId(missions[0].id) }}>
-          Escolha uma missão na esquerda para ver planejador, executor e revisor trabalharem, ou crie uma nova abaixo.
         </EmptyStage>}
         {showOnboarding && !mission && !selectedId && <OnboardingMessage step={onboardingStep} hasProvider={!noProviders} github={onboarding.github} githubAvailable={onboarding.githubAvailable} githubDevice={githubDevice} workspace={workspace} busy={onboardingBusy} onOpenProviders={() => setPopover("providers")} onCopy={copyNotice} onRequestWorkspace={requestWorkspacePermission} onConnectGitHub={connectGitHub} onCheckGitHub={checkGitHubAuthorization} onAdvance={advanceOnboarding} onCreateMission={beginFirstMission} onCreateAnother={() => setOnboardingStep(4)} profile={profileDraft} onProfileChange={setProfileDraft} onCreateProfile={createCustomHane} />}
       </div>
@@ -799,9 +772,9 @@ export function HaneApp() {
       {popover && <div className="pop-backdrop" onClick={() => setPopover(null)} />}
       {popover === "attach" && <div className="pop" role="dialog" aria-label="Anexar contexto">
         <header><strong>Anexar contexto</strong><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
-        <p>Cole o contexto que a equipe deve ler: trechos, logs, requisitos ou um link. Nada é lido do disco — o texto segue no objetivo da missão.</p>
+        <p>Cole o contexto que a equipe deve ler: trechos, logs, requisitos ou um link. Nada é lido do disco — o texto segue no objetivo da execução.</p>
         <textarea ref={contextRef} value={contextDraft} maxLength={MAX_CONTEXT_CHARS} placeholder="Cole aqui o contexto…" onChange={(event) => setContextDraft(event.target.value)} />
-        <footer><small>{contextDraft.length} / {MAX_CONTEXT_CHARS}</small><button type="button" className="pop-primary" disabled={contextDraft.trim().length < 3} onClick={addContext}><Plus weight="bold" /> Anexar à missão</button></footer>
+        <footer><small>{contextDraft.length} / {MAX_CONTEXT_CHARS}</small><button type="button" className="pop-primary" disabled={contextDraft.trim().length < 3} onClick={addContext}><Plus weight="bold" /> Anexar à execução</button></footer>
       </div>}
       {popover === "mention" && <div className="pop" role="dialog" aria-label="Mencionar">
         <header><strong>Mencionar</strong><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
@@ -809,17 +782,17 @@ export function HaneApp() {
         {ROLE_ORDER.map((role) => <button type="button" className="pop-row" key={role} onClick={() => insertMention(roles[role].name)}>
           <Avatar person={roles[role]} size="xs" /><span><strong>{roles[role].name}</strong><small>{roles[role].job}</small></span><CaretRight />
         </button>)}
-        <span className="pop-label">Agente desta missão · define o provedor</span>
+        <span className="pop-label">Agente desta execução · define o provedor</span>
         {noProviders && <PanelEmpty>Nenhum provedor configurado · rode <code>hane provider add</code>.</PanelEmpty>}
         {providers.map((item) => <button type="button" className={`pop-row ${chosenProvider === item.label ? "on" : ""}`} key={item.label} onClick={() => pickProvider(item.label)}>
           <Avatar person={{ name: item.label, job: item.model, tone: "peach", Icon: At }} size="xs" /><span><strong>{item.label}</strong><small>{item.model}</small></span>
           {chosenProvider === item.label ? <Check weight="bold" /> : <CaretRight />}
         </button>)}
       </div>}
-      {popover === "capabilities" && <div className="pop pop-wide" role="dialog" aria-label="Permissões da missão">
-        <header><strong>Permissões da missão</strong><span className="pop-count">{capabilityGrants.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
-        <p>Você está definindo o teto de acesso desta missão. A leitura de arquivos é aplicada pelo runtime dentro da raiz concedida; escrita, comandos e acesso externo não são executados.</p>
-        <p className="pop-scope">O escopo <code>.</code> é a raiz que o servidor concede à missão; o navegador nunca envia um caminho absoluto.</p>
+      {popover === "capabilities" && <div className="pop pop-wide" role="dialog" aria-label="Perexecuções da execução">
+        <header><strong>Perexecuções da execução</strong><span className="pop-count">{capabilityGrants.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
+        <p>Você está definindo o teto de acesso desta execução. A leitura de arquivos é aplicada pelo runtime dentro da raiz concedida; escrita, comandos e acesso externo não são executados.</p>
+        <p className="pop-scope">O escopo <code>.</code> é a raiz que o servidor concede à execução; o navegador nunca envia um caminho absoluto.</p>
         {serverWorkspace.available && serverWorkspace.root && <p className="pop-root"><FolderOpen weight="fill" /> Raiz deste servidor: <code>{serverWorkspace.root}</code></p>}
         {CAPABILITY_OPTIONS.map((option) => {
           const selectable = isCapabilityEnabled(option, serverWorkspace);
@@ -832,7 +805,7 @@ export function HaneApp() {
       </div>}
       {popover === "providers" && <div className="pop pop-wide" role="dialog" aria-label="Provedores configurados">
         <header><strong>Provedores</strong><span className="pop-count">{providers.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
-        {noProviders && <PanelEmpty>Nada no arquivo local. Adicione um provedor para a equipe poder executar missões.</PanelEmpty>}
+        {noProviders && <PanelEmpty>Nada no arquivo local. Adicione um provedor para a equipe poder executar execuções.</PanelEmpty>}
         {providers.map((item) => <div className="provider-detail" key={item.label}>
           <strong>{item.label}</strong>
           <dl>
@@ -841,7 +814,7 @@ export function HaneApp() {
             <div><dt>Credencial</dt><dd>{item.credentialReference}</dd></div>
             {item.maxTokens ? <div><dt>max_tokens</dt><dd>{item.maxTokens}</dd></div> : null}
           </dl>
-          <button type="button" className="pop-mini" onClick={() => pickProvider(item.label)}>{chosenProvider === item.label ? "Remover da próxima missão" : "Usar na próxima missão"}</button>
+          <button type="button" className="pop-mini" onClick={() => pickProvider(item.label)}>{chosenProvider === item.label ? "Remover da próxima execução" : "Usar na próxima execução"}</button>
         </div>)}
         <footer className="pop-commands">
           <CmdLine command="hane provider add --label <nome> --base-url <url> --model <id>" onCopy={copyNotice} />
@@ -851,23 +824,23 @@ export function HaneApp() {
       </div>}
 
       <form className="composer-wrap" ref={formRef} onSubmit={send}>
-        {loaded && noProviders && <div className="composer-warning"><Warning /> Nenhum agente · as missões ficam sem executor até <code>hane provider add</code> <button type="button" className="link-action" onClick={() => setPopover("providers")}>ver detalhes</button></div>}
+        {loaded && noProviders && <div className="composer-warning"><Warning /> Nenhum agente · as execuções ficam sem executor até <code>hane provider add</code> <button type="button" className="link-action" onClick={() => setPopover("providers")}>ver detalhes</button></div>}
         {(attachments.length > 0 || chosenProvider || capabilityGrants.length > 0) && <div className="chip-row">
           {chosenProvider && <span className="chip"><At weight="bold" />{chosenProvider}<button type="button" aria-label="Liberar provedor" onClick={() => setChosenProvider(null)}><X /></button></span>}
           {attachments.map((item, index) => <span className="chip" key={item.id}><Paperclip />Contexto {index + 1} · {item.text.length} car.<button type="button" aria-label="Remover contexto" onClick={() => removeAttachment(item.id)}><X /></button></span>)}
           {capabilityGrants.map((grant) => <span className="chip" key={`${grant.name}-${grant.scope}`}><ShieldCheck weight="bold" />{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}<button type="button" aria-label={`Remover ${grant.name}`} onClick={() => setCapabilityGrants((current) => current.filter((item) => item.name !== grant.name || item.scope !== grant.scope))}><X /></button></span>)}
         </div>}
-        {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Missão não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
-        <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma missão para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da missão" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar missão" disabled={sending}><PaperPlaneRight weight="fill" /></button></div></div>
-        <small>Cada envio cria uma missão real executada pelos papéis técnicos configurados.</small>
+        {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Execução não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
+        <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma execução para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da execução" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar execução" disabled={sending}><PaperPlaneRight weight="fill" /></button></div></div>
+        <small>Cada envio cria uma execução real de planejador, executor e revisor{activeGroup ? " vinculada a este grupo." : "."}</small>
       </form>
       <button ref={panelTriggerRef} type="button" className={`panel-reopen ${panelOpen ? "" : "visible"}`} aria-controls="hane-mission-context" aria-label="Mostrar painel de contexto" aria-expanded={panelOpen} title="Mostrar painel (Ctrl + \)" tabIndex={panelOpen ? -1 : 0} onClick={() => setPanelOpen(true)}><CaretLeft /></button>
     </section>
 
-    <aside id="hane-mission-context" className="right-panel" aria-label="Contexto da missão" aria-hidden={!panelOpen} inert={panelOpen ? undefined : ""}><header><span><strong>Contexto da missão</strong><small>{mission ? clock(mission.audit?.at(-1)?.at) || "agora" : "sem missão ativa"}</small></span><button type="button" aria-controls="hane-mission-context" aria-label="Ocultar painel de contexto" aria-expanded={panelOpen} title="Ocultar painel (Ctrl + \)" onClick={closeContextPanel}><CaretRight /></button></header><div className="panel-scroll">
+    <aside id="hane-mission-context" className="right-panel" aria-label="Contexto da execução" aria-hidden={!panelOpen} inert={panelOpen ? undefined : ""}><header><span><strong>Contexto da execução</strong><small>{mission ? clock(mission.audit?.at(-1)?.at) || "agora" : "sem execução ativa"}</small></span><button type="button" aria-controls="hane-mission-context" aria-label="Ocultar painel de contexto" aria-expanded={panelOpen} title="Ocultar painel (Ctrl + \)" onClick={closeContextPanel}><CaretRight /></button></header><div className="panel-scroll">
       <section className="panel-section live-computer"><div className="panel-title"><strong>Computador ao vivo</strong><span>{GATED_CAPABILITIES_NOTE}</span></div>
-        <div className="computer-preview" aria-label="Eventos auditáveis da sessão da missão">
-          <div className="window-bar"><span /><span /><span /><small>{mission ? "eventos persistidos da missão" : "sem sessão ativa"}</small></div>
+        <div className="computer-preview" aria-label="Eventos auditáveis da sessão da execução">
+          <div className="window-bar"><span /><span /><span /><small>{mission ? "eventos persistidos da execução" : "sem sessão ativa"}</small></div>
           <div className="window-body"><div><i /><i /><i /></div><pre>{sessionEvents.length ? sessionEvents.map((line, index) => <span key={`${line}-${index}`}>{line}{"\n"}</span>) : <span>Nenhuma sessão de ferramentas disponível.\nOs próximos eventos auditáveis aparecem aqui.</span>}</pre></div>
           <div className="evidence-list">
             <header><strong>Evidências de ferramentas</strong><span>{evidence.length} registro{evidence.length === 1 ? "" : "s"}</span></header>
@@ -878,7 +851,7 @@ export function HaneApp() {
                 <span className="evidence-copy"><strong>{row.label}</strong>{row.path && <code title={row.path}>{row.path}</code>}{row.meta && <span className="evidence-meta">{row.meta}</span>}{row.marker && <em className="evidence-flag">{row.marker}</em>}{roleName && <em className="evidence-role">{roleName}</em>}</span>
                 <time>{row.at ? clock(row.at) : ""}</time>
               </div>;
-            }) : <p className="evidence-empty">{mission ? "Nenhum acesso a ferramentas registrado nesta missão até agora." : "As leituras reais de arquivos aparecem aqui quando a missão recebe workspace.read."}</p>}
+            }) : <p className="evidence-empty">{mission ? "Nenhum acesso a ferramentas registrado nesta execução até agora." : "As leituras reais de arquivos aparecem aqui quando a execução recebe workspace.read."}</p>}
           </div>
           <div className="preview-caption"><span>A leitura de arquivos funciona sob grant explícito; escrita, comandos e rede não são executados.</span><span>{mission ? `${mission.providerCalls}/${mission.maxProviderCalls} chamadas${toolUsage ? ` · ${toolUsage} ferramentas` : ""}` : "—"}</span></div>
         </div>
@@ -887,10 +860,10 @@ export function HaneApp() {
         const person = roles[role];
         const done = mission?.outputs?.[role] !== undefined;
         const working = mission && isActive(mission.status) && role === currentRole;
-        return <div className="active-agent" key={role}><Avatar person={person} size="sm" state={avatarStateFromMission({ mission, role, currentRole })} /><span><strong>{person.name}</strong><small>{done ? "Saída registrada" : working ? "Trabalhando agora" : mission ? "Sem saída ainda" : "Aguardando missão"}</small></span>{working && <i />}</div>;
+        return <div className="active-agent" key={role}><Avatar person={person} size="sm" state={avatarStateFromMission({ mission, role, currentRole })} /><span><strong>{person.name}</strong><small>{done ? "Saída registrada" : working ? "Trabalhando agora" : mission ? "Sem saída ainda" : "Aguardando execução"}</small></span>{working && <i />}</div>;
       })}</section>
-      <section className="panel-section"><div className="panel-title"><strong>Permissões</strong><span>{mission?.capabilityGrants?.length ?? 0} concedida{mission?.capabilityGrants?.length === 1 ? "" : "s"}</span></div>
-        {mission?.capabilityGrants?.length ? mission.capabilityGrants.map((grant) => <div className="active-agent" key={`${grant.name}-${grant.scope}`}><span className="setting-icon"><ShieldCheck weight="fill" /></span><span><strong>{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}</strong><small>{grantDisplay(grant)}</small></span></div>) : <PanelEmpty>Esta missão não recebeu acesso a workspace, comandos ou rede.</PanelEmpty>}
+      <section className="panel-section"><div className="panel-title"><strong>Perexecuções</strong><span>{mission?.capabilityGrants?.length ?? 0} concedida{mission?.capabilityGrants?.length === 1 ? "" : "s"}</span></div>
+        {mission?.capabilityGrants?.length ? mission.capabilityGrants.map((grant) => <div className="active-agent" key={`${grant.name}-${grant.scope}`}><span className="setting-icon"><ShieldCheck weight="fill" /></span><span><strong>{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}</strong><small>{grantDisplay(grant)}</small></span></div>) : <PanelEmpty>Esta execução não recebeu acesso a workspace, comandos ou rede.</PanelEmpty>}
         {mission && <dl className="workspace-state">
           <div><dt>Raiz do workspace</dt><dd>{workspaceRootLabel(mission.workspaceRoot)}</dd></div>
           <div><dt>Chamadas de ferramenta</dt><dd>{toolUsage ?? "não informado"}</dd></div>
@@ -900,14 +873,14 @@ export function HaneApp() {
         {mission ? <>
           <div className="progress-track"><i ref={barRef} /></div>
           <div className="progress-meta"><span>{mission.providerCalls} de {mission.maxProviderCalls} chamadas</span><span>orçamento {mission.maxProviderCalls}</span></div>
-        </> : <PanelEmpty>Escolha ou crie uma missão para ver o consumo do orçamento de chamadas.</PanelEmpty>}
-        <button className="secondary-action" disabled={!mission} onClick={() => { if (mission) { copyText(mission.id).then((ok) => notify(ok ? `ID da missão copiado: ${mission.id.slice(0, 8)}…` : "O navegador bloqueou a área de transferência.")); } }}>Copiar ID da missão <CaretRight /></button>
+        </> : <PanelEmpty>Escolha ou crie uma execução para ver o consumo do orçamento de chamadas.</PanelEmpty>}
+        <button className="secondary-action" disabled={!mission} onClick={() => { if (mission) { copyText(mission.id).then((ok) => notify(ok ? `ID da execução copiado: ${mission.id.slice(0, 8)}…` : "O navegador bloqueou a área de transferência.")); } }}>Copiar ID da execução <CaretRight /></button>
       </section>
       <section className="panel-section artifacts"><div className="panel-title"><strong>Artefatos gerados</strong><span>{outputs.length} saída{outputs.length === 1 ? "" : "s"}</span></div>
-        {outputs.length === 0 && <PanelEmpty>{mission ? "Nenhum papel registrou saída nesta missão até agora." : "Os artefatos dos papéis técnicos aparecem aqui quando a missão roda."}</PanelEmpty>}
+        {outputs.length === 0 && <PanelEmpty>{mission ? "Nenhum papel registrou saída nesta execução até agora." : "Os artefatos dos papéis técnicos aparecem aqui quando a execução roda."}</PanelEmpty>}
         {outputs.map((role) => <Artifact key={role} type={role === "planner" ? "doc" : role === "executor" ? "json" : "secure"} title={`${roles[role].name} · ${roles[role].job}`} meta={`${mission.outputs[role].length} caracteres · abrir na trilha`} onOpen={() => focusOutput(role)} />)}
       </section>
-      <section className="approval-card"><div><span>{mission?.status === "completed" ? <Check /> : mission?.status === "needs_attention" || mission?.status === "failed" ? <Warning /> : <Sparkle />}</span><span><strong>{mission ? selectedLabel : "Nenhuma missão"}</strong><small>{mission?.status === "completed" ? "O veredito do revisor encerrou a missão." : mission?.status === "awaiting_approval" ? "O revisor pediu revisão humana. Aprovar custa mais 2 chamadas." : mission?.status === "needs_attention" ? "Atenção: veredito sinalizado ou orçamento esgotado." : mission?.status === "failed" ? "Uma etapa falhou. Refazer continua de onde parou." : mission?.status === "cancelled" ? "A execução foi cancelada e o histórico foi preservado." : mission ? "Acompanhe os eventos auditáveis da missão." : offline ? "Sem conexão com o hane serve." : noProviders ? "Sem agente configurado para executar missões." : "Envie uma missão para começar."}</small></span></div>{mission?.status === "awaiting_approval" ? <button ref={approvalRef} disabled={actionBusy} onClick={() => act("approve")}>{actionBusy ? <Spinner /> : <Check />} Revisar e aprovar</button> : cancellable ? <button disabled={actionBusy} onClick={() => act("cancel")}>{actionBusy ? <Spinner /> : <Warning />}{actionBusy ? " Cancelando…" : " Cancelar execução"}</button> : retryable ? <button disabled={actionBusy} onClick={() => act("retry")}>{actionBusy ? <Spinner /> : <Sparkle />}{actionBusy ? " Refazendo…" : " Refazer etapa"}</button> : <Status kind={mission ? selectedChip : "queued"}>{mission ? selectedLabel : "ociosa"}</Status>}</section>
+      <section className="approval-card"><div><span>{mission?.status === "completed" ? <Check /> : mission?.status === "needs_attention" || mission?.status === "failed" ? <Warning /> : <Sparkle />}</span><span><strong>{mission ? selectedLabel : "Nenhuma execução"}</strong><small>{mission?.status === "completed" ? "O veredito do revisor encerrou a execução." : mission?.status === "awaiting_approval" ? "O revisor pediu revisão humana. Aprovar custa mais 2 chamadas." : mission?.status === "needs_attention" ? "Atenção: veredito sinalizado ou orçamento esgotado." : mission?.status === "failed" ? "Uma etapa falhou. Refazer continua de onde parou." : mission?.status === "cancelled" ? "A execução foi cancelada e o histórico foi preservado." : mission ? "Acompanhe os eventos auditáveis da execução." : offline ? "Sem conexão com o hane serve." : noProviders ? "Sem agente configurado para executar execuções." : "Envie uma execução para começar."}</small></span></div>{mission?.status === "awaiting_approval" ? <button ref={approvalRef} disabled={actionBusy} onClick={() => act("approve")}>{actionBusy ? <Spinner /> : <Check />} Revisar e aprovar</button> : cancellable ? <button disabled={actionBusy} onClick={() => act("cancel")}>{actionBusy ? <Spinner /> : <Warning />}{actionBusy ? " Cancelando…" : " Cancelar execução"}</button> : retryable ? <button disabled={actionBusy} onClick={() => act("retry")}>{actionBusy ? <Spinner /> : <Sparkle />}{actionBusy ? " Refazendo…" : " Refazer etapa"}</button> : <Status kind={mission ? selectedChip : "queued"}>{mission ? selectedLabel : "ociosa"}</Status>}</section>
     </div></aside>
     {toast && <div className="toast" ref={toastRef}><Check /> {toast}</div>}
   </main>;

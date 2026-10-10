@@ -2,7 +2,7 @@ import { animate, stagger } from "animejs";
 
 export const reduceMotion = () =>
   typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  (document.documentElement.dataset.haneMotion === "none" || document.documentElement.dataset.haneMotion === "subtle" || window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
 const list = (targets) =>
   targets == null ? [] : targets instanceof Element ? [targets] : [...targets];

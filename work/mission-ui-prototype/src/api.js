@@ -54,10 +54,10 @@ export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/dev
  * the core with 400; `json` turns that body into an `ApiError` carrying the
  * API's own message so the composer can show it instead of failing silently.
  */
-export const createMission = (objective, provider, capabilities = []) => fetch("/api/missions", {
+export const createMission = (objective, provider, capabilities = [], limits = {}) => fetch("/api/missions", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ objective, ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
+  body: JSON.stringify({ objective, ...(limits.maxProviderCalls ? { maxProviderCalls: limits.maxProviderCalls } : {}), ...(limits.maxToolCalls ? { maxToolCalls: limits.maxToolCalls } : {}), ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
 }).then(json);
 
 const missionAction = (id, action, body = {}) => fetch(`/api/missions/${encodeURIComponent(id)}/${action}`, {
