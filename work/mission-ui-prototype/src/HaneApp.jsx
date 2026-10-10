@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise, ArrowSquareOut, At, BracketsCurly, CaretRight, Check, CircleNotch, Clock, Code,
-  CopySimple, FileText, MagnifyingGlass, PaperPlaneRight, Paperclip, Plugs, Plus, Sparkle,
+  CopySimple, FileText, FolderOpen, MagnifyingGlass, PaperPlaneRight, Paperclip, Plugs, Plus, Sparkle,
   GearSix, ShieldCheck, UsersThree, Warning, X,
 } from "@phosphor-icons/react";
 import {
   approvePop, entrance, flash, growBar, pop, pulseLoop, reduceMotion, rise, spinLoop, spinOnce, staggerIn, toastOut,
 } from "./motion.js";
-import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchProviders, openMissionEvents, retryMission } from "./api.js";
+import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchProviders, fetchWorkspace, openMissionEvents, retryMission } from "./api.js";
 import { HaneAvatar } from "./HaneAvatar.jsx";
 import { avatarStateFromMission } from "./avatar-runtime.js";
+import { CAPABILITY_OPTIONS, GATED_CAPABILITIES_NOTE, WORKSPACE_DISABLED_HINT, WORKSPACE_ROW_HINT, capabilityPayload, evidenceRows, grantDisplay, isCapabilityEnabled, toolUsageLabel, workspaceRootLabel } from "./workspace-evidence.js";
 
 // The mission roles deliberately retain the real planner → executor → reviewer
 // contract.  `face` only changes their presentation to the Figma Make avatar
@@ -32,12 +33,10 @@ const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad)/.test(naviga
 const MOD_KEY = IS_MAC ? "⌘" : "Ctrl";
 const MAX_CONTEXT_CHARS = 4000;
 const MAX_OBJECTIVE_CHARS = 24000;
-const CAPABILITY_OPTIONS = Object.freeze([
-  { name: "workspace.read", scope: "workspace/**", label: "Ler workspace", detail: "Somente arquivos dentro do workspace da missão" },
-  { name: "workspace.write", scope: "workspace/**", label: "Escrever no workspace", detail: "Cada alteração ainda pede aprovação" },
-  { name: "process.run", scope: "approved command only", label: "Executar comandos", detail: "Comandos exatos continuam sujeitos à sua revisão" },
-  { name: "network.request", scope: "approved origins only", label: "Acessar rede", detail: "Origens externas exigem aprovação por ação" },
-]);
+// Capability scopes live in `workspace-evidence.js` so the payload the composer
+// sends is the exact value the tests assert on: workspace grants carry the
+// plain relative scope `.`, never a glob, because the core rejects globs and
+// needs a server-owned root.
 
 const statusInfo = (status) => ({
   queued: ["Na fila", "queued"],
@@ -226,6 +225,10 @@ export function HaneApp() {
   const [popover, setPopover] = useState(null);
   const [contextDraft, setContextDraft] = useState("");
   const [capabilityGrants, setCapabilityGrants] = useState([]);
+  // Root owned by the server itself (GET /api/workspace). Unknown until fetched,
+  // and a missing route stays "unavailable" rather than optimistic.
+  const [serverWorkspace, setServerWorkspace] = useState({ available: false, root: null, loaded: false });
+  const [createError, setCreateError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const rootRef = useRef(null);
   const barRef = useRef(null);
@@ -256,6 +259,8 @@ export function HaneApp() {
   const showOnboarding = loaded && noMissions;
   const observedRole = currentRole ?? outputs.at(-1) ?? "planner";
   const sessionEvents = mission?.audit?.slice(-4).map((entry) => `${clock(entry.at)}  ${auditSummary(entry)}`) ?? [];
+  const evidence = useMemo(() => evidenceRows(mission), [mission]);
+  const toolUsage = toolUsageLabel(mission);
 
   useEffect(() => {
     const runs = entrance(rootRef.current);
@@ -264,6 +269,7 @@ export function HaneApp() {
 
   useEffect(() => {
     let alive = true;
+    fetchWorkspace().then((data) => { if (alive) setServerWorkspace({ ...data, loaded: true }); });
     Promise.all([fetchMissions(), fetchProviders()])
       .then(([missionData, providerData]) => {
         if (!alive) return;
@@ -317,6 +323,13 @@ export function HaneApp() {
   useEffect(() => {
     if (chosenProvider && !providers.some((item) => item.label === chosenProvider)) setChosenProvider(null);
   }, [providers, chosenProvider]);
+
+  // A grant whose scope the server cannot enforce is dropped rather than sent:
+  // the chips say "unavailable", so the payload has to agree with them.
+  useEffect(() => {
+    if (!serverWorkspace.loaded || serverWorkspace.available) return;
+    setCapabilityGrants((current) => current.filter((grant) => !CAPABILITY_OPTIONS.find((option) => option.name === grant.name)?.requiresServerRoot));
+  }, [serverWorkspace]);
 
   useEffect(() => {
     const onKeydown = (event) => {
@@ -432,6 +445,7 @@ export function HaneApp() {
   }
 
   function toggleCapability(option) {
+    if (!isCapabilityEnabled(option, serverWorkspace)) return;
     setCapabilityGrants((current) => current.some((grant) => grant.name === option.name && grant.scope === option.scope)
       ? current.filter((grant) => grant.name !== option.name || grant.scope !== option.scope)
       : [...current, { name: option.name, scope: option.scope }]);
@@ -474,8 +488,9 @@ export function HaneApp() {
       return;
     }
     setSending(true);
+    setCreateError("");
     try {
-      const created = await createMission(objective, chosenProvider, capabilityGrants);
+      const created = await createMission(objective, chosenProvider, capabilityPayload(capabilityGrants));
       setDraft("");
       setAttachments([]);
       setCapabilityGrants([]);
@@ -487,7 +502,11 @@ export function HaneApp() {
       pop(sendRef.current);
       notify("Missão criada · a equipe assumiu o trabalho");
     } catch (error) {
-      notify(`Falha ao criar a missão: ${error.message}`);
+      // Shown inline, not only as a toast: a rejected mission has to stay on
+      // screen with the wording the API actually returned.
+      const detail = error instanceof Error && error.message ? error.message : "A API não respondeu.";
+      setCreateError(detail);
+      notify(`Falha ao criar a missão: ${detail}`);
     } finally {
       setSending(false);
     }
@@ -618,13 +637,17 @@ export function HaneApp() {
       </div>}
       {popover === "capabilities" && <div className="pop pop-wide" role="dialog" aria-label="Permissões da missão">
         <header><strong>Permissões da missão</strong><span className="pop-count">{capabilityGrants.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
-        <p>Você está definindo o teto de acesso desta missão. Nenhuma escrita, comando ou acesso externo será executado sem uma aprovação posterior por ação.</p>
+        <p>Você está definindo o teto de acesso desta missão. A leitura de arquivos é aplicada pelo runtime dentro da raiz concedida; escrita, comandos e acesso externo não são executados.</p>
+        <p className="pop-scope">O escopo <code>.</code> é a raiz que o servidor concede à missão; o navegador nunca envia um caminho absoluto.</p>
+        {serverWorkspace.available && serverWorkspace.root && <p className="pop-root"><FolderOpen weight="fill" /> Raiz deste servidor: <code>{serverWorkspace.root}</code></p>}
         {CAPABILITY_OPTIONS.map((option) => {
+          const selectable = isCapabilityEnabled(option, serverWorkspace);
           const enabled = capabilityGrants.some((grant) => grant.name === option.name && grant.scope === option.scope);
-          return <button type="button" className={`pop-row ${enabled ? "on" : ""}`} key={option.name} onClick={() => toggleCapability(option)}>
-            <span className="setting-icon"><ShieldCheck weight={enabled ? "fill" : "regular"} /></span><span><strong>{option.label}</strong><small>{option.detail}</small></span>{enabled ? <Check weight="bold" /> : <CaretRight />}
+          return <button type="button" className={`pop-row ${enabled ? "on" : ""} ${selectable ? "" : "is-off"}`} key={option.name} disabled={!selectable} aria-disabled={!selectable} title={selectable ? undefined : WORKSPACE_DISABLED_HINT} onClick={() => toggleCapability(option)}>
+            <span className="setting-icon"><ShieldCheck weight={enabled ? "fill" : "regular"} /></span><span><strong>{option.label}</strong><small>{selectable ? option.detail : WORKSPACE_ROW_HINT}</small></span>{enabled ? <Check weight="bold" /> : <CaretRight />}
           </button>;
         })}
+        {!serverWorkspace.available && <p className="pop-note">{serverWorkspace.loaded ? WORKSPACE_DISABLED_HINT : "Consultando /api/workspace… enquanto o servidor não confirma uma raiz, leitura e escrita ficam desativadas."}</p>}
       </div>}
       {popover === "providers" && <div className="pop pop-wide" role="dialog" aria-label="Provedores configurados">
         <header><strong>Provedores</strong><span className="pop-count">{providers.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
@@ -653,17 +676,29 @@ export function HaneApp() {
           {attachments.map((item, index) => <span className="chip" key={item.id}><Paperclip />Contexto {index + 1} · {item.text.length} car.<button type="button" aria-label="Remover contexto" onClick={() => removeAttachment(item.id)}><X /></button></span>)}
           {capabilityGrants.map((grant) => <span className="chip" key={`${grant.name}-${grant.scope}`}><ShieldCheck weight="bold" />{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}<button type="button" aria-label={`Remover ${grant.name}`} onClick={() => setCapabilityGrants((current) => current.filter((item) => item.name !== grant.name || item.scope !== grant.scope))}><X /></button></span>)}
         </div>}
+        {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Missão não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
         <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma missão para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da missão" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar missão" disabled={sending}><PaperPlaneRight weight="fill" /></button></div></div>
         <small>Cada envio cria uma missão real executada por planejador, executor e revisor.</small>
       </form>
     </section>
 
     <aside className="right-panel"><header><span><strong>Contexto da missão</strong><small>{mission ? clock(mission.audit?.at(-1)?.at) || "agora" : "sem missão ativa"}</small></span></header><div className="panel-scroll">
-      <section className="panel-section live-computer"><div className="panel-title"><strong>Computador ao vivo</strong><span>ambiente indisponível</span></div>
+      <section className="panel-section live-computer"><div className="panel-title"><strong>Computador ao vivo</strong><span>{GATED_CAPABILITIES_NOTE}</span></div>
         <div className="computer-preview" aria-label="Eventos auditáveis da sessão da missão">
           <div className="window-bar"><span /><span /><span /><small>{mission ? "eventos persistidos da missão" : "sem sessão ativa"}</small></div>
           <div className="window-body"><div><i /><i /><i /></div><pre>{sessionEvents.length ? sessionEvents.map((line, index) => <span key={`${line}-${index}`}>{line}{"\n"}</span>) : <span>Nenhuma sessão de ferramentas disponível.\nOs próximos eventos auditáveis aparecem aqui.</span>}</pre></div>
-          <div className="preview-caption"><span>Sem shell, arquivos ou rede até um sandbox aprovado.</span><span>{mission ? `${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : "—"}</span></div>
+          <div className="evidence-list">
+            <header><strong>Evidências de ferramentas</strong><span>{evidence.length} registro{evidence.length === 1 ? "" : "s"}</span></header>
+            {evidence.length ? evidence.map((row) => {
+              const roleName = row.role ? roles[row.role]?.name ?? row.role : null;
+              return <div className={`evidence-row ${row.kind}`} key={row.id}>
+                <span className="evidence-icon">{row.kind === "denied" ? <X weight="bold" /> : row.kind === "read" ? <FileText /> : row.kind === "listing" ? <FolderOpen /> : <Warning />}</span>
+                <span className="evidence-copy"><strong>{row.label}</strong>{row.path && <code title={row.path}>{row.path}</code>}{row.meta && <span className="evidence-meta">{row.meta}</span>}{row.marker && <em className="evidence-flag">{row.marker}</em>}{roleName && <em className="evidence-role">{roleName}</em>}</span>
+                <time>{row.at ? clock(row.at) : ""}</time>
+              </div>;
+            }) : <p className="evidence-empty">{mission ? "Nenhum acesso a ferramentas registrado nesta missão até agora." : "As leituras reais de arquivos aparecem aqui quando a missão recebe workspace.read."}</p>}
+          </div>
+          <div className="preview-caption"><span>A leitura de arquivos funciona sob grant explícito; escrita, comandos e rede não são executados.</span><span>{mission ? `${mission.providerCalls}/${mission.maxProviderCalls} chamadas${toolUsage ? ` · ${toolUsage} ferramentas` : ""}` : "—"}</span></div>
         </div>
       </section>
       <section className="panel-section active-agents"><div className="panel-title"><strong>{showOnboarding ? "Guia de início" : "Etapas da equipe"}</strong><span>{showOnboarding ? "primeira vez" : mission ? selectedLabel : "—"}</span></div>{showOnboarding ? <div className="active-agent"><Avatar person={onboardingAgent} size="sm" state="thinking" /><span><strong>Hane</strong><small>Pronto para orientar você</small></span><i className="ready-dot" /></div> : ROLE_ORDER.map((role) => {
@@ -673,7 +708,11 @@ export function HaneApp() {
         return <div className="active-agent" key={role}><Avatar person={person} size="sm" state={avatarStateFromMission({ mission, role, currentRole })} /><span><strong>{person.name}</strong><small>{done ? "Saída registrada" : working ? "Trabalhando agora" : mission ? "Sem saída ainda" : "Aguardando missão"}</small></span>{working && <i />}</div>;
       })}</section>
       <section className="panel-section"><div className="panel-title"><strong>Permissões</strong><span>{mission?.capabilityGrants?.length ?? 0} concedida{mission?.capabilityGrants?.length === 1 ? "" : "s"}</span></div>
-        {mission?.capabilityGrants?.length ? mission.capabilityGrants.map((grant) => <div className="active-agent" key={`${grant.name}-${grant.scope}`}><span className="setting-icon"><ShieldCheck weight="fill" /></span><span><strong>{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}</strong><small>{grant.scope}</small></span></div>) : <PanelEmpty>Esta missão não recebeu acesso a workspace, comandos ou rede.</PanelEmpty>}
+        {mission?.capabilityGrants?.length ? mission.capabilityGrants.map((grant) => <div className="active-agent" key={`${grant.name}-${grant.scope}`}><span className="setting-icon"><ShieldCheck weight="fill" /></span><span><strong>{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}</strong><small>{grantDisplay(grant)}</small></span></div>) : <PanelEmpty>Esta missão não recebeu acesso a workspace, comandos ou rede.</PanelEmpty>}
+        {mission && <dl className="workspace-state">
+          <div><dt>Raiz do workspace</dt><dd>{workspaceRootLabel(mission.workspaceRoot)}</dd></div>
+          <div><dt>Chamadas de ferramenta</dt><dd>{toolUsage ?? "não informado"}</dd></div>
+        </dl>}
       </section>
       <section className="panel-section"><div className="panel-title"><strong>Progresso</strong><span>{progressPct}%</span></div>
         {mission ? <>

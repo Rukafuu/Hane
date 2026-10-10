@@ -315,3 +315,51 @@ body,.app-shell{background:#fff;color:#202124}
 .onboarding-commands .cmd{width:100%;font-size:10px}
 .ready-dot{width:6px;height:6px;border-radius:50%;background:#72a98e;box-shadow:0 0 0 3px rgba(114,169,142,.12)}
 .settings-intro{margin:0 0 8px;color:var(--muted-on-shell);font-size:11px;line-height:1.5}.settings-row{min-height:56px;display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)}.settings-row>span:nth-child(2){min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}.settings-row strong{font-size:12px}.settings-row small{font-size:10px;line-height:1.4;color:var(--muted-on-shell)}.settings-row em,.settings-muted{font-size:10px;font-style:normal;color:var(--muted-on-shell);white-space:nowrap}.settings-sheet .setting-icon{flex:0 0 auto;background:#f8eef1;color:var(--pink-deep)}
+/* Espaço de trabalho real da missão: grants com escopo, raiz efetiva, orçamento
+   de ferramentas e as evidências de leitura/listagem/bloqueio que o audit guarda.
+   Linhas seguem a densidade de .active-agent e .pop-row; nada aqui imita saída de
+   terminal — só se mostra o que a API devolve. */
+.pop-scope,.pop-root{margin:0;font-size:10px;line-height:1.45;color:var(--muted-on-shell)}
+.pop-scope code,.pop-root code,.evidence-row code,.workspace-state dd{font-family:var(--font-mono)}
+.pop-root{display:flex;align-items:center;gap:6px;padding:7px 8px;border-radius:9px;background:#f4f4f6;color:#3d4552;font-size:10px}
+.pop-root svg{flex:0 0 auto;width:14px;height:14px;color:#5c6572}
+.pop-root code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pop-note{margin:2px 0 0;padding:8px 10px;border-left:3px solid #e5c47f;background:#fffaf0;border-radius:0 8px 8px 0;color:var(--muted-on-shell);font-size:10px;line-height:1.5}
+.pop-row.is-off{cursor:not-allowed;opacity:.62}
+.pop-row.is-off:hover{background:transparent}
+.pop-row.is-off .setting-icon{background:#eeeeF1;color:#6d7480}
+.pop-row.is-off strong{color:#4a5361}
+.workspace-state{margin:8px 0 0;padding:8px 2px 0;border-top:1px solid rgba(37,44,56,.14);display:grid;gap:5px}
+.workspace-state>div{display:grid;grid-template-columns:104px minmax(0,1fr);gap:8px;align-items:baseline}
+.workspace-state dt{font-size:9px;font-weight:500;color:var(--muted-on-shell)}
+.workspace-state dd{margin:0;font-size:9.5px;line-height:1.4;color:#2a313c;word-break:break-all}
+.evidence-list{border-top:1px solid var(--line);background:#fff;padding:7px 9px 8px;display:flex;flex-direction:column;gap:5px;max-height:190px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#d1d1d6 transparent}
+.evidence-list>header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.evidence-list>header strong{font-size:9px;font-weight:600;color:#202124}
+.evidence-list>header span{font-size:9px;font-weight:500;color:var(--muted-on-shell)}
+.evidence-row{display:flex;align-items:flex-start;gap:7px}
+.evidence-icon{flex:0 0 auto;width:19px;height:19px;display:grid;place-items:center;border-radius:6px;background:#f4f4f6;color:#5c6572}
+.evidence-icon svg{width:11px;height:11px}
+.evidence-row.read .evidence-icon{background:var(--blue-soft);color:var(--blue)}
+.evidence-row.denied .evidence-icon{background:var(--amber-soft);color:var(--amber)}
+.evidence-row.unavailable .evidence-icon,.evidence-row.budget .evidence-icon{background:var(--pink-soft);color:var(--pink-deep)}
+.evidence-copy{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 5px;font-size:9.5px;line-height:1.4}
+.evidence-copy>strong{font-weight:600;color:#202124}
+.evidence-copy>code{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9.5px;color:#2a313c;background:#f4f4f6;border-radius:5px;padding:1px 4px}
+.evidence-meta{color:var(--muted-on-shell)}
+.evidence-copy>code+.evidence-meta:before{content:"· ";color:#8a8f99}
+.evidence-flag,.evidence-role{font-style:normal;font-weight:600;font-size:9px;padding:1px 4px;border-radius:5px;background:var(--amber-soft);color:var(--amber)}
+.evidence-role{background:#f4f4f6;color:#5c6572;font-weight:500}
+.evidence-row>time{flex:0 0 auto;font-size:9px;font-weight:500;color:var(--muted-on-shell);font-variant-numeric:tabular-nums}
+.evidence-empty{margin:0;font-size:9.5px;line-height:1.45;color:var(--muted-on-shell)}
+.composer-error{display:flex;align-items:flex-start;gap:8px;margin:0 2px 7px;padding:8px 10px;border-radius:11px;background:#fff3ec;border:1px solid #eccdb3;color:#5b3a26;font-size:10.5px;line-height:1.45;font-weight:500}
+.composer-error>svg{flex:0 0 auto;width:15px;height:15px;margin-top:1px;color:#a4622c}
+.composer-error>span{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.composer-error strong{font-size:10.5px;font-weight:650}
+.composer-error small{font-size:10px;line-height:1.45;color:#6b4a34;overflow-wrap:anywhere}
+.composer-error .link-action{flex:0 0 auto;align-self:center;font-size:10px;font-weight:600;color:#8a5a2f}
+/* The honest caption is a sentence, not a label: let it wrap instead of
+   colliding with the call counter in the fixed-height caption row. */
+.preview-caption{height:auto;min-height:29px;align-items:flex-start;gap:9px;padding-block:5px}
+.preview-caption span:first-child{flex:1;min-width:0;line-height:1.45}
+.preview-caption span:last-child{flex:0 0 auto;white-space:nowrap;line-height:1.45}
