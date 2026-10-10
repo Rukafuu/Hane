@@ -250,8 +250,18 @@ export class Orchestrator {
       task.record('tool_read', { path: outcome.relPath, bytes: outcome.bytes, truncated: outcome.truncated, totalBytes: outcome.totalBytes });
       return;
     }
-    if (outcome.ok) {
+    if (outcome.ok && outcome.verb === 'list') {
       task.record('tool_listing', { path: outcome.relPath, entries: outcome.entries.length, truncated: outcome.truncated });
+      return;
+    }
+    if (outcome.ok && outcome.verb === 'write') {
+      task.record('tool_written', { path: outcome.relPath, bytes: outcome.bytes, machine: outcome.machine ?? null });
+      return;
+    }
+    if (outcome.ok) {
+      // A non-zero exit is still a command that ran: the code belongs in the
+      // audit, and the model already has the output it asked for.
+      task.record('tool_ran', { command: outcome.command, exit: outcome.exit, truncated: outcome.truncated });
       return;
     }
     task.record(outcome.verb === 'list' ? 'tool_listing_denied' : 'tool_denied', {

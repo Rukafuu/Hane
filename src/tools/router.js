@@ -7,7 +7,11 @@ import { availableToolNames, toolFor, toolSchemas } from './registry.js';
  * mission rather than a policy decided twice.
  */
 export function createToolRouter({ sandbox, grants = [] }) {
-  const names = availableToolNames(grants);
+  const granted = availableToolNames(grants);
+  // What the model is offered is the grant list read against the machine that
+  // would carry it out. A verb this backend has no executor for stays invisible
+  // rather than becoming a call the mission pays for and is refused at.
+  const names = Object.freeze(granted.filter((name) => sandbox.executable.includes(toolFor(name).verb)));
 
   return Object.freeze({
     names: Object.freeze([...names]),
@@ -33,14 +37,17 @@ export function createToolRouter({ sandbox, grants = [] }) {
       if (tool === null) {
         return { ok: false, status: 'refused', name: call.name, reason: 'unknown_tool' };
       }
-      if (!names.includes(tool.name)) {
+      if (!granted.includes(tool.name)) {
         return { ok: false, status: 'refused', name: tool.name, reason: 'capability_not_granted', capability: tool.capability };
       }
       if (!sandbox.executable.includes(tool.verb)) {
         return { ok: false, status: 'refused', name: tool.name, reason: 'capability_not_available', verb: tool.verb };
       }
 
-      const outcome = await sandbox[tool.verb]({ path: call.arguments?.path });
+      // The whole argument object travels to the verb, not just a path: a write
+      // carries content and a run carries an argv, and containment is enforced
+      // below here by the backend that owns the machine.
+      const outcome = await sandbox[tool.verb](call.arguments ?? {});
       return { ...outcome, tool: tool.name, verb: tool.verb, status: outcome.ok ? 'finished' : 'denied' };
     },
   });

@@ -30,6 +30,17 @@ export const SANDBOX_DENIAL_REASONS = Object.freeze([
   'read_failed',
   'list_failed',
   'capability_not_available',
+  // The verbs a Linux box carries out. A box that is not on this machine, a
+  // command the grant never named, and a run that outlived its timeout are all
+  // facts about the machine rather than policy the user changed.
+  'box_unavailable',
+  'wsl_not_found',
+  'command_not_allowed',
+  'timed_out',
+  'run_failed',
+  'write_failed',
+  'content_too_large',
+  'invalid_content',
 ]);
 
 export function denial(reason, details = {}) {

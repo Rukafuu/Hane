@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CAPABILITY, assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot, parseGrantScope } from '../src/capabilities.js';
+import { CAPABILITY, assertCapabilityGrants, assertEnforceableScopes, commandAllowedBy, grantsNeedWorkspaceRoot, parseGrantScope } from '../src/capabilities.js';
 import { TaskRun } from '../src/task-run.js';
 
 test('capability grants are explicit, frozen, and carry into the task audit', () => {
@@ -89,4 +89,33 @@ test('workspace.write is declarative but still demands a root; process/network g
     { name: CAPABILITY.NETWORK_REQUEST, scope: 'example.com' },
   ]);
   assert.equal(grantsNeedWorkspaceRoot(otherGrants), false);
+});
+
+// The grammar documents a matching rule; the matcher below is that document
+// executable. An executor that invented its own reading of "npm run *" would be
+// a second policy no user ever granted, so the meaning lives here.
+const rulesFor = (scope) => parseGrantScope(CAPABILITY.PROCESS_RUN, scope).parsed;
+
+test('a command grant means exactly what the matcher says it means', () => {
+  const rules = rulesFor('python3, git status, npm run *');
+
+  assert.equal(commandAllowedBy(rules, ['python3']).ok, true, 'a rule with no arguments allows the program alone');
+  assert.equal(commandAllowedBy(rules, ['python3', '-c', 'print(1)']).ok, true, 'and with any arguments');
+  assert.equal(commandAllowedBy(rules, ['git', 'status']).ok, true, 'the exact prefix');
+  assert.equal(commandAllowedBy(rules, ['git', 'status', '--short']).ok, false, 'a rule without a wildcard does not grow arguments');
+  assert.equal(commandAllowedBy(rules, ['git']).ok, false, 'not even a shorter one');
+  assert.equal(commandAllowedBy(rules, ['npm', 'run', 'build']).ok, true, 'the wildcard rule takes further arguments');
+  assert.equal(commandAllowedBy(rules, ['npm', 'test']).ok, false);
+  assert.equal(commandAllowedBy(rules, ['rm', '-rf', '/']).ok, false, 'nothing the user did not name');
+});
+
+test('an argument vector is a list of plain single-line strings or it is not a command', () => {
+  const rules = rulesFor('git *');
+  assert.equal(commandAllowedBy(rules, 'git status').ok, false, 'a sentence is not an argv');
+  assert.equal(commandAllowedBy(rules, []).ok, false);
+  assert.equal(commandAllowedBy(rules, ['git', '']).ok, false);
+  assert.equal(commandAllowedBy(rules, ['git', 'status\nrm -rf /']).ok, false, 'a newline in an argument is a second command trying to hide');
+  assert.equal(commandAllowedBy(rules, ['./esquecido.sh']).ok, false, 'a grant names a program, and PATH decides where it lives');
+  assert.equal(commandAllowedBy(rules, ['C:\\temp\\x.exe']).ok, false, 'a Windows path is a location, not a program name');
+  assert.equal(commandAllowedBy(rules, Array.from({ length: 65 }, () => 'a')).ok, false, 'a vector longer than the grammar can describe is refused');
 });

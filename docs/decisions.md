@@ -370,9 +370,13 @@ WSL ≥ 2.4.4.
 - Mobile não muda nada, e é aqui que `src/sandbox/interface.js` paga: Android/iOS são clientes
   de um host Hane (a máquina dele, ou uma caixa futura na nuvem). **Quem escolhe backend é o
   host, nunca a UI** — por isso embutir WSL no instalador desktop não fecha o caminho mobile.
-- `docs/runtime-honesty-audit.md` continua dizendo a verdade: enquanto nenhum executor de
-  escrita/comando existir atrás do seam, `workspace.write`/`process.run`/`network.request`
-  seguem NOT IMPLEMENTED, e o comando de instalação é PARTIAL até existir imagem publicada.
+- `docs/runtime-honesty-audit.md` continua dizendo a verdade, e desde 2026-10-10 tem uma linha
+  nova: o segundo backend do seam (`src/machine/wsl-sandbox.js`) já executa `read`, `list`,
+  `write` e `run` dentro da distro, com argv de lista e prova de alcançabilidade antes de
+  qualquer verbo. Isso **não** torna a escrita do workspace real — nenhuma rota escolhe a caixa,
+  então toda missão de hoje ainda recebe o diretório, que só lê; `workspace.write`/`process.run`
+  ficam PARTIAL até existir escolha de backend, e `network.request` segue NOT IMPLEMENTED até
+  haver egress. O comando de instalação continua PARTIAL até existir imagem publicada.
 
 ## Alternativas rejeitadas
 

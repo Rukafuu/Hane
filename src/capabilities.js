@@ -180,6 +180,38 @@ export function parseHostScope(scope) {
 }
 
 /**
+ * The one reading of a command grant, written next to the grammar on purpose.
+ * A scope means what this function says it means; an executor that worked out
+ * its own match would be a second policy nobody authored.
+ *
+ * @param {readonly object[]} rules exactly as `parseCommandScope` parsed them
+ * @param {readonly string[]} argv the argument vector as the model asked for it
+ */
+export function commandAllowedBy(rules, argv) {
+  if (!Array.isArray(argv) || argv.length === 0) {
+    return { ok: false, reason: 'a command is an argument vector: at least the program name, never a sentence.' };
+  }
+  if (argv.length > MAX_COMMAND_RULES * 8) {
+    return { ok: false, reason: `a command may not carry more than ${MAX_COMMAND_RULES * 8} arguments.` };
+  }
+  if (argv.some((argument) => typeof argument !== 'string' || argument === '' || /[\r\n\0]/.test(argument))) {
+    return { ok: false, reason: 'command arguments must be single-line strings.' };
+  }
+  if (argv[0].includes('/') || argv[0].includes('\\')) {
+    return { ok: false, reason: `"${argv[0]}" is a path. A grant names a program, and the machine's PATH decides where it lives.` };
+  }
+
+  for (const rule of rules) {
+    if (rule.program !== argv[0]) continue;
+    if (rule.arguments.length === 0) return { ok: true, rule };
+    if (argv.length < rule.arguments.length + 1) continue;
+    if (!rule.arguments.every((token, index) => argv[index + 1] === token)) continue;
+    if (rule.prefix || argv.length === rule.arguments.length + 1) return { ok: true, rule };
+  }
+  return { ok: false, reason: `"${argv.join(' ')}" is not on the granted command list.` };
+}
+
+/**
  * Refuses a grant whose scope no executor could enforce. Keeps the thrown
  * message a usage error the ingress can print verbatim.
  */

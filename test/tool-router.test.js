@@ -15,14 +15,9 @@ function fakeSandbox({ executable = ['read', 'list'], answer } = {}) {
     seen.push({ verb, ...request });
     return answer ?? { ok: true, relPath: request.path, content: 'bytes\n', bytes: 6, totalBytes: 6, truncated: false, entries: [] };
   };
-  return {
-    seen,
-    sandbox: defineSandbox({
-      id: 'fake',
-      ...(executable.includes('read') ? { read: (request) => respond('read', request) } : {}),
-      ...(executable.includes('list') ? { list: (request) => respond('list', request) } : {}),
-    }),
-  };
+  const methods = {};
+  for (const verb of executable) methods[verb] = (request) => respond(verb, request);
+  return { seen, sandbox: defineSandbox({ id: 'fake', ...methods }) };
 }
 
 describe('the tool table', () => {
@@ -37,7 +32,8 @@ describe('the tool table', () => {
 
   test('a grant chooses the tools, and no grant chooses none', () => {
     assert.deepEqual(availableToolNames([readGrant]), ['read_file', 'list_dir']);
-    assert.deepEqual(availableToolNames([writeGrant]), [], 'a write grant does not hand out reads');
+    assert.deepEqual(availableToolNames([writeGrant]), ['write_file'], 'a write grant hands out its own verb and never a read');
+    assert.deepEqual(availableToolNames([{ name: CAPABILITY.PROCESS_RUN, scope: 'git status' }]), ['run_command']);
     assert.deepEqual(availableToolNames([]), []);
     assert.deepEqual(availableToolNames([null]), []);
   });
@@ -127,7 +123,26 @@ describe('createToolRouter', () => {
     const { sandbox, seen } = fakeSandbox({ answer: { ok: false, reason: 'invalid_path' } });
     const outcome = await createToolRouter({ sandbox, grants: [readGrant] }).execute({ name: 'read_file', arguments: {} });
 
-    assert.deepEqual(seen, [{ verb: 'read', path: undefined }]);
+    assert.deepEqual(seen, [{ verb: 'read' }]);
     assert.equal(outcome.reason, 'invalid_path');
+  });
+
+  test('the whole argument object travels to the verb, because content and argv are not paths', async () => {
+    const { sandbox, seen } = fakeSandbox({ executable: ['write', 'run'], answer: { ok: true, relPath: 'saida.md', bytes: 3, machine: 'hane' } });
+    const router = createToolRouter({ sandbox, grants: [writeGrant, { name: CAPABILITY.PROCESS_RUN, scope: 'git *' }] });
+
+    assert.deepEqual(router.names, ['write_file', 'run_command']);
+    await router.execute({ name: 'write_file', arguments: { path: 'saida.md', content: 'oi\n' } });
+    await router.execute({ name: 'run_command', arguments: { argv: ['git', 'status'] } });
+    assert.deepEqual(seen, [
+      { verb: 'write', path: 'saida.md', content: 'oi\n' },
+      { verb: 'run', argv: ['git', 'status'] },
+    ]);
+  });
+
+  test('a backend that cannot carry a verb never has it offered, even when it is granted', () => {
+    const { sandbox } = fakeSandbox({ executable: ['read', 'list'] });
+    const router = createToolRouter({ sandbox, grants: [readGrant, writeGrant, { name: CAPABILITY.PROCESS_RUN, scope: 'git *' }] });
+    assert.deepEqual(router.names, ['read_file', 'list_dir'], 'the model is not handed a call this machine would only refuse');
   });
 });
