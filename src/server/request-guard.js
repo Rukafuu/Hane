@@ -19,7 +19,7 @@
  * not a personal profile, a team, or a provider exists.
  */
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const CROSS_SITE_FETCHES = new Set(['cross-site', 'cross-origin']);
 
@@ -38,11 +38,25 @@ function splitHost(value) {
     const close = trimmed.indexOf(']');
     if (close === -1) return { host: trimmed, port: '' };
     const rest = trimmed.slice(close + 1);
-    return { host: trimmed.slice(0, close + 1), port: rest.startsWith(':') ? rest.slice(1) : '' };
+    // The brackets only exist to delimit the port in a URL; they are not part
+    // of the address, so a caller comparing against a Host header and a caller
+    // comparing against a `--host` value both end up holding `::1`.
+    return { host: trimmed.slice(1, close), port: rest.startsWith(':') ? rest.slice(1) : '' };
   }
   const colon = trimmed.indexOf(':');
   if (colon === -1 || colon !== trimmed.lastIndexOf(':')) return { host: trimmed, port: '' };
   return { host: trimmed.slice(0, colon), port: trimmed.slice(colon + 1) };
+}
+
+/**
+ * The one place that knows what "loopback" is, for callers that hold an address
+ * rather than a Host header — a server deciding whether its own bind needs the
+ * Host rule at all. Accepts `::1` and `[::1]`, with or without a port.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isLoopbackHost(value) {
+  return LOOPBACK_HOSTS.has(splitHost(value ?? '').host);
 }
 
 /**

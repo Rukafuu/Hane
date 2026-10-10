@@ -8,6 +8,7 @@ import { TaskRun, DEFAULT_MAX_PROVIDER_CALLS } from '../task-run.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
 import { resolveProviderConfig } from '../cli/run-mission.js';
 import { GitHubAuthorizationPendingError, pollGitHubDeviceAuthorization, startGitHubDeviceAuthorization } from '../integrations/github-device-flow.js';
+import { createRequestGuard, isLoopbackHost, RequestGuardError } from './request-guard.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SSE_HEARTBEAT_MS = 25_000;
@@ -28,14 +29,26 @@ const NOT_DETECTED_MACHINE = Object.freeze({
  * (the CLI pins 127.0.0.1); the server itself exposes no secrets — provider
  * configs are listed without credentials and provider resolution happens
  * through the credential manager at mission start.
+ *
+ * Every route sits behind `createRequestGuard`, mounted here rather than in the
+ * CLI, because the browser boundary is a property of the server: an embedder
+ * that builds this server by hand gets the same refusal a page would hit, and
+ * cannot forget to turn it on. `allowedOrigins` defaults to the two origins the
+ * bundled UI is served from during development, so an embedder that passes
+ * nothing still accepts its own page.
  * @param {{ repository: object, providerConfigStore: object,
  *           credentialManager: object, createProvider: Function,
  *           defaultProvider?: string | null,
  *           defaultWorkspaceRoot?: string | null,
- *           detectMachine?: (() => Promise<object>) | null }} dependencies
+ *           detectMachine?: (() => Promise<object>) | null,
+ *           bindHost?: string }} dependencies
+ *           `bindHost` is what the CLI passed to `listen`; a server told it bound
+ *           away from loopback stops checking `Host`, or it would refuse its own
+ *           clients. A server that was never told assumes `127.0.0.1`.
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, allowedOrigins, avatarLimits, githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'], avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+  const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopbackHost(bindHost) });
   const sseClients = new Set();
   // The probes spawn wsl.exe, so they are not taken at bind time and never
   // taken per request: the first caller of /api/machine pays for one probe and
@@ -67,12 +80,17 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
   const server = createServer((request, response) => {
     streamRequests.set(response, request);
     Promise.resolve().then(async () => {
+      // The profile surface validates browser requests with its own rules until
+      // the fusion ADR-0002 asks for lands (see the measured divergences there):
+      // an avatar upload carries an image body, which this guard answers 415 for,
+      // and a page with an opaque origin may read but never mutate here.
       if (profileApi && await profileApi.handle(request, response)) return;
+      guard(request);
       return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
     })
       .catch((error) => {
         if (!response.headersSent) {
-          respondJson(response, 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
+          respondJson(response, error instanceof RequestGuardError ? error.status : 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
         } else {
           response.end();
         }

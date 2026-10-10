@@ -83,32 +83,46 @@ internos. Eles provam que o payload do diagnóstico (POST simples com `text/plai
 (DNS rebinding) morre antes de qualquer rota, que preflight vira 403 em vez de resposta CORS, e
 que um cliente local sem identidade de browser continua irrestrito.
 
-Pendente, e é uma decisão de wiring não de desenho: a outra sessão ainda escreve em
-`src/server/mission-server.js`, então editar o arquivo agora só arriscaria perder o hunk. O
-insert é um, no topo de `createMissionServer`:
+REAL (2026-10-10) nas rotas de missão e onboarding: `createMissionServer` monta o guard uma vez e
+o chama antes do roteador — `RequestGuardError` responde com o seu próprio status, e a recusa não
+chega a escrever linha nenhuma em `task_runs`. `createMissionServer` ganhou `bindHost` (o CLI passa
+o `--host` com que fez `listen`); sem ele o servidor assume `127.0.0.1`, porque é o default do CLI,
+e quem se ata fora do loopback tem que passar o valor para não recusar o Host dos próprios
+clientes. `isLoopbackHost` passou a ser o dono único dessa palavra e aceita `::1` com ou sem
+colchetes e com ou sem porta — o header `Host` e o argumento `--host` chegam em formas
+diferentes e precisam dar a mesma resposta. A lista de origens aceitas é uma só por servidor: o
+mesmo array vai para o guard e para o perfil, com o default declarado no servidor (o
+`src/server/ui-origins.js` que está na worktree é o lugar natural desse default quando landar;
+mover para lá não cria segunda lista porque uma só chamada abastece as duas).
 
-```js
-// createMissionServer ganha bindHost (o CLI sabe qual --host usou) e monta o guard uma vez:
-const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopback(bindHost) });
-// dentro de createServer, antes de qualquer rota:
-try { guard(request); } catch (error) { return respondJson(response, error instanceof RequestGuardError ? error.status : 500, { error: error.message }); }
-```
+Provas em `test/mission-server.test.js` (sete casos de socket contra o roteador real): POST
+`text/plain` com `Sec-Fetch-Site: cross-site` em `/api/missions` morre em 403 **sem linha em
+`task_runs`**; mutação de página sem `x-hane-request` idem; `Host` rebinado morre antes da rota;
+origem fora da allowlist responde 403 com a flag que conserta; a origem default do protótipo chega
+ao roteador e cria a missão com 202 sem nenhuma configuração passada; e um servidor informado de
+`0.0.0.0` responde ao Host da LAN enquanto o mesmo Host é recusado no bind loopback.
 
-`createMissionServer` não conhece o bind (quem faz `listen` é o CLI), então o parâmetro
-`bindHost` é a única coisa nova na assinatura. Sem ele, um servidor atado a `0.0.0.0` recusaria
-o próprio Host e o embutidor teria que desligar a fronteira inteira por `allowAnyHost`.
-
-E uma regra de fusão, para o ADR não criar o mecanismo rival que ele mesmo critica: quando
-`profile-api.js` for commitado, o `checkOrigin` daquela sessão deve **chamar** este guard e
-manter só o que é do perfil (cookie de sessão, lockout). Dois validores de origem em dois
-arquivos é a dívida que o diagnóstico já apontou, não a correção dela.
+A fusão com `checkOrigin` do perfil **não** foi feita, e o motivo é medido, não comodidade. As
+duas regras não são equivalentes em dois eixos: (a) o perfil recusa `Origin: null` até em leitura,
+e o guard recusa só em mutação — o teste commiteado `test/local-profile.test.js:67` pinua o
+comportamento mais estrito, então apagar `checkOrigin` trocaria um 403 por um 200; (b) o upload de
+avatar manda um corpo `image/png|jpeg|webp|gif` (o próprio perfil exige isso em
+`profile-api.js:118`), e a regra de content-type deste guard responde 415 a qualquer corpo de página
+que não seja JSON — inclusive com `x-hane-request: 1` presente, que é o caso pinuado em
+`test/request-guard.test.js:189-203`. Montar o guard acima do perfil quebraria a foto de perfil no
+navegador. Então hoje: rota de perfil usa o validor do perfil, toda o resto usa este guard, e cada
+rota tem fronteira — a dívida de dois validores continua existindo, visível, e a fusão pede
+primeiro uma decisão de produto sobre origem opaca e sobre quais content-types um corpo de página
+pode ter.
 
 ## Consequências
 
 - O `api.js` do protótipo precisa enviar o header explícito em `createMission`, `approve`,
-  `retry` e `cancel`, ou as três ações quebram em 403 quando o perfil landar. **Já envia**
-  (`work/mission-ui-prototype/src/api.js`) — mas essa linha é da mesma fatia não-commiteada
-  do perfil, não do HEAD. Guard e header são um só entregável: um sem o outro é tela quebrada.
+  `retry` e `cancel`, ou as três ações quebram em 403. **Já envia, e já está no HEAD**
+  (`work/mission-ui-prototype/src/api.js:46,48,60,66` e `src/profile-api.js:1,17,18`) — a
+  preocupação original deste ADR, de que header e guard fossem um só entregável, se resolveu
+  sozinha: a fatia da UI landou antes. O que o guard ainda não cobre são as rotas de perfil, que
+  respondem com o validor delas próprias (ver "REAL" acima).
 - Clientes locais sem header de origem (CLI, testes) permanecem irrestritos, e isso é
   deliberado: um processo que fala HTTP no loopback já lê o mesmo arquivo SQLite, então
   fingir autenticação ali não protege nada.

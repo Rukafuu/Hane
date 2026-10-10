@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -33,7 +34,7 @@ class RecordingProvider {
   }
 }
 
-function createHarness({ providerConstructor = RecordingProvider, githubClientId = null, githubFlow, defaultWorkspaceRoot = null, detectMachine = null } = {}) {
+function createHarness({ providerConstructor = RecordingProvider, githubClientId = null, githubFlow, defaultWorkspaceRoot = null, detectMachine = null, serverOptions = {} } = {}) {
   const database = openHaneDatabase(':memory:');
   const repository = new SqliteTaskRepository({ database });
   const providerConfigStore = new SqliteProviderConfigStore({ database });
@@ -51,6 +52,7 @@ function createHarness({ providerConstructor = RecordingProvider, githubClientId
     detectMachine,
     githubClientId,
     githubFlow,
+    ...serverOptions,
   });
   const baseUrlPromise = new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -722,4 +724,128 @@ test('a probe that throws becomes a stated failure, never a 500 and never a read
   assert.equal(body.available, false);
   assert.equal(body.reason, 'wsl_command_failed');
   assert.equal(body.detail, 'The machine probe threw; nothing about the box is known.');
+});
+
+/**
+ * The browser boundary (ADR-0002) is a property of this server, so these tests
+ * run against the real mission router: a refusal must cost no row and no run,
+ * which only a socket-level request against the mounted guard can show.
+ */
+function wire({ port, method = 'GET', path = '/api/missions', headers = {}, body }) {
+  return new Promise((resolve, reject) => {
+    const request = http.request({ host: '127.0.0.1', port, method, path, headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve({ status: response.statusCode, text: Buffer.concat(chunks).toString('utf8') }));
+    });
+    request.on('error', reject);
+    request.end(body);
+  });
+}
+
+async function portOf(harness) {
+  return Number(new URL(await harness.baseUrl()).port);
+}
+
+test('a cross-site simple POST is refused before any mission is written', async (t) => {
+  const harness = createHarness();
+  t.after(async () => { await harness.close(); });
+  await configureProvider(harness);
+  const port = await portOf(harness);
+
+  const attack = await wire({
+    port,
+    method: 'POST',
+    headers: { 'content-type': 'text/plain', 'sec-fetch-site': 'cross-site' },
+    body: '{"objective":"Investigate flaky checkout tests."}',
+  });
+  assert.equal(attack.status, 403);
+  assert.match(attack.text, /cross-site/);
+  assert.deepEqual(harness.repository.list(), []);
+});
+
+test('a mutation from a page that does not name itself is refused', async (t) => {
+  const harness = createHarness();
+  t.after(async () => { await harness.close(); });
+  const port = await portOf(harness);
+
+  const refused = await wire({
+    port,
+    method: 'POST',
+    headers: { origin: 'http://localhost:5173', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
+    body: '{"objective":"Investigate flaky checkout tests."}',
+  });
+  assert.equal(refused.status, 403);
+  assert.match(refused.text, /x-hane-request/);
+  assert.deepEqual(harness.repository.list(), []);
+});
+
+test('a Host header rebound to loopback dies before the router', async (t) => {
+  const harness = createHarness();
+  t.after(async () => { await harness.close(); });
+  const port = await portOf(harness);
+
+  const refused = await wire({
+    port,
+    headers: { host: 'hane.rebinding.example' },
+  });
+  assert.equal(refused.status, 403);
+  assert.match(refused.text, /hane\.rebinding\.example/);
+  assert.match(refused.text, /is not the address this server binds/);
+});
+
+test('an origin the server was not told to serve is refused, with the flag that fixes it', async (t) => {
+  const harness = createHarness({ serverOptions: { allowedOrigins: ['http://127.0.0.1:5173'] } });
+  t.after(async () => { await harness.close(); });
+  const port = await portOf(harness);
+
+  const refused = await wire({
+    port,
+    headers: { host: `127.0.0.1:${port}`, origin: 'http://localhost:5173', 'sec-fetch-site': 'same-site' },
+  });
+  assert.equal(refused.status, 403);
+  assert.match(refused.text, /not allowed/);
+  assert.match(refused.text, /--ui-origin http:\/\/localhost:5173/);
+});
+
+test('a page on a default origin reaches the mission router', async (t) => {
+  const harness = createHarness();
+  t.after(async () => { await harness.close(); });
+  await configureProvider(harness);
+  const port = await portOf(harness);
+
+  // No --ui-origin was passed anywhere: the bundled development origin is
+  // accepted out of the box, which is what keeps the prototype working once the
+  // guard is mounted.
+  const accepted = await wire({
+    port,
+    method: 'POST',
+    headers: { origin: 'http://localhost:5173', 'sec-fetch-site': 'same-site', 'x-hane-request': '1', 'content-type': 'application/json' },
+    body: '{"objective":"Investigate flaky checkout tests."}',
+  });
+  assert.equal(accepted.status, 202, accepted.text);
+  assert.equal(harness.repository.list().length, 1);
+});
+
+test('a server bound away from loopback does not refuse its own clients', async (t) => {
+  const harness = createHarness({ serverOptions: { bindHost: '0.0.0.0' } });
+  t.after(async () => { await harness.close(); });
+  const port = await portOf(harness);
+  const lanHost = `192.168.1.42:${port}`;
+
+  // A client that reached this bind typed the machine's own address, so the
+  // loopback-only Host rule must not fire — that is what `bindHost` is for.
+  const response = await wire({ port, headers: { host: lanHost } });
+  assert.equal(response.status, 200, response.text);
+  assert.match(response.text, /"missions"/);
+});
+
+test('the same non-loopback Host is refused when the server was told it binds loopback', async (t) => {
+  const harness = createHarness();
+  t.after(async () => { await harness.close(); });
+  const port = await portOf(harness);
+
+  const refused = await wire({ port, headers: { host: `192.168.1.42:${port}` } });
+  assert.equal(refused.status, 403);
+  assert.match(refused.text, /is not the address this server binds/);
 });

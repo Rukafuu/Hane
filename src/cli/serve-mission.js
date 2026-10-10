@@ -68,6 +68,7 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
     createProvider: dependencies.createProvider,
     defaultProvider: values.provider ?? null,
     defaultWorkspaceRoot,
+    bindHost: values.host,
     detectMachine: dependencies.detectMachine ?? detectWsl,
     githubClientId: values['github-client-id'] ?? null,
   });
