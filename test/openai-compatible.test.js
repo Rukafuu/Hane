@@ -180,3 +180,84 @@ test('leaves the payload untouched when a mission has no workspace evidence', as
   assert.equal(calls[0].body.messages[0].content.includes('untrusted'), false);
   assert.deepEqual(JSON.parse(calls[0].body.messages[1].content), { objective: REQUEST.objective, priorOutputs: {} });
 });
+
+const toolResponse = (body) => JSON.stringify({ choices: [{ message: body }] });
+const MESSAGES = [{ role: 'system', content: 'You may call tools.' }, { role: 'user', content: 'Read src/a.js' }];
+const TOOLS = [{ type: 'function', function: { name: 'read_file', parameters: { type: 'object' } } }];
+
+test('a turn sends the declared tools and a plain call never does', async () => {
+  const withTools = harness([httpResponse({ text: toolResponse({ content: 'nothing to read' }) })]);
+  await withTools.provider.completeTurn({ messages: MESSAGES, tools: TOOLS });
+  assert.deepEqual(withTools.calls[0].body.tools, TOOLS);
+
+  const withoutTools = harness([httpResponse({ text: toolResponse({ content: 'planned' }) })]);
+  await withoutTools.provider.completeTurn({ messages: MESSAGES });
+  assert.equal('tools' in withoutTools.calls[0].body, false);
+});
+
+test('a gateway that honours tools comes back as a native protocol turn', async () => {
+  const { provider } = harness([httpResponse({ text: toolResponse({
+    content: null,
+    tool_calls: [{ id: 'call_1', function: { name: 'read_file', arguments: '{"path":"src/a.js"}' } }],
+  }) })]);
+
+  const turn = await provider.completeTurn({ messages: MESSAGES, tools: TOOLS });
+  assert.equal(turn.protocol, 'native');
+  assert.deepEqual(turn.toolCalls, [
+    { id: 'call_1', name: 'read_file', arguments: { path: 'src/a.js' }, source: 'native' },
+  ]);
+});
+
+test('a gateway that ignores tools can still ask, and the turn says which way it happened', async () => {
+  const fenced = 'Reading it.\n\n```hane-tool\n{"tool":"read_file","args":{"path":"src/a.js"}}\n```';
+  const { provider, calls } = harness([httpResponse({ text: toolResponse({ content: fenced }) })]);
+
+  const turn = await provider.completeTurn({ messages: MESSAGES, tools: TOOLS });
+  assert.equal(turn.protocol, 'inline', 'a free-tier model that drops `tools` is not the machine the loop was designed for');
+  assert.deepEqual(turn.toolCalls, [
+    { id: null, name: 'read_file', arguments: { path: 'src/a.js' }, source: 'inline' },
+  ]);
+  assert.equal(turn.content, 'Reading it.', 'the protocol block does not stay in the role answer');
+  assert.equal(JSON.parse(calls[0].options.body).messages[1].content, MESSAGES[1].content);
+});
+
+test('an inline block that cannot be read becomes a refusal the router audits, never a guessed call', async () => {
+  const { provider } = harness([httpResponse({ text: toolResponse({ content: '```hane-tool\n{"tool":"read_file","args":{"path":\n```' }) })]);
+
+  const turn = await provider.completeTurn({ messages: MESSAGES, tools: TOOLS });
+  assert.equal(turn.toolCalls.length, 1);
+  assert.equal(turn.toolCalls[0].name, undefined);
+  assert.equal(turn.toolCalls[0].malformed, 'invalid_json');
+});
+
+test('transport retries stay inside one turn of the loop', async () => {
+  const { provider, calls, retries } = harness([
+    httpResponse({ status: 429, text: '{}' }),
+    httpResponse({ status: 503, text: '{}' }),
+    httpResponse({ text: toolResponse({ content: 'done', tool_calls: [] }) }),
+  ]);
+
+  const turn = await provider.completeTurn({ messages: MESSAGES, tools: TOOLS });
+  assert.equal(turn.content, 'done');
+  assert.equal(calls.length, 3);
+  assert.equal(retries.length, 2);
+});
+
+test('a turn refuses an answer with neither text nor calls instead of inventing one', async () => {
+  const { provider } = harness([httpResponse({ text: toolResponse({ content: null }) })]);
+  await assert.rejects(() => provider.completeTurn({ messages: MESSAGES, tools: TOOLS }), /no assistant content/);
+});
+
+test('complete() keeps its old contract: a text answer, fences and all', async () => {
+  const fenced = 'I would write:\n\n```hane-tool\n{"tool":"read_file","args":{"path":"src/a.js"}}\n```';
+  const { provider, calls } = harness([httpResponse({ text: toolResponse({ content: fenced }) })]);
+
+  assert.equal(await provider.complete(REQUEST), fenced, 'a role without tools is not a tool loop');
+  assert.equal(calls[0].body.tools, undefined);
+});
+
+test('a turn needs the messages it is continuing from', async () => {
+  const { provider } = harness([httpResponse()]);
+  await assert.rejects(() => provider.completeTurn({ messages: [] }), /requires a message list/);
+  await assert.rejects(() => provider.completeTurn({}), /requires a message list/);
+});
