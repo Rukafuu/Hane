@@ -21,11 +21,15 @@ if (typeof document !== "undefined") document.addEventListener("visibilitychange
   if (!document.hidden && frameSubscribers.size > 0 && !sharedFrame) sharedFrame = requestAnimationFrame(runSharedFrame);
 });
 
-const SHAPE_RADII = {
-  petal: [0.86, 1.03, 1.12, 1.02, 0.88, 1.08, 1.12, 1.0],
-  drop: [0.76, 0.9, 1.12, 1.18, 1.08, 0.92, 0.83, 0.8],
-  cloud: [0.99, 1.1, 0.97, 1.1, 0.98, 1.08, 0.96, 1.07],
-  pebble: [1.09, 1.05, 1.0, 0.97, 1.04, 1.01, 0.96, 1.04],
+const SHAPE_PROFILES = {
+  circle: { radii: [1, 1, 1, 1, 1, 1, 1, 1], width: 1, height: 1 },
+  pebble: { radii: [1.05, 1.02, 0.98, 1.02, 1.04, 0.98, 0.96, 1.01], width: 1.2, height: 0.82 },
+  capsule: { radii: [1, 1, 1, 1, 1, 1, 1, 1], width: 1.32, height: 0.7 },
+  hexagon: { radii: [1.04, 1.18, 1.04, 1.18, 1.04, 1.18, 1.04, 1.18], width: 1, height: 1 },
+  cloud: { radii: [1.08, 0.86, 1.19, 0.9, 1.13, 0.84, 1.17, 0.91], width: 1.03, height: 0.94 },
+  drop: { radii: [0.68, 0.87, 1.12, 1.18, 1.1, 1.02, 0.9, 0.76], width: 0.95, height: 1.1 },
+  // Older component callers keep rendering, but now use visibly different forms.
+  petal: { radii: [1, 1, 1, 1, 1, 1, 1, 1], width: 1, height: 1 },
 };
 
 const BEHAVIOURS = {
@@ -39,11 +43,26 @@ const BEHAVIOURS = {
 };
 
 function contour(shape, squash, wobble) {
-  const radii = SHAPE_RADII[shape] ?? SHAPE_RADII.petal;
+  // Deliberately preserve hard edges where the silhouette needs to read at
+  // 24px. The softer quadratic contour below made the former hexagon look
+  // like another rounded blob.
+  if (shape === "hexagon") {
+    const scaleX = 1 + squash;
+    const scaleY = 1 - squash * 0.35;
+    const points = [[50, 13], [80, 31], [80, 68], [50, 87], [20, 68], [20, 31]]
+      .map(([x, y]) => [50 + (x - 50) * scaleX, 50 + (y - 50) * scaleY]);
+    return `M ${points.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L ")} Z`;
+  }
+  if (shape === "drop") {
+    const top = 10 + squash * 5;
+    return `M 50 ${top.toFixed(2)} C 67 31, 83 48, 78 64 C 74 79, 63 88, 50 88 C 37 88, 26 79, 22 64 C 17 48, 33 31, 50 ${top.toFixed(2)} Z`;
+  }
+  const profile = SHAPE_PROFILES[shape] ?? SHAPE_PROFILES.circle;
+  const radii = profile.radii;
   const points = radii.map((radius, index) => {
     const angle = -Math.PI / 2 + index * (Math.PI * 2 / radii.length);
     const r = radius * (1 + wobble * Math.sin(index * 2.2 + 0.8));
-    return [50 + Math.cos(angle) * r * 29 * (1 + squash), 50 + Math.sin(angle) * r * 31 * (1 - squash)];
+    return [50 + Math.cos(angle) * r * 29 * profile.width * (1 + squash), 50 + Math.sin(angle) * r * 31 * profile.height * (1 - squash)];
   });
   // Eight compatible quadratic segments: every silhouette has the same order.
   return points.map((point, index) => {
@@ -57,7 +76,7 @@ function contour(shape, squash, wobble) {
 }
 
 /** Lightweight SVG avatar. One rAF updates its own SVG nodes, avoiding React frame renders. */
-export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", state = "idle", size = 44, intensity = 1, reducedMotion = false, interactive = false, onClick, className = "" }) {
+export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", image, state = "idle", size = 44, intensity = 1, reducedMotion = false, interactive = false, onClick, className = "" }) {
   const pathRef = useRef(null);
   const bodyRef = useRef(null);
   const eyesRef = useRef(null);
@@ -104,6 +123,7 @@ export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", 
 
   const label = `${name ?? agentId}, ${state}`;
   return <button ref={shellRef} type="button" className={`hane-avatar ${className}`} style={{ width: size, height: size, "--avatar-color": color }} aria-label={label} data-avatar-state={state} onClick={onClick} disabled={!interactive}>
+    {image ? <img className="hane-avatar__image" src={image} alt="" /> : null}
     <svg viewBox="0 0 100 100" role="img" aria-hidden="true" focusable="false">
       <g ref={bodyRef}><path ref={pathRef} d={contour(shape, 0, 0)} fill={color} /><path d={contour(shape, -0.03, 0)} fill="none" stroke="white" strokeOpacity=".32" strokeWidth="1" /></g>
       <g ref={eyesRef}><g ref={blinkRef} className="hane-avatar__eyes"><ellipse cx="40" cy="49" rx="4.5" ry="6.5"/><ellipse cx="60" cy="49" rx="4.5" ry="6.5"/></g>{state === "blocked" && <path className="hane-avatar__signal" d="M72 22 L72 31 M67.5 26.5 L76.5 26.5" />}</g>

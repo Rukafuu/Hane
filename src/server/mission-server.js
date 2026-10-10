@@ -6,6 +6,7 @@ import { resolveWorkspaceRoot } from '../workspace-scope.js';
 import { TaskRun } from '../task-run.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
 import { resolveProviderConfig } from '../cli/run-mission.js';
+import { GitHubAuthorizationPendingError, pollGitHubDeviceAuthorization, startGitHubDeviceAuthorization } from '../integrations/github-device-flow.js';
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SSE_HEARTBEAT_MS = 25_000;
@@ -22,9 +23,10 @@ const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
  *           defaultWorkspaceRoot?: string | null }} dependencies
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null }) {
+export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
   const sseClients = new Set();
   const running = new Map();
+  const pendingGitHubAuthorizations = new Map();
   const heartbeat = setInterval(() => {
     for (const response of sseClients) response.write(': ping\n\n');
   }, SSE_HEARTBEAT_MS);
@@ -36,7 +38,7 @@ export function createMissionServer({ repository, providerConfigStore, skillStor
   };
 
   const server = createServer((request, response) => {
-    handle({ request, response, repository, providerConfigStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, sseClients, broadcast, running })
+    handle({ request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running })
       .catch((error) => {
         if (!response.headersSent) {
           respondJson(response, 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
@@ -104,10 +106,51 @@ async function handle(context) {
     return respondJson(response, 200, { available: root !== null, root });
   }
 
+  if (pathname === '/api/onboarding' && request.method === 'GET') {
+    return respondJson(response, 200, { github: context.onboardingStore?.getGitHub() ?? null, githubAvailable: Boolean(context.githubClientId) });
+  }
+
+  if (pathname === '/api/onboarding/github/device' && request.method === 'POST') {
+    return startGitHubAuthorization(context);
+  }
+
+  const githubPoll = pathname.match(/^\/api\/onboarding\/github\/device\/([\w-]+)\/poll$/);
+  if (githubPoll && request.method === 'POST') return pollGitHubAuthorization({ ...context, authorizationId: githubPoll[1] });
+
   if (pathname.startsWith('/api/')) {
     return respondJson(response, 404, { error: `No route for ${request.method} ${pathname}.` });
   }
   return respondJson(response, 404, { error: 'Not found.' });
+}
+
+async function startGitHubAuthorization({ response, githubClientId, githubFlow, pendingGitHubAuthorizations }) {
+  try {
+    const authorization = await githubFlow.start({ clientId: githubClientId });
+    const id = crypto.randomUUID();
+    pendingGitHubAuthorizations.set(id, { deviceCode: authorization.deviceCode, expiresAt: Date.now() + authorization.expiresIn * 1000 });
+    return respondJson(response, 201, { id, userCode: authorization.userCode, verificationUri: authorization.verificationUri, interval: authorization.interval, expiresIn: authorization.expiresIn });
+  } catch (error) {
+    return respondJson(response, 409, { error: error instanceof Error ? error.message : 'Could not start GitHub authorization.' });
+  }
+}
+
+async function pollGitHubAuthorization({ response, authorizationId, githubClientId, githubFlow, pendingGitHubAuthorizations, credentialManager, onboardingStore }) {
+  const pending = pendingGitHubAuthorizations.get(authorizationId);
+  if (!pending || pending.expiresAt <= Date.now()) {
+    pendingGitHubAuthorizations.delete(authorizationId);
+    return respondJson(response, 410, { error: 'GitHub authorization expired. Start again.' });
+  }
+  try {
+    const connection = await githubFlow.poll({ clientId: githubClientId, deviceCode: pending.deviceCode });
+    await credentialManager.set('local-agent-orchestrator/github', connection.accessToken);
+    const github = onboardingStore.saveGitHub({ accountLabel: connection.login, scopes: connection.scopes });
+    pendingGitHubAuthorizations.delete(authorizationId);
+    return respondJson(response, 200, { status: 'connected', github });
+  } catch (error) {
+    if (error instanceof GitHubAuthorizationPendingError) return respondJson(response, 202, { status: 'pending' });
+    pendingGitHubAuthorizations.delete(authorizationId);
+    return respondJson(response, 409, { error: error instanceof Error ? error.message : 'GitHub authorization failed.' });
+  }
 }
 
 async function startMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running }) {

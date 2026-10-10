@@ -314,7 +314,218 @@ body,.app-shell{background:#fff;color:#202124}
 .onboarding-commands{display:grid;gap:6px;margin-top:9px}
 .onboarding-commands .cmd{width:100%;font-size:10px}
 .ready-dot{width:6px;height:6px;border-radius:50%;background:#72a98e;box-shadow:0 0 0 3px rgba(114,169,142,.12)}
+.onboarding-granted{display:inline-flex;align-items:center;gap:5px;margin-top:9px;color:#39765f;font-size:11px;font-weight:650}.onboarding-granted svg{width:13px;height:13px}
+.onboarding-note{display:block;margin-top:9px;color:var(--muted);font-size:10.5px;line-height:1.45}.onboarding-note code{font-family:var(--font-mono);font-size:.94em}
+.github-device{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px;padding:9px 10px;border-radius:9px;background:#f2f2f4;color:#4d4d56;font-size:10.5px;line-height:1.4}.github-device a{color:#a94668;font-weight:650}.github-device strong{padding:3px 6px;border-radius:6px;background:#fff;font-family:var(--font-mono);font-size:12px;letter-spacing:.05em}.github-device .onboarding-action{margin-top:0}
+.agent-creator{display:grid;gap:9px;margin-top:4px;padding:13px;border:1px solid var(--line);border-radius:12px;background:#fafafb}.agent-creator p{margin:0}.agent-creator label{display:grid;gap:4px;color:#555560;font-size:10px;font-weight:650}.agent-creator input,.agent-creator select{min-height:32px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 8px;color:#303038;font:inherit}.agent-creator input[type=color]{width:54px;padding:3px}.agent-creator .hane-avatar{margin:2px 0}.custom-hane{cursor:default}
+.hane-avatar{position:relative;overflow:hidden;border-radius:50%}.hane-avatar__image{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:2}.hane-avatar:has(.hane-avatar__image) svg{opacity:0}
+
+/* Conversational first-run guide: one calm decision at a time. */
+.onboarding-message{width:min(620px,100%);max-width:none;margin:clamp(34px,8vh,78px) auto 30px;grid-template-columns:42px minmax(0,1fr);gap:14px}
+.onboarding-message>.hane-avatar{margin-top:4px}
+.onboarding-message .message-content{max-width:none;padding:2px 0}
+.onboarding-message .message-content>header{height:auto;min-height:26px;gap:7px}
+.onboarding-message .message-content>header strong{font-size:13px;font-weight:650;letter-spacing:-.01em}
+.onboarding-message .message-content>header small{font-size:10px;color:#777783}
+.onboarding-message .message-content>header .status{margin-left:auto;padding:4px 7px;background:#fbf2dc;color:#8a6c36;font-size:9px}
+.onboarding-progress{display:flex;align-items:center;gap:9px;margin:10px 0 17px;color:#8a8a94;font-size:10px;font-weight:600}
+.onboarding-progress i{display:block;width:88px;height:4px;overflow:hidden;border-radius:999px;background:#eeeef1}
+.onboarding-progress b{display:block;height:100%;border-radius:inherit;background:#e66f98;transition:width .25s ease}
+.onboarding-message .message-content>p{max-width:590px;margin:0;padding:16px 18px;border:1px solid #ececf0;border-radius:4px 16px 16px 16px;background:#fafafb;color:#25252d;font-size:14px;line-height:1.55;letter-spacing:-.008em}
+.onboarding-message .message-content>p code{font:600 .86em var(--font-mono);color:#a94668}
+.onboarding-granted{display:flex;align-items:center;gap:7px;margin:14px 0 0;padding:10px 12px;border:1px solid #dcece4;border-radius:10px;background:#f4faf7;color:#34715b;font-size:11px}
+.onboarding-choice{display:flex;align-items:center;margin-top:14px}
+.onboarding-action{min-height:32px;margin-top:13px;padding:0 2px;font-size:11px}
+.onboarding-choice .onboarding-action.primary{height:38px;padding:0 15px;border-radius:11px;box-shadow:0 5px 12px rgba(230,111,152,.2);font-size:11.5px}
+.onboarding-commands{margin-top:14px;padding:12px;border:1px solid #ececf0;border-radius:12px;background:#fafafb}
+.onboarding-note{margin-top:14px;padding:10px 12px;border-left:3px solid #e5c47f;background:#fffaf0;border-radius:0 8px 8px 0;font-size:11px}
+.github-device{margin-top:14px;padding:13px;border:1px solid #e7e7eb;border-radius:12px;background:#fafafb;font-size:11px}
+.agent-creator{margin-top:14px;padding:16px;border-radius:14px;background:#fafafb}
+.onboarding-complete{display:grid;grid-template-columns:38px minmax(0,1fr);gap:11px;margin-top:14px;padding:17px;border:1px solid #dcece4;border-radius:14px;background:#f4faf7}.onboarding-complete>span{width:34px;height:34px;display:grid;place-items:center;border-radius:50%;background:#dff0e8;color:#34715b}.onboarding-complete strong{font-size:13px}.onboarding-complete p{margin:3px 0 0;color:#587064;font-size:11.5px;line-height:1.5}.onboarding-complete .onboarding-action{grid-column:2;margin-top:2px;justify-self:start}.onboarding-complete .onboarding-action.primary{height:36px;padding:0 14px;border-radius:10px}
+@media(max-width:760px){.onboarding-message{margin:28px 18px;grid-template-columns:36px minmax(0,1fr);gap:10px}.onboarding-message .message-content>p{font-size:13px;padding:14px}.onboarding-progress{margin-bottom:13px}}
 .settings-intro{margin:0 0 8px;color:var(--muted-on-shell);font-size:11px;line-height:1.5}.settings-row{min-height:56px;display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)}.settings-row>span:nth-child(2){min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}.settings-row strong{font-size:12px}.settings-row small{font-size:10px;line-height:1.4;color:var(--muted-on-shell)}.settings-row em,.settings-muted{font-size:10px;font-style:normal;color:var(--muted-on-shell);white-space:nowrap}.settings-sheet .setting-icon{flex:0 0 auto;background:#f8eef1;color:var(--pink-deep)}
+.settings-sheet .setting-icon.ok{background:var(--green-soft);color:var(--green)}.settings-sheet .setting-icon.pending{background:var(--amber-soft);color:var(--amber)}
+
+/* Collapsible mission panel: the column narrows, the content slides out, and an edge tab takes over the toggle. */
+.app-shell{transition:grid-template-columns .34s cubic-bezier(.33,.05,.15,1)}
+.app-shell.panel-collapsed{grid-template-columns:260px minmax(600px,1fr) 0}
+.right-panel{overflow:hidden;visibility:visible;transition:border-left-width .34s ease}
+.panel-collapsed .right-panel{visibility:hidden;border-left-width:0;transition:visibility 0s linear .34s,border-left-width .34s ease}
+.right-panel>header,.panel-scroll{transition:opacity .18s ease,transform .34s cubic-bezier(.33,.05,.15,1)}
+.panel-collapsed .right-panel>header,.panel-collapsed .panel-scroll{opacity:0;transform:translateX(18px)}
+.panel-reopen{position:absolute;z-index:12;top:82px;right:0;width:22px;height:52px;display:grid;place-items:center;border:1px solid var(--line);border-right:0;border-radius:9px 0 0 9px;background:#fff;color:#676772;box-shadow:0 4px 12px rgba(26,26,31,.08);opacity:0;transform:translateX(100%);pointer-events:none;transition:opacity .2s ease .1s,transform .34s cubic-bezier(.33,.05,.15,1),color .16s ease}
+.panel-reopen.visible{opacity:1;transform:none;pointer-events:auto}
+.panel-reopen:hover{color:var(--pink-deep)}
+.panel-reopen svg{width:14px}
+@media(max-width:980px){.panel-reopen{display:none}}
+@media(prefers-reduced-motion:reduce){.app-shell,.right-panel,.right-panel>header,.panel-scroll,.panel-reopen{transition:none}}
+.settings-row .settings-ok{display:inline-flex;align-items:center;gap:5px;color:var(--green)}.settings-row .settings-ok:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(71,125,105,.13)}.settings-row .settings-off{color:var(--muted-on-shell)}
+.settings-row small b{font-weight:600;color:#30343d}.settings-row small a{color:var(--pink-deep);text-decoration:underline;text-underline-offset:2px}
+.settings-action{flex:0 0 auto;height:30px;padding:0 11px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--pink-deep);font-size:11px;font-weight:600}.settings-action:hover{background:var(--pink-soft);border-color:#f0cfda}.settings-action:disabled{color:var(--muted-on-shell);background:#f2f3f5;cursor:default}
+.settings-note{margin:8px 0 2px;padding:8px 10px;border-left:3px solid #e5c47f;background:#fffaf0;border-radius:0 8px 8px 0;color:var(--muted-on-shell);font-size:10px;line-height:1.5}.settings-note code{font:10px var(--font-mono)}
+
+/* Global appearance preferences live on the real settings surface, not the visual sandbox. */
+.settings-sheet{height:auto;min-height:100%;overflow:visible;padding-bottom:54px;font-family:var(--user-font,var(--font-ui));--pink:var(--user-accent,#78a9ff);--pink-deep:var(--user-accent,#4d83d8);--pink-soft:color-mix(in srgb,var(--user-accent,#78a9ff) 15%,transparent)}
+.app-shell[data-hane-theme]{font-family:var(--user-font,var(--font-ui));--pink:var(--user-accent,#78a9ff);--pink-deep:var(--user-accent,#4d83d8);--pink-soft:color-mix(in srgb,var(--user-accent,#78a9ff) 15%,transparent)}
+.appearance-settings{display:grid;gap:0}.appearance-settings .settings-intro{margin-bottom:13px}.theme-picker{display:grid;gap:7px;margin:0 0 14px;padding:0;border:0}.theme-picker legend{margin-bottom:7px;color:var(--muted-on-shell);font-size:10px;font-weight:600}.theme-picker label{min-height:48px;display:flex;align-items:center;gap:9px;padding:7px 8px;border:1px solid var(--line);border-radius:10px;cursor:pointer}.theme-picker label.selected{border-color:var(--user-accent,#78a9ff);background:color-mix(in srgb,var(--user-accent,#78a9ff) 10%,transparent)}.theme-picker input{position:absolute;opacity:0;pointer-events:none}.theme-picker label>span,.appearance-control>span{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}.theme-picker strong,.appearance-control strong{font-size:11px}.theme-picker small,.appearance-control small{font-size:9px;line-height:1.35;color:var(--muted-on-shell)}.theme-swatch{width:30px;height:30px;flex:0 0 auto;border:1px solid rgba(255,255,255,.18);border-radius:8px}.theme-swatch.midnight{background:linear-gradient(135deg,#101722 58%,#78a9ff 59%)}.theme-swatch.forest{background:linear-gradient(135deg,#101911 58%,#7cb58d 59%)}.theme-swatch.paper{background:linear-gradient(135deg,#fafafb 58%,#ed799a 59%);border-color:rgba(35,43,52,.15)}.appearance-control{min-height:58px;display:flex;align-items:center;gap:12px;border-top:1px solid var(--line);padding:8px 0}.appearance-control input[type=color]{width:38px;height:30px;padding:2px;border:1px solid var(--line);border-radius:8px;background:transparent}.appearance-control select{width:172px;height:31px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:inherit;font:inherit;font-size:10px}.appearance-reset{height:32px;margin-top:7px;border:1px solid var(--line);border-radius:9px;background:var(--pink-soft);color:var(--pink-deep);font-size:10px;font-weight:600}.appearance-reset:hover{border-color:var(--user-accent,#78a9ff)}
+.settings-sheet[data-text-size="compact"] .settings-row strong,.settings-sheet[data-text-size="compact"] .appearance-settings strong{font-size:11px}.settings-sheet[data-text-size="large"] .settings-row strong,.settings-sheet[data-text-size="large"] .appearance-settings strong{font-size:14px}.settings-sheet[data-text-size="large"] .settings-row small,.settings-sheet[data-text-size="large"] .appearance-settings small{font-size:11px}.app-shell[data-text-size="large"] .conversation-title strong{font-size:17px}.app-shell[data-text-size="large"] .message-content>p{font-size:12px;line-height:1.65}.app-shell[data-text-size="large"] .agent-nav strong,.app-shell[data-text-size="large"] .sidebar-footer strong{font-size:14px}
+.settings-sheet[data-hane-theme="midnight"],.app-shell[data-hane-theme="midnight"]{--surface:#151c27;--soft:#111823;--inset:#202a38;--line:rgba(173,192,218,.18);--muted:#aeb9c9;background:#0d131c;color:#eef3fb}.settings-sheet[data-hane-theme="midnight"]{background:#0d131c}.settings-sheet[data-hane-theme="midnight"] section,.app-shell[data-hane-theme="midnight"] .left-sidebar,.app-shell[data-hane-theme="midnight"] .right-panel{background:#101720}.app-shell[data-hane-theme="midnight"] .conversation-view,.app-shell[data-hane-theme="midnight"] .messages{background:#151c27}.app-shell[data-hane-theme="midnight"] .conversation-header,.app-shell[data-hane-theme="midnight"] .right-panel>header,.app-shell[data-hane-theme="midnight"] .composer-wrap{background:#151c27}.app-shell[data-hane-theme="midnight"] .search-box,.app-shell[data-hane-theme="midnight"] .composer{background:#202a38;box-shadow:none}.app-shell[data-hane-theme="midnight"] .new-chat,.app-shell[data-hane-theme="midnight"] .conversation-row.selected,.app-shell[data-hane-theme="midnight"] .delegation-card,.app-shell[data-hane-theme="midnight"] .code-card,.app-shell[data-hane-theme="midnight"] .file-card{background:#192230;border-color:var(--line);box-shadow:none}.app-shell[data-hane-theme="midnight"] .message-content>p,.app-shell[data-hane-theme="midnight"] .composer textarea{color:#d4dce8}.app-shell[data-hane-theme="midnight"] .message-content>p strong{color:#f2f6fb}.app-shell[data-hane-theme="midnight"] .agent-nav:hover,.app-shell[data-hane-theme="midnight"] .conversation-row:hover,.app-shell[data-hane-theme="midnight"] .sidebar-footer button:hover{background:#202a38}.settings-sheet[data-hane-theme="midnight"] .settings-row small,.settings-sheet[data-hane-theme="midnight"] .settings-intro,.settings-sheet[data-hane-theme="midnight"] .settings-row em{color:#aeb9c9}.settings-sheet[data-hane-theme="midnight"] .settings-action,.settings-sheet[data-hane-theme="midnight"] .appearance-control select{background:#192230;color:#eef3fb}
+.settings-sheet[data-hane-theme="forest"],.app-shell[data-hane-theme="forest"]{--surface:#18221c;--soft:#101912;--inset:#26362b;--line:rgba(185,209,185,.18);--muted:#b2c3b4;background:#0c140e;color:#eef6ed}.settings-sheet[data-hane-theme="forest"]{background:#0c140e}.settings-sheet[data-hane-theme="forest"] section,.app-shell[data-hane-theme="forest"] .left-sidebar,.app-shell[data-hane-theme="forest"] .right-panel{background:#101913}.app-shell[data-hane-theme="forest"] .conversation-view,.app-shell[data-hane-theme="forest"] .messages,.app-shell[data-hane-theme="forest"] .conversation-header,.app-shell[data-hane-theme="forest"] .right-panel>header,.app-shell[data-hane-theme="forest"] .composer-wrap{background:#18221c}.app-shell[data-hane-theme="forest"] .search-box,.app-shell[data-hane-theme="forest"] .composer{background:#26362b;box-shadow:none}.app-shell[data-hane-theme="forest"] .new-chat,.app-shell[data-hane-theme="forest"] .conversation-row.selected,.app-shell[data-hane-theme="forest"] .delegation-card,.app-shell[data-hane-theme="forest"] .code-card,.app-shell[data-hane-theme="forest"] .file-card{background:#1d2a21;border-color:var(--line);box-shadow:none}.app-shell[data-hane-theme="forest"] .message-content>p,.app-shell[data-hane-theme="forest"] .composer textarea{color:#d4e0d3}.app-shell[data-hane-theme="forest"] .message-content>p strong{color:#f3f8f2}.app-shell[data-hane-theme="forest"] .agent-nav:hover,.app-shell[data-hane-theme="forest"] .conversation-row:hover,.app-shell[data-hane-theme="forest"] .sidebar-footer button:hover{background:#26362b}.settings-sheet[data-hane-theme="forest"] .settings-row small,.settings-sheet[data-hane-theme="forest"] .settings-intro,.settings-sheet[data-hane-theme="forest"] .settings-row em{color:#b2c3b4}.settings-sheet[data-hane-theme="forest"] .settings-action,.settings-sheet[data-hane-theme="forest"] .appearance-control select{background:#1d2a21;color:#eef6ed}
+.settings-sheet[data-hane-theme="paper"],.app-shell[data-hane-theme="paper"]{background:#f5f7f8;color:#20272d}.settings-sheet[data-hane-theme="paper"]{background:#eef1f3}.settings-sheet[data-hane-theme="paper"] section{background:#fff}
+
+/* Theme the document canvas too: the Settings sheet can be shorter than its host preview. */
+html[data-hane-theme],body[data-hane-theme],#root[data-hane-theme]{min-height:100%;height:auto}
+body:has(.settings-sheet){overflow-y:auto}
+html[data-hane-theme="midnight"],body[data-hane-theme="midnight"],#root[data-hane-theme="midnight"]{background:#0d131c}
+html[data-hane-theme="forest"],body[data-hane-theme="forest"],#root[data-hane-theme="forest"]{background:#0c140e}
+html[data-hane-theme="paper"],body[data-hane-theme="paper"],#root[data-hane-theme="paper"]{background:#eef1f3}
+
+/* Dark themes share semantic elevated surfaces.  Keep these values local to
+   the mission shell so Paper retains its intentionally light treatment. */
+.app-shell[data-hane-theme="midnight"]{--muted-on-shell:#b9c5d6;--theme-elevated:#192230;--theme-inset:#202a38;--theme-hover:#2a3647;--theme-text:#eef3fb;--theme-subtle:#c8d2df;--theme-border:rgba(173,192,218,.22);--theme-note:#252d32;--theme-note-border:#b99255;--theme-success:#1d342c;--theme-success-border:#396b59;--theme-success-text:#a8d8c0}
+.app-shell[data-hane-theme="forest"]{--muted-on-shell:#b9cab9;--theme-elevated:#1d2a21;--theme-inset:#26362b;--theme-hover:#304536;--theme-text:#eef6ed;--theme-subtle:#ccd9cb;--theme-border:rgba(185,209,185,.22);--theme-note:#2a2a20;--theme-note-border:#b99a59;--theme-success:#1d382a;--theme-success-border:#47785f;--theme-success-text:#b7dfc0}
+
+/* The first-run guide used light literals after the theme rules.  Its body
+   text was therefore made light by the dark theme while its bubble remained
+   light.  These scoped overrides keep text and every supporting surface in
+   the same contrast family. */
+.app-shell[data-hane-theme="midnight"] .onboarding-message .message-content>header small,.app-shell[data-hane-theme="forest"] .onboarding-message .message-content>header small{color:var(--muted-on-shell)}
+.app-shell[data-hane-theme="midnight"] .onboarding-message .message-content>header .status,.app-shell[data-hane-theme="forest"] .onboarding-message .message-content>header .status{background:var(--theme-note);color:#f0cf82}
+.app-shell[data-hane-theme="midnight"] .onboarding-progress,.app-shell[data-hane-theme="forest"] .onboarding-progress{color:var(--muted-on-shell)}
+.app-shell[data-hane-theme="midnight"] .onboarding-progress i,.app-shell[data-hane-theme="forest"] .onboarding-progress i{background:var(--theme-inset)}
+.app-shell[data-hane-theme="midnight"] .onboarding-message .message-content>p,.app-shell[data-hane-theme="forest"] .onboarding-message .message-content>p{background:var(--theme-elevated);border-color:var(--theme-border);color:var(--theme-text)}
+.app-shell[data-hane-theme="midnight"] .onboarding-message .message-content>p code,.app-shell[data-hane-theme="forest"] .onboarding-message .message-content>p code{color:var(--user-accent,#78a9ff)}
+.app-shell[data-hane-theme="midnight"] .onboarding-commands,.app-shell[data-hane-theme="forest"] .onboarding-commands,.app-shell[data-hane-theme="midnight"] .github-device,.app-shell[data-hane-theme="forest"] .github-device,.app-shell[data-hane-theme="midnight"] .agent-creator,.app-shell[data-hane-theme="forest"] .agent-creator{background:var(--theme-elevated);border-color:var(--theme-border);color:var(--theme-subtle)}
+.app-shell[data-hane-theme="midnight"] .github-device strong,.app-shell[data-hane-theme="forest"] .github-device strong,.app-shell[data-hane-theme="midnight"] .agent-creator input,.app-shell[data-hane-theme="forest"] .agent-creator input,.app-shell[data-hane-theme="midnight"] .agent-creator select,.app-shell[data-hane-theme="forest"] .agent-creator select{background:var(--theme-inset);border-color:var(--theme-border);color:var(--theme-text)}
+.app-shell[data-hane-theme="midnight"] .onboarding-note,.app-shell[data-hane-theme="forest"] .onboarding-note{background:var(--theme-note);border-left-color:var(--theme-note-border);color:var(--theme-subtle)}
+.app-shell[data-hane-theme="midnight"] .onboarding-granted,.app-shell[data-hane-theme="forest"] .onboarding-granted,.app-shell[data-hane-theme="midnight"] .onboarding-complete,.app-shell[data-hane-theme="forest"] .onboarding-complete{background:var(--theme-success);border-color:var(--theme-success-border);color:var(--theme-success-text)}
+.app-shell[data-hane-theme="midnight"] .onboarding-complete>span,.app-shell[data-hane-theme="forest"] .onboarding-complete>span{background:var(--theme-success-border);color:var(--theme-text)}
+.app-shell[data-hane-theme="midnight"] .onboarding-complete p,.app-shell[data-hane-theme="forest"] .onboarding-complete p{color:var(--theme-success-text)}
+
+/* Composer popovers, side empty states, and context controls are UI chrome,
+   not document previews: keep them on the selected dark surface. */
+.app-shell[data-hane-theme="midnight"] .pop,.app-shell[data-hane-theme="forest"] .pop{background:var(--theme-elevated);border-color:var(--theme-border);color:var(--theme-text);box-shadow:0 16px 42px rgba(0,0,0,.28)}
+.app-shell[data-hane-theme="midnight"] .pop>header>span,.app-shell[data-hane-theme="forest"] .pop>header>span,.app-shell[data-hane-theme="midnight"] .pop>header button,.app-shell[data-hane-theme="forest"] .pop>header button,.app-shell[data-hane-theme="midnight"] .pop>footer.pop-commands .pop-mini,.app-shell[data-hane-theme="forest"] .pop>footer.pop-commands .pop-mini{background:var(--theme-inset);color:var(--theme-text)}
+.app-shell[data-hane-theme="midnight"] .pop>textarea,.app-shell[data-hane-theme="forest"] .pop>textarea,.app-shell[data-hane-theme="midnight"] .provider-detail,.app-shell[data-hane-theme="forest"] .provider-detail{background:var(--theme-inset);border-color:var(--theme-border);color:var(--theme-text)}
+.app-shell[data-hane-theme="midnight"] .pop-row:hover,.app-shell[data-hane-theme="forest"] .pop-row:hover{background:var(--theme-hover)}
+.app-shell[data-hane-theme="midnight"] .pop-row.on,.app-shell[data-hane-theme="forest"] .pop-row.on{background:var(--theme-hover)}
+.app-shell[data-hane-theme="midnight"] .pop-root,.app-shell[data-hane-theme="forest"] .pop-root,.app-shell[data-hane-theme="midnight"] .evidence-list,.app-shell[data-hane-theme="forest"] .evidence-list{background:var(--theme-inset);color:var(--theme-text)}
+.app-shell[data-hane-theme="midnight"] .pop-note,.app-shell[data-hane-theme="forest"] .pop-note{background:var(--theme-note);border-left-color:var(--theme-note-border);color:var(--theme-subtle)}
+.app-shell[data-hane-theme="midnight"] .empty-mini,.app-shell[data-hane-theme="forest"] .empty-mini{background:var(--theme-elevated);border-color:var(--theme-border)}
+.app-shell[data-hane-theme="midnight"] .empty-mini button,.app-shell[data-hane-theme="forest"] .empty-mini button{background:var(--theme-inset);color:var(--user-accent,#78a9ff)}
+.app-shell[data-hane-theme="midnight"] .empty-mini button:hover,.app-shell[data-hane-theme="forest"] .empty-mini button:hover{background:var(--theme-hover)}
+.app-shell[data-hane-theme="midnight"] .secondary-action,.app-shell[data-hane-theme="forest"] .secondary-action{background:var(--theme-inset);border-color:var(--theme-border);color:var(--theme-subtle)}
+.app-shell[data-hane-theme="midnight"] .approval-card,.app-shell[data-hane-theme="forest"] .approval-card{background:var(--theme-elevated);border-color:var(--theme-border);box-shadow:none}
+.app-shell[data-hane-theme="midnight"] .approval-card small,.app-shell[data-hane-theme="forest"] .approval-card small{color:var(--theme-subtle)}
+
+/* Compact desktop: this is for a narrow app window or elevated Windows zoom,
+   not a separate mobile product.  Keep the mission path usable without
+   clipping the conversation or silently removing its audit context. */
+@media(max-width:980px){
+  body{min-width:0;overflow:hidden}
+  .app-shell,.app-shell.panel-collapsed{grid-template-columns:72px minmax(0,1fr);min-width:0}
+  .left-sidebar{padding:14px 9px 10px;align-items:center}
+  .brand-row{width:100%;height:auto;padding:0;justify-content:center;margin-bottom:14px}
+  .brand-row img{width:38px;object-fit:cover;object-position:left}
+  .brand-row .icon-button{margin:10px 0 0}
+  .search-box{width:38px;height:38px;margin:0 0 10px;padding:0;justify-content:center;border-radius:11px}
+  .search-box input,.search-box kbd{display:none}
+  .new-chat{width:38px;height:42px;margin:0 0 12px;padding:0;grid-template-columns:1fr;place-items:center;border-radius:11px;font-size:0}
+  .new-chat>span{width:28px;height:28px}.new-chat>svg{display:none}
+  .sidebar-scroll{width:100%;padding:0;overflow-x:hidden}
+  .section-head{height:25px;padding:0;justify-content:center;font-size:0}
+  .section-head button{display:none}
+  .agent-nav{width:42px;height:42px;margin:0 auto 6px;padding:0;justify-content:center}
+  .agent-nav>span,.agent-nav>i{display:none}
+  .agent-nav .avatar,.agent-nav .hane-avatar{margin:0}
+  .empty-mini{display:none}
+  .sidebar-footer{width:100%;padding-top:8px}
+  .sidebar-footer button{width:42px;height:42px;margin:auto;padding:0;justify-content:center}
+  .sidebar-footer button>span,.sidebar-footer button>svg:last-child{display:none}
+  .conversation-header{padding-inline:16px}
+  .messages,.composer-wrap{padding-inline:18px}
+  .onboarding-message{margin-top:clamp(24px,6vh,50px)}
+
+  .right-panel{display:grid;position:fixed;z-index:20;inset:0 0 0 auto;width:min(360px,92vw);height:100dvh;border-left:1px solid var(--line);box-shadow:-18px 0 44px rgba(18,25,36,.22);visibility:visible;transform:translateX(0);transition:transform .28s cubic-bezier(.33,.05,.15,1),visibility 0s;}
+  .panel-collapsed .right-panel{visibility:hidden;border-left-width:1px;transform:translateX(102%);transition:transform .28s cubic-bezier(.33,.05,.15,1),visibility 0s linear .28s}
+  .right-panel>header,.panel-scroll,.panel-collapsed .right-panel>header,.panel-collapsed .panel-scroll{opacity:1;transform:none}
+  .panel-reopen{display:grid;position:absolute;top:82px;right:0;width:34px;height:46px;border-right:0;border-radius:9px 0 0 9px;background:var(--surface);color:var(--pink-deep);box-shadow:0 8px 20px rgba(18,25,36,.16)}
+  .panel-reopen.visible{transform:none}
+}
+@media(max-width:560px){
+  .app-shell,.app-shell.panel-collapsed{grid-template-columns:60px minmax(0,1fr)}
+  .left-sidebar{padding-inline:6px}.search-box,.new-chat{width:36px}
+  .messages,.composer-wrap{padding-inline:12px}
+  .onboarding-message{grid-template-columns:32px minmax(0,1fr);gap:9px}
+  .onboarding-message .message-content>p{padding:14px;font-size:13px}
+}
+
+/* Appearance text scale is a reading preference, so it reaches every
+   persistent product surface instead of only the Settings labels. */
+.app-shell[data-text-size="compact"] .search-box input{font-size:11.5px}
+.app-shell[data-text-size="compact"] .new-chat{font-size:11.5px}
+.app-shell[data-text-size="compact"] .agent-nav strong,.app-shell[data-text-size="compact"] .sidebar-footer strong{font-size:11.5px}
+.app-shell[data-text-size="compact"] .agent-nav small,.app-shell[data-text-size="compact"] .sidebar-footer small,.app-shell[data-text-size="compact"] .conversation-copy small{font-size:9px}
+.app-shell[data-text-size="compact"] .conversation-copy strong{font-size:10.5px}
+.app-shell[data-text-size="compact"] .conversation-title strong{font-size:14px}
+.app-shell[data-text-size="compact"] .conversation-title small,.app-shell[data-text-size="compact"] .message-content>header small{font-size:9px}
+.app-shell[data-text-size="compact"] .message-content>header strong{font-size:11px}
+.app-shell[data-text-size="compact"] .message-content>p{font-size:12px;line-height:1.52}
+.app-shell[data-text-size="compact"] .onboarding-message .message-content>p{font-size:13px}
+.app-shell[data-text-size="compact"] .onboarding-progress,.app-shell[data-text-size="compact"] .onboarding-granted,.app-shell[data-text-size="compact"] .onboarding-action{font-size:10px}
+.app-shell[data-text-size="compact"] .composer textarea{font-size:11.5px}
+.app-shell[data-text-size="compact"] .composer>div>small,.app-shell[data-text-size="compact"] .composer-wrap>small{font-size:9px}
+.app-shell[data-text-size="compact"] .right-panel>header strong{font-size:12px}
+.app-shell[data-text-size="compact"] .right-panel>header small,.app-shell[data-text-size="compact"] .panel-title>span{font-size:8.5px}
+.app-shell[data-text-size="compact"] .panel-title strong{font-size:10px}
+.app-shell[data-text-size="compact"] .active-agent strong{font-size:9.5px}
+.app-shell[data-text-size="compact"] .active-agent small,.app-shell[data-text-size="compact"] .preview-caption span,.app-shell[data-text-size="compact"] .progress-meta{font-size:8.5px}
+.app-shell[data-text-size="compact"] .panel-empty,.app-shell[data-text-size="compact"] .evidence-copy,.app-shell[data-text-size="compact"] .evidence-empty{font-size:9px}
+.app-shell[data-text-size="compact"] .approval-card strong{font-size:10px}
+.app-shell[data-text-size="compact"] .approval-card small{font-size:8.5px}
+
+.app-shell[data-text-size="large"] .search-box input{font-size:14px}
+.app-shell[data-text-size="large"] .new-chat{font-size:13.5px}
+.app-shell[data-text-size="large"] .agent-nav strong,.app-shell[data-text-size="large"] .sidebar-footer strong{font-size:14px}
+.app-shell[data-text-size="large"] .agent-nav small,.app-shell[data-text-size="large"] .sidebar-footer small,.app-shell[data-text-size="large"] .conversation-copy small{font-size:11px}
+.app-shell[data-text-size="large"] .conversation-copy strong{font-size:13px}
+.app-shell[data-text-size="large"] .conversation-title small,.app-shell[data-text-size="large"] .message-content>header small{font-size:11px}
+.app-shell[data-text-size="large"] .message-content>header strong{font-size:13px}
+.app-shell[data-text-size="large"] .message-content>p{font-size:14px;line-height:1.7}
+.app-shell[data-text-size="large"] .onboarding-message .message-content>p{font-size:15px;line-height:1.62}
+.app-shell[data-text-size="large"] .onboarding-progress,.app-shell[data-text-size="large"] .onboarding-granted,.app-shell[data-text-size="large"] .onboarding-action{font-size:12px}
+.app-shell[data-text-size="large"] .composer textarea{font-size:13.5px;line-height:1.5}
+.app-shell[data-text-size="large"] .composer{min-height:80px}
+.app-shell[data-text-size="large"] .composer>div>small,.app-shell[data-text-size="large"] .composer-wrap>small{font-size:10.5px}
+.app-shell[data-text-size="large"] .right-panel>header strong{font-size:14px}
+.app-shell[data-text-size="large"] .right-panel>header small,.app-shell[data-text-size="large"] .panel-title>span{font-size:10.5px}
+.app-shell[data-text-size="large"] .panel-title strong{font-size:12px}
+.app-shell[data-text-size="large"] .active-agent strong{font-size:11.5px}
+.app-shell[data-text-size="large"] .active-agent small,.app-shell[data-text-size="large"] .preview-caption span,.app-shell[data-text-size="large"] .progress-meta{font-size:10px}
+.app-shell[data-text-size="large"] .panel-empty,.app-shell[data-text-size="large"] .evidence-copy,.app-shell[data-text-size="large"] .evidence-empty{font-size:10.5px}
+.app-shell[data-text-size="large"] .approval-card strong{font-size:12px}
+.app-shell[data-text-size="large"] .approval-card small{font-size:10px}
+.app-shell[data-text-size="large"] .secondary-action,.app-shell[data-text-size="large"] .approval-card>button{font-size:11px}
+
+/* The accent is visible, named and reversible without resetting the reader's
+   theme, font or type scale. */
+.appearance-control.appearance-accent{align-items:flex-start;padding-block:11px}
+.appearance-accent>span{padding-top:2px}
+.accent-editor{width:220px;display:grid;gap:9px}
+.accent-current{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.appearance-control .accent-current input[type=color]{width:38px;height:30px}
+.accent-current output{min-width:68px;color:var(--muted-on-shell);font:600 10px var(--font-mono);letter-spacing:.03em;text-align:right}
+.accent-swatches{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.accent-swatches>span{color:var(--muted-on-shell);font-size:9px;white-space:nowrap}
+.accent-swatch-list{display:flex;align-items:center;gap:6px}
+.accent-swatches button{width:18px;height:18px;padding:0;border:2px solid transparent;border-radius:50%;background:var(--accent-swatch);box-shadow:0 0 0 1px var(--line);transition:transform .16s ease,box-shadow .16s ease}
+.accent-swatches button:hover{transform:translateY(-1px)}
+.accent-swatches button.selected{border-color:var(--surface);box-shadow:0 0 0 2px var(--accent-swatch),0 0 0 3px var(--line)}
+.accent-swatches button:focus-visible{outline:2px solid var(--accent-swatch);outline-offset:3px}
+.accent-reset{justify-self:end;margin-top:1px;padding:0;background:transparent;color:var(--pink-deep);font-size:9.5px;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.accent-reset:hover{color:var(--user-accent,#78a9ff)}
+@media(max-width:620px){.appearance-control.appearance-accent{align-items:stretch;flex-direction:column}.accent-editor{width:100%}.accent-current{justify-content:flex-start}.accent-current output{text-align:left}.accent-reset{justify-self:start}}
+
 /* Espaço de trabalho real da missão: grants com escopo, raiz efetiva, orçamento
    de ferramentas e as evidências de leitura/listagem/bloqueio que o audit guarda.
    Linhas seguem a densidade de .active-agent e .pop-row; nada aqui imita saída de

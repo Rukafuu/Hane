@@ -40,6 +40,15 @@ export async function fetchWorkspace() {
   }
 }
 
+export const fetchOnboarding = () => fetch("/api/onboarding").then(json);
+
+export const startGitHubAuthorization = () => fetch("/api/onboarding/github/device", { method: "POST" }).then(json);
+
+export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/device/${encodeURIComponent(id)}/poll`, { method: "POST" }).then(async (response) => {
+  if (response.status === 202) return { status: "pending" };
+  return json(response);
+});
+
 /**
  * A workspace grant without a server-side root, or a glob scope, is rejected by
  * the core with 400; `json` turns that body into an `ApiError` carrying the

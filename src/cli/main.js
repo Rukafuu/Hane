@@ -5,6 +5,7 @@ import { providerAddCommand, providerListCommand, providerRemoveCommand, provide
 import { openHaneDatabase } from '../storage/sqlite-database.js';
 import { SqliteTaskRepository } from '../storage/sqlite-task-repository.js';
 import { SqliteProviderConfigStore } from '../storage/sqlite-provider-config-store.js';
+import { SqliteOnboardingStore } from '../storage/sqlite-onboarding-store.js';
 import { SqliteSkillStore } from '../storage/sqlite-skill-store.js';
 import { WindowsCredentialManager } from '../credentials/windows-credential-manager.js';
 import { createProviderFromConfig } from '../providers/provider-factory.js';
@@ -15,6 +16,7 @@ export function createDefaultDependencies() {
     openDatabase: (filename) => openHaneDatabase(filename),
     createTaskRepository: (database) => new SqliteTaskRepository({ database }),
     createProviderConfigStore: (database) => new SqliteProviderConfigStore({ database }),
+    createOnboardingStore: (database) => new SqliteOnboardingStore({ database }),
     createSkillStore: (database) => new SqliteSkillStore({ database }),
     credentialManager: new WindowsCredentialManager(),
     createProvider: createProviderFromConfig,

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { HaneAvatar } from "./HaneAvatar.jsx";
 
-const shapes = ["petal", "drop", "cloud", "pebble"];
+const shapes = ["circle", "pebble", "capsule", "hexagon"];
 const states = ["idle", "thinking", "working", "waiting", "blocked", "done", "error"];
 
 // Kept behind a query route so the production mission surface stays focused.

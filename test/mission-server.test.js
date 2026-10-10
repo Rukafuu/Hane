@@ -7,9 +7,11 @@ import { createMissionServer } from '../src/server/mission-server.js';
 import { openHaneDatabase } from '../src/storage/sqlite-database.js';
 import { SqliteTaskRepository } from '../src/storage/sqlite-task-repository.js';
 import { SqliteProviderConfigStore } from '../src/storage/sqlite-provider-config-store.js';
+import { SqliteOnboardingStore } from '../src/storage/sqlite-onboarding-store.js';
 import { SqliteSkillStore } from '../src/storage/sqlite-skill-store.js';
 import { createProviderFromConfig } from '../src/providers/provider-factory.js';
 import { CAPABILITY } from '../src/capabilities.js';
+import { GitHubAuthorizationPendingError } from '../src/integrations/github-device-flow.js';
 
 class FakeCredentialManager {
   constructor() { this.secrets = new Map(); }
@@ -31,19 +33,23 @@ class RecordingProvider {
   }
 }
 
-function createHarness({ providerConstructor = RecordingProvider, defaultWorkspaceRoot = null } = {}) {
+function createHarness({ providerConstructor = RecordingProvider, githubClientId = null, githubFlow, defaultWorkspaceRoot = null } = {}) {
   const database = openHaneDatabase(':memory:');
   const repository = new SqliteTaskRepository({ database });
   const providerConfigStore = new SqliteProviderConfigStore({ database });
+  const onboardingStore = new SqliteOnboardingStore({ database });
   const skillStore = new SqliteSkillStore({ database });
   const credentialManager = new FakeCredentialManager();
   const server = createMissionServer({
     repository,
     providerConfigStore,
+    onboardingStore,
     skillStore,
     credentialManager,
     createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor }),
     defaultWorkspaceRoot,
+    githubClientId,
+    githubFlow,
   });
   const baseUrlPromise = new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -54,6 +60,7 @@ function createHarness({ providerConstructor = RecordingProvider, defaultWorkspa
     database,
     repository,
     providerConfigStore,
+    onboardingStore,
     skillStore,
     credentialManager,
     baseUrl: () => baseUrlPromise,
@@ -423,6 +430,41 @@ test('GET /api/skills exposes installed local skill metadata without its instruc
   assert.equal(body.skills[0].id, 'review.release-notes');
   assert.equal(JSON.stringify(body).includes('private instruction'), false);
   assert.equal(JSON.stringify(body).includes('C:/skills'), false);
+});
+
+test('GitHub device onboarding keeps the token out of the API and SQLite metadata', async (t) => {
+  let pollCount = 0;
+  const harness = createHarness({
+    githubClientId: 'Iv1.test',
+    githubFlow: {
+      start: async () => ({ deviceCode: 'device-secret', userCode: 'ABCD-EFGH', verificationUri: 'https://github.com/login/device', expiresIn: 900, interval: 5 }),
+      poll: async () => {
+        pollCount += 1;
+        if (pollCount === 1) throw new GitHubAuthorizationPendingError('authorization_pending');
+        return { accessToken: 'gho_private', login: 'hane-user', scopes: ['read:user', 'repo:status'] };
+      },
+    },
+  });
+  t.after(() => harness.close());
+  const baseUrl = await harness.baseUrl();
+
+  const before = await (await fetch(`${baseUrl}/api/onboarding`)).json();
+  assert.deepEqual(before, { github: null, githubAvailable: true });
+  const started = await fetch(`${baseUrl}/api/onboarding/github/device`, { method: 'POST' });
+  assert.equal(started.status, 201);
+  const device = await started.json();
+  assert.equal(device.userCode, 'ABCD-EFGH');
+  assert.equal(JSON.stringify(device).includes('device-secret'), false);
+
+  const pending = await fetch(`${baseUrl}/api/onboarding/github/device/${device.id}/poll`, { method: 'POST' });
+  assert.equal(pending.status, 202);
+  const connected = await fetch(`${baseUrl}/api/onboarding/github/device/${device.id}/poll`, { method: 'POST' });
+  assert.equal(connected.status, 200);
+  const payload = await connected.json();
+  assert.deepEqual(payload.github.accountLabel, 'hane-user');
+  assert.equal(JSON.stringify(payload).includes('gho_private'), false);
+  assert.equal(await harness.credentialManager.get('local-agent-orchestrator/github'), 'gho_private');
+  assert.equal(JSON.stringify(harness.onboardingStore.getGitHub()).includes('gho_private'), false);
 });
 
 test('unknown routes answer 404 as JSON', async (t) => {

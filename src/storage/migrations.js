@@ -54,6 +54,18 @@ const MIGRATIONS = Object.freeze([
     ]),
   }),
   Object.freeze({
+    id: 4,
+    name: 'onboarding_connections',
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS onboarding_connections (
+        kind TEXT PRIMARY KEY,
+        account_label TEXT NOT NULL,
+        scopes_json TEXT NOT NULL,
+        connected_at TEXT NOT NULL
+      ) STRICT;`,
+    ]),
+  }),
+  Object.freeze({
     id: 5,
     name: 'mission_workspace_read',
     statements: Object.freeze([

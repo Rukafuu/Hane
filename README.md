@@ -49,6 +49,8 @@ node bin/hane.js approve <id>
 
 # 5. Serve the mission API and the UI on loopback.
 node bin/hane.js serve --port 7788
+# Optional: enables GitHub's desktop device authorization flow in onboarding.
+node bin/hane.js serve --port 7788 --github-client-id <github-oauth-app-client-id>
 ```
 
 ## Commands
@@ -73,7 +75,7 @@ hane missions [--db <path>]
 hane mission <id> [--db <path>] [--json]
 hane retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
 hane approve <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
-hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>]
+hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>] [--github-client-id <id>]
 ```
 
 The default database is `outputs/hane.sqlite`, resolved from the package root so

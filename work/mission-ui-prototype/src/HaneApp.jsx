@@ -1,32 +1,55 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowsClockwise, ArrowSquareOut, At, BracketsCurly, CaretRight, Check, CircleNotch, Clock, Code,
+  ArrowsClockwise, ArrowSquareOut, At, BracketsCurly, CaretLeft, CaretRight, Check, CircleNotch, Clock, Code,
   CopySimple, FileText, FolderOpen, MagnifyingGlass, PaperPlaneRight, Paperclip, Plugs, Plus, Sparkle,
   GearSix, ShieldCheck, UsersThree, Warning, X,
 } from "@phosphor-icons/react";
 import {
   approvePop, entrance, flash, growBar, pop, pulseLoop, reduceMotion, rise, spinLoop, spinOnce, staggerIn, toastOut,
 } from "./motion.js";
-import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchProviders, fetchWorkspace, openMissionEvents, retryMission } from "./api.js";
+import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchOnboarding, fetchProviders, fetchWorkspace, openMissionEvents, pollGitHubAuthorization, retryMission, startGitHubAuthorization } from "./api.js";
 import { HaneAvatar } from "./HaneAvatar.jsx";
 import { avatarStateFromMission } from "./avatar-runtime.js";
+import { loadLocalWorkspace, requestLocalWorkspace } from "./local-workspace.js";
 import { CAPABILITY_OPTIONS, GATED_CAPABILITIES_NOTE, WORKSPACE_DISABLED_HINT, WORKSPACE_ROW_HINT, capabilityPayload, evidenceRows, grantDisplay, isCapabilityEnabled, toolUsageLabel, workspaceRootLabel } from "./workspace-evidence.js";
 
 // The mission roles deliberately retain the real planner → executor → reviewer
 // contract.  `face` only changes their presentation to the Figma Make avatar
 // language; it must not be used as an identity or permission signal.
 const roles = {
-  planner: { name: "Orion", job: "Planejamento", tone: "lilac", shape: "petal", color: "#b9a4d9", Icon: UsersThree },
-  executor: { name: "Byte", job: "Execução", tone: "blue", shape: "drop", color: "#8aa9c9", Icon: Code },
-  reviewer: { name: "Cipher", job: "Revisão", tone: "mint", shape: "cloud", color: "#9bbfae", Icon: ShieldCheck },
+  planner: { name: "Planejador", job: "Planejamento", tone: "lilac", shape: "hexagon", color: "#b9a4d9", Icon: UsersThree },
+  executor: { name: "Executor", job: "Execução", tone: "blue", shape: "capsule", color: "#8aa9c9", Icon: Code },
+  reviewer: { name: "Revisor", job: "Revisão", tone: "mint", shape: "cloud", color: "#9bbfae", Icon: ShieldCheck },
 };
 const onboardingAgent = { name: "Hane", job: "Guia de início", tone: "pink", shape: "pebble", color: "#e66f98", Icon: Sparkle };
 const ROLE_ORDER = ["planner", "executor", "reviewer"];
+// GitHub is rendered from live /api/onboarding state; the rest of the catalog
+// has no runtime behind it yet, so it stays explicitly "not integrated".
 const CONNECTOR_CATALOG = Object.freeze([
-  { id: "github", name: "GitHub", detail: "Repositórios, issues e pull requests", mode: "API / OAuth", status: "Ainda não integrado" },
+  { id: "github", name: "GitHub", detail: "Repositórios, issues e pull requests", mode: "API / OAuth" },
   { id: "figma", name: "Figma", detail: "Arquivos, frames e variáveis", mode: "API / MCP", status: "Ainda não integrado" },
   { id: "supabase", name: "Supabase", detail: "Schema, consultas e migrations", mode: "API", status: "Ainda não integrado" },
   { id: "mcp", name: "Servidores MCP", detail: "Ferramentas declaradas por servidor", mode: "MCP", status: "Ainda não integrado" },
+]);
+
+const DEFAULT_APPEARANCE = Object.freeze({
+  theme: "midnight",
+  accent: "#78a9ff",
+  font: "system",
+  textSize: "comfortable",
+});
+
+const THEME_PRESETS = Object.freeze({
+  midnight: "#78a9ff",
+  forest: "#7cb58d",
+  paper: "#ed799a",
+});
+const ACCENT_SWATCHES = Object.freeze([
+  { value: "#78a9ff", label: "Azul Meia-noite" },
+  { value: "#7cb58d", label: "Verde Floresta" },
+  { value: "#ed799a", label: "Rosa Hane" },
+  { value: "#a78bfa", label: "Lilás" },
+  { value: "#e5b85c", label: "Âmbar" },
 ]);
 
 const IS_MAC = typeof navigator !== "undefined" && /Mac|iP(hone|ad)/.test(navigator.userAgent ?? "");
@@ -59,6 +82,11 @@ const clock = (iso) => {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 };
 
+const dateLabel = (iso) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+};
+
 function toSummary(task) {
   return {
     id: task.id,
@@ -89,7 +117,7 @@ function Avatar({ person, size = "md", state = "idle", interactive = false, onCl
   const Icon = person.Icon;
   const dimensions = { xs: 24, sm: 34, md: 44 };
   if (!person.shape) return <span className={`avatar ${person.tone} ${size}`} aria-label={person.name}><Icon weight="bold" /></span>;
-  return <HaneAvatar agentId={person.name} name={person.name} shape={person.shape} color={person.color} state={state} size={dimensions[size] ?? 44} interactive={interactive} onClick={onClick} />;
+  return <HaneAvatar agentId={person.name} name={person.name} shape={person.shape} color={person.color} image={person.image} state={state} size={dimensions[size] ?? 44} interactive={interactive} onClick={onClick} />;
 }
 
 function Stack({ mission, currentRole }) {
@@ -130,28 +158,19 @@ function EmptyStage({ Icon, title, children, commands = [], action, onCopy }) {
   </div>;
 }
 
-function OnboardingMessage({ hasProvider, onOpenProviders, onCreateMission, onCopy }) {
+function OnboardingMessage({ step, hasProvider, github, githubAvailable, githubDevice, workspace, busy, onOpenProviders, onCopy, onRequestWorkspace, onConnectGitHub, onCheckGitHub, onAdvance, onCreateMission, onCreateAnother, profile, onProfileChange, onCreateProfile }) {
+  const next = (label = "Continuar") => <span className="onboarding-choice"><button type="button" className="onboarding-action primary" onClick={onAdvance}>{label} <CaretRight /></button></span>;
   return <article className="message onboarding-message">
     <Avatar person={onboardingAgent} state="thinking" />
     <div className="message-content">
-      <header><strong>Hane</strong><small>Guia de início</small><Status kind={hasProvider ? "done" : "queued"}>{hasProvider ? "Pronto para começar" : "Primeira configuração"}</Status></header>
-      <p>Bem-vindo. Eu vou te ajudar a preparar a primeira missão e entender como a equipe trabalha.</p>
-      <ol className="onboarding-steps">
-        <li>
-          <strong>Conecte um provedor</strong>
-          <p>{hasProvider ? "Um provedor já está configurado. Você pode escolher outro para a próxima missão quando quiser." : "Cadastre um provedor compatível com OpenAI e guarde a chave no Gerenciador de Credenciais do Windows."}</p>
-          {hasProvider ? <button type="button" className="onboarding-action" onClick={onOpenProviders}>Ver provedores <CaretRight /></button> : <div className="onboarding-commands"><CmdLine command="node bin/hane.js provider add --label <nome> --base-url <url> --model <id>" onCopy={onCopy} /><CmdLine command="node bin/hane.js provider set-secret <nome>" onCopy={onCopy} /></div>}
-        </li>
-        <li>
-          <strong>Descreva e execute uma missão</strong>
-          <p>Escreva um objetivo claro no campo abaixo. O Hane salva a missão localmente e inicia a equipe com o provedor que você escolheu.</p>
-          <button type="button" className="onboarding-action primary" onClick={onCreateMission}>Escrever primeira missão <CaretRight /></button>
-        </li>
-        <li>
-          <strong>Acompanhe e revise</strong>
-          <p>Orion planeja, Byte executa e Cipher revisa. As saídas ficam na trilha da missão e ações importantes continuam pedindo sua aprovação.</p>
-        </li>
-      </ol>
+      <header><strong>Hane</strong><small>Guia de início</small><Status kind="queued">Sua escolha</Status></header>
+      <div className="onboarding-progress" aria-label={`Etapa ${step + 1} de 5`}><span>Etapa {step + 1} de 5</span><i><b style={{ width: `${((step + 1) / 5) * 100}%` }} /></i></div>
+      {step === 0 && <><p>Bem-vindo. Antes de qualquer missão, quer conectar um provedor de IA? Você pode configurar agora ou seguir e decidir depois.</p>{hasProvider ? <><span className="onboarding-granted"><Check weight="bold" /> Provedor disponível</span>{next()}</> : <><div className="onboarding-commands"><CmdLine command="node bin/hane.js provider add --label <nome> --base-url <url> --model <id>" onCopy={onCopy} /><CmdLine command="node bin/hane.js provider set-secret <nome>" onCopy={onCopy} /></div><button type="button" className="onboarding-action" onClick={onOpenProviders}>Ver configuração <CaretRight /></button>{next("Configuro depois")}</>}</>}
+      {step === 1 && <><p>Quer permitir uma pasta local? Hane só poderá lê-la quando uma missão receber explicitamente <code>workspace.read</code>.</p>{workspace.granted ? <><span className="onboarding-granted"><Check weight="bold" /> “{workspace.name}” autorizada</span>{next()}</> : workspace.supported ? <><button type="button" className="onboarding-action" disabled={busy === "workspace"} onClick={onRequestWorkspace}>{busy === "workspace" ? "Escolhendo…" : "Escolher pasta"} <CaretRight /></button>{next("Pular por enquanto")}</> : <><span className="onboarding-note">Use Chrome ou Edge para escolher uma pasta local.</span>{next("Continuar")}</>}</>}
+      {step === 2 && <><p>Quer conectar o GitHub? A autorização é oficial e você decide depois, por missão, quando um repositório pode ser lido.</p>{github ? <><span className="onboarding-granted"><Check weight="bold" /> Conectado como @{github.accountLabel}</span>{next()}</> : githubDevice ? <div className="github-device"><span>Abra <a href={githubDevice.verificationUri} target="_blank" rel="noreferrer">github.com/login/device</a> e informe:</span><strong>{githubDevice.userCode}</strong><button type="button" className="onboarding-action primary" disabled={busy === "github"} onClick={onCheckGitHub}>{busy === "github" ? "Verificando…" : "Já autorizei"}</button></div> : githubAvailable ? <><button type="button" className="onboarding-action" disabled={busy === "github"} onClick={onConnectGitHub}>Conectar GitHub <CaretRight /></button>{next("Pular por enquanto")}</> : <><span className="onboarding-note">GitHub pode ser conectado quando o servidor tiver um Client ID.</span>{next("Continuar")}</>}</>}
+      {step === 3 && <><p>Assim funciona: você descreve a missão, o runtime planeja, executa e revisa. Ações importantes continuam exigindo sua aprovação.</p>{next("Entendi")}</>}
+      {step === 4 && <div className="agent-creator"><p>Agora crie o primeiro Hane do seu jeito. Isso define um perfil visual local; os papéis técnicos continuam visíveis e auditáveis.</p><label>Nome<input value={profile.name} maxLength="32" onChange={(event) => onProfileChange({ ...profile, name: event.target.value })} placeholder="Nome do Hane" /></label><label>Cor<input type="color" value={profile.color} onChange={(event) => onProfileChange({ ...profile, color: event.target.value })} /></label><label>Forma<select value={profile.shape} onChange={(event) => onProfileChange({ ...profile, shape: event.target.value })}><option value="pebble">Pedra</option><option value="petal">Pétala</option><option value="drop">Gota</option><option value="cloud">Nuvem</option></select></label><label>Imagem ou GIF<input type="file" accept="image/*" onChange={(event) => { const file = event.target.files?.[0]; if (!file || file.size > 2_000_000) return; const reader = new FileReader(); reader.onload = () => onProfileChange({ ...profile, image: reader.result }); reader.readAsDataURL(file); }} /></label><Avatar person={{ ...onboardingAgent, ...profile }} size="md" state="idle" /> <button type="button" className="onboarding-action primary" disabled={!profile.name.trim()} onClick={onCreateProfile}>Criar Hane <CaretRight /></button></div>}
+      {step >= 5 && <div className="onboarding-complete"><span><Check weight="bold" /></span><div><strong>Seu Hane está pronto.</strong><p>O perfil foi salvo neste navegador e já aparece na lista de agentes. Você pode criar quantos quiser.</p></div><button type="button" className="onboarding-action primary" onClick={onCreateMission}>Criar primeira missão <CaretRight /></button><button type="button" className="onboarding-action" onClick={onCreateAnother}>Criar outro Hane <CaretRight /></button></div>}
     </div>
   </article>;
 }
@@ -190,17 +209,58 @@ function Spinner() {
   return <CircleNotch ref={ref} className="spin-inline" />;
 }
 
-function SettingsSheet({ providers, onBack, onProviders }) {
-  return <main className="settings-sheet" aria-label="Configurações do Hane">
+function GitHubConnector({ connector, github, device, available, busy, onConnect, onCheck }) {
+  if (github) {
+    return <div className="settings-row">
+      <span className="setting-icon ok"><Plugs weight="fill" /></span>
+      <span><strong>{connector.name}</strong><small>{connector.detail} · @{github.accountLabel} · escopos: {github.scopes.join(", ") || "nenhum"}</small></span>
+      <em className="settings-ok">Autorizado em {dateLabel(github.connectedAt)}</em>
+    </div>;
+  }
+  if (device) {
+    return <div className="settings-row">
+      <span className="setting-icon pending"><Plugs weight="bold" /></span>
+      <span><strong>{connector.name}</strong><small>Autorização pendente · informe <b>{device.userCode}</b> em <a href={device.verificationUri} target="_blank" rel="noreferrer">github.com/login/device</a></small></span>
+      <button type="button" className="settings-action" disabled={busy === "github"} onClick={onCheck}>{busy === "github" ? "Verificando…" : "Já autorizei"}</button>
+    </div>;
+  }
+  return <div>
+    <div className="settings-row">
+      <span className="setting-icon"><Plugs weight="bold" /></span>
+      <span><strong>{connector.name}</strong><small>{connector.detail} · {connector.mode}</small></span>
+      {available
+        ? <button type="button" className="settings-action" disabled={busy === "github"} onClick={onConnect}>{busy === "github" ? "Preparando…" : "Conectar"}</button>
+        : <em className="settings-off">Não conectado</em>}
+    </div>
+    {!available && <p className="settings-note">O device flow do GitHub só aparece quando <code>hane serve</code> é iniciado com <code>--github-client-id</code>.</p>}
+  </div>;
+}
+
+function SettingsSheet({ providers, onboarding, githubDevice, workspace, busy, appearance, onAppearanceChange, onBack, onProviders, onConnectGitHub, onCheckGitHub }) {
+  const appearanceStyle = { "--user-accent": appearance.accent, "--user-font": appearance.font === "mono" ? "var(--font-mono)" : appearance.font === "hane" ? '"Hane Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' : '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' };
+  return <main className="settings-sheet" data-hane-theme={appearance.theme} data-text-size={appearance.textSize} style={appearanceStyle} aria-label="Configurações do Hane">
     <section><header><strong>Configurações do Hane</strong><button type="button" onClick={onBack}>Voltar à missão <CaretRight /></button></header>
       <p className="settings-intro">Configurações globais ficam separadas do contexto da missão. Credenciais nunca entram nesta tela.</p>
     </section>
     <section><header><strong>Provedores de IA</strong><button type="button" onClick={onProviders}>Gerenciar <CaretRight /></button></header>
       <div className="settings-row"><span className="setting-icon"><At weight="bold" /></span><span><strong>{providers.length} configurado{providers.length === 1 ? "" : "s"}</strong><small>{providers.length ? providers.map((item) => item.label).join(", ") : "Adicione via CLI; a UI não recebe segredos."}</small></span></div>
     </section>
-    <section><header><strong>Conectores</strong><span className="settings-muted">catálogo inicial</span></header>
-      <p className="settings-intro">Conectores só poderão ser usados após credencial, escopo por missão e aprovação humana por ação.</p>
-      {CONNECTOR_CATALOG.map((connector) => <div className="settings-row" key={connector.id}><span className="setting-icon"><Plugs weight="bold" /></span><span><strong>{connector.name}</strong><small>{connector.detail} · {connector.mode}</small></span><em>{connector.status}</em></div>)}
+    <section><header><strong>Conectores</strong><span className="settings-muted">estado lido do servidor</span></header>
+      <p className="settings-intro">Conectores só poderão ser usados após credencial, escopo por missão e aprovação humana por ação. O token do GitHub fica apenas no Credenciário do Windows.</p>
+      {CONNECTOR_CATALOG.map((connector) => connector.id === "github"
+        ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={busy} onConnect={onConnectGitHub} onCheck={onCheckGitHub} />
+        : <div className="settings-row" key={connector.id}><span className="setting-icon"><Plugs weight="bold" /></span><span><strong>{connector.name}</strong><small>{connector.detail} · {connector.mode}</small></span><em>{connector.status}</em></div>)}
+      <div className="settings-row"><span className={workspace.granted ? "setting-icon ok" : "setting-icon"}><FolderOpen weight={workspace.granted ? "fill" : "bold"} /></span><span><strong>Pasta local</strong><small>{workspace.granted ? `Autorizada neste navegador: “${workspace.name}” · só vale quando a missão recebe workspace.read` : "Nenhuma pasta autorizada · a escolha fica no navegador, não no servidor"}</small></span><em className={workspace.granted ? "settings-ok" : "settings-off"}>{workspace.granted ? "Autorizada" : "Não autorizada"}</em></div>
+    </section>
+    <section className="appearance-settings"><header><strong>Aparência</strong><span className="settings-muted">salvo neste dispositivo</span></header>
+      <p className="settings-intro">Escolha uma leitura mais confortável. A mudança é aplicada imediatamente em toda a interface.</p>
+      <fieldset className="theme-picker"><legend>Modo de cor</legend>
+        {[['midnight', 'Meia-noite', 'Escuro e neutro'], ['forest', 'Floresta', 'Escuro e quente'], ['paper', 'Hane claro', 'Base clara e rosa da Hane']].map(([value, label, detail]) => <label key={value} className={appearance.theme === value ? 'selected' : ''}><input type="radio" name="theme" value={value} checked={appearance.theme === value} onChange={() => onAppearanceChange({ ...appearance, theme: value, accent: THEME_PRESETS[value] })} /><i className={`theme-swatch ${value}`} /><span><strong>{label}</strong><small>{detail}</small></span></label>)}
+      </fieldset>
+      <div className="appearance-control appearance-accent"><span><strong>Cor de destaque</strong><small>Botões, foco e ações principais</small></span><div className="accent-editor"><div className="accent-current"><input type="color" value={appearance.accent} aria-label="Cor de destaque" onChange={(event) => onAppearanceChange({ ...appearance, accent: event.target.value })} /><output aria-live="polite">{appearance.accent.toUpperCase()}</output></div><div className="accent-swatches" aria-label="Amostras de cor"><span>Amostras rápidas</span><div className="accent-swatch-list">{ACCENT_SWATCHES.map((swatch) => <button type="button" key={swatch.value} className={appearance.accent.toLowerCase() === swatch.value ? "selected" : ""} aria-label={`Usar ${swatch.label}`} aria-pressed={appearance.accent.toLowerCase() === swatch.value} title={swatch.label} style={{ "--accent-swatch": swatch.value }} onClick={() => onAppearanceChange({ ...appearance, accent: swatch.value })} />)}</div></div><button type="button" className="accent-reset" onClick={() => onAppearanceChange({ ...appearance, accent: THEME_PRESETS[appearance.theme] })}>Usar cor de {appearance.theme === "midnight" ? "Meia-noite" : appearance.theme === "forest" ? "Floresta" : "Hane claro"}</button></div></div>
+      <label className="appearance-control"><span><strong>Fonte</strong><small>Aplicada em toda a interface</small></span><select value={appearance.font} onChange={(event) => onAppearanceChange({ ...appearance, font: event.target.value })}><option value="system">Sistema (mais legível)</option><option value="hane">Hane Sans (beta)</option><option value="mono">Monoespaçada</option></select></label>
+      <label className="appearance-control"><span><strong>Tamanho do texto</strong><small>Altera a leitura dos elementos persistentes</small></span><select value={appearance.textSize} onChange={(event) => onAppearanceChange({ ...appearance, textSize: event.target.value })}><option value="compact">Compacto</option><option value="comfortable">Confortável</option><option value="large">Grande</option></select></label>
+      <button type="button" className="appearance-reset" onClick={() => onAppearanceChange(DEFAULT_APPEARANCE)}>Restaurar padrão</button>
     </section>
     <section><header><strong>Segurança e acessibilidade</strong></header>
       <div className="settings-row"><span className="setting-icon"><ShieldCheck weight="fill" /></span><span><strong>Aprovação explícita</strong><small>Escrita, comandos e rede continuam limitados pela missão e exigem revisão.</small></span></div>
@@ -225,11 +285,29 @@ export function HaneApp() {
   const [popover, setPopover] = useState(null);
   const [contextDraft, setContextDraft] = useState("");
   const [capabilityGrants, setCapabilityGrants] = useState([]);
+  const [onboarding, setOnboarding] = useState({ github: null, githubAvailable: false });
+  const [appearance, setAppearance] = useState(() => {
+    try { return { ...DEFAULT_APPEARANCE, ...JSON.parse(localStorage.getItem("hane-appearance") || "{}") }; }
+    catch { return DEFAULT_APPEARANCE; }
+  });
+  const [workspace, setWorkspace] = useState({ supported: false, name: null, granted: false });
   // Root owned by the server itself (GET /api/workspace). Unknown until fetched,
   // and a missing route stays "unavailable" rather than optimistic.
   const [serverWorkspace, setServerWorkspace] = useState({ available: false, root: null, loaded: false });
   const [createError, setCreateError] = useState("");
+  const [githubDevice, setGitHubDevice] = useState(null);
+  const [onboardingBusy, setOnboardingBusy] = useState(null);
+  const [onboardingStep, setOnboardingStep] = useState(() => Number(localStorage.getItem("hane-onboarding-step") ?? 0));
+  const [onboardingDismissed, setOnboardingDismissed] = useState(() => localStorage.getItem("hane-onboarding-dismissed") === "true");
+  const [customHanes, setCustomHanes] = useState(() => JSON.parse(localStorage.getItem("hane-custom-hanes") ?? "[]"));
+  const [profileDraft, setProfileDraft] = useState({ name: "", color: "#e66f98", shape: "pebble", image: null });
   const [showSettings, setShowSettings] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(() => {
+    // A compact desktop window needs the conversation first; its audit panel
+    // remains one explicit click away instead of covering the composer.
+    if (window.matchMedia?.("(max-width: 980px)").matches) return false;
+    return localStorage.getItem("hane-panel-open") !== "false";
+  });
   const rootRef = useRef(null);
   const barRef = useRef(null);
   const toastRef = useRef(null);
@@ -242,6 +320,7 @@ export function HaneApp() {
   const contextRef = useRef(null);
   const gearRef = useRef(null);
   const formRef = useRef(null);
+  const panelTriggerRef = useRef(null);
   const rowIdsRef = useRef("");
   selectedRef.current = selectedId;
 
@@ -256,7 +335,7 @@ export function HaneApp() {
   const loaded = missions !== null && !offline;
   const noProviders = providers.length === 0;
   const noMissions = (missions ?? []).length === 0;
-  const showOnboarding = loaded && noMissions;
+  const showOnboarding = loaded && noMissions && !onboardingDismissed;
   const observedRole = currentRole ?? outputs.at(-1) ?? "planner";
   const sessionEvents = mission?.audit?.slice(-4).map((entry) => `${clock(entry.at)}  ${auditSummary(entry)}`) ?? [];
   const evidence = useMemo(() => evidenceRows(mission), [mission]);
@@ -266,6 +345,17 @@ export function HaneApp() {
     const runs = entrance(rootRef.current);
     return () => runs.forEach((animation) => animation.revert());
   }, []);
+
+  useEffect(() => { localStorage.setItem("hane-onboarding-step", String(onboardingStep)); }, [onboardingStep]);
+  useEffect(() => { localStorage.setItem("hane-onboarding-dismissed", String(onboardingDismissed)); }, [onboardingDismissed]);
+  useEffect(() => { localStorage.setItem("hane-custom-hanes", JSON.stringify(customHanes)); }, [customHanes]);
+  useEffect(() => { localStorage.setItem("hane-panel-open", String(panelOpen)); }, [panelOpen]);
+  useEffect(() => { localStorage.setItem("hane-appearance", JSON.stringify(appearance)); }, [appearance]);
+  useEffect(() => {
+    document.documentElement.dataset.haneTheme = appearance.theme;
+    document.body.dataset.haneTheme = appearance.theme;
+    document.getElementById("root")?.setAttribute("data-hane-theme", appearance.theme);
+  }, [appearance.theme]);
 
   useEffect(() => {
     let alive = true;
@@ -286,6 +376,23 @@ export function HaneApp() {
       });
     return () => { alive = false; };
   }, [retryTick]);
+
+  useEffect(() => {
+    let alive = true;
+    fetchOnboarding().then((data) => { if (alive) setOnboarding(data); }).catch(() => { if (alive) setOnboarding({ github: null, githubAvailable: false }); });
+    loadLocalWorkspace().then((data) => { if (alive) setWorkspace(data); }).catch(() => { if (alive) setWorkspace({ supported: false, name: null, granted: false }); });
+    return () => { alive = false; };
+  }, []);
+
+  function openSettings() {
+    setShowSettings(true);
+    fetchOnboarding().then(setOnboarding).catch(() => {});
+  }
+
+  function closeContextPanel({ restoreFocus = true } = {}) {
+    setPanelOpen(false);
+    if (restoreFocus) requestAnimationFrame(() => panelTriggerRef.current?.focus());
+  }
 
   useEffect(() => {
     const close = openMissionEvents((event) => {
@@ -339,8 +446,15 @@ export function HaneApp() {
         searchRef.current?.select();
         return;
       }
+      if ((event.metaKey || event.ctrlKey) && event.key === "\\") {
+        event.preventDefault();
+        if (panelOpen) closeContextPanel({ restoreFocus: false });
+        else setPanelOpen(true);
+        return;
+      }
       if (event.key !== "Escape") return;
       if (popover) setPopover(null);
+      else if (panelOpen) closeContextPanel();
       else if (document.activeElement === searchRef.current) {
         setQuery("");
         searchRef.current?.blur();
@@ -348,7 +462,7 @@ export function HaneApp() {
     };
     window.addEventListener("keydown", onKeydown);
     return () => window.removeEventListener("keydown", onKeydown);
-  }, [popover]);
+  }, [panelOpen, popover]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -417,6 +531,66 @@ export function HaneApp() {
   function focusComposer() {
     setSelectedId(null);
     composerRef.current?.focus();
+  }
+
+  function beginFirstMission() {
+    setOnboardingDismissed(true);
+    setSelectedId(null);
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
+  async function requestWorkspacePermission() {
+    setOnboardingBusy("workspace");
+    try {
+      setWorkspace(await requestLocalWorkspace());
+      notify("Pasta local autorizada para leitura por missão.");
+    } catch (error) {
+      if (error?.name !== "AbortError") notify(error instanceof Error ? error.message : "Não foi possível autorizar a pasta.");
+    } finally {
+      setOnboardingBusy(null);
+    }
+  }
+
+  async function connectGitHub() {
+    setOnboardingBusy("github");
+    try {
+      setGitHubDevice(await startGitHubAuthorization());
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Não foi possível iniciar a autorização do GitHub.");
+    } finally {
+      setOnboardingBusy(null);
+    }
+  }
+
+  async function checkGitHubAuthorization() {
+    if (!githubDevice) return;
+    setOnboardingBusy("github");
+    try {
+      const result = await pollGitHubAuthorization(githubDevice.id);
+      if (result.status === "pending") return notify("Aguardando a autorização no GitHub.");
+      setOnboarding((current) => ({ ...current, github: result.github }));
+      setGitHubDevice(null);
+      notify(`GitHub conectado como @${result.github.accountLabel}.`);
+    } catch (error) {
+      setGitHubDevice(null);
+      notify(error instanceof Error ? error.message : "Não foi possível concluir a autorização do GitHub.");
+    } finally {
+      setOnboardingBusy(null);
+    }
+  }
+
+  function advanceOnboarding() {
+    setOnboardingStep((current) => Math.min(4, current + 1));
+    window.requestAnimationFrame(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }));
+  }
+
+  function createCustomHane() {
+    const name = profileDraft.name.trim();
+    if (!name) return;
+    setCustomHanes((current) => [...current, { ...profileDraft, name, id: crypto.randomUUID(), job: "Hane personalizado", tone: "pink", Icon: Sparkle }]);
+    setProfileDraft({ name: "", color: "#e66f98", shape: "pebble", image: null });
+    setOnboardingStep(5);
+    notify(`${name} foi criado localmente.`);
   }
 
   function togglePopover(kind) {
@@ -536,17 +710,23 @@ export function HaneApp() {
     }
   }
 
-  if (showSettings) return <SettingsSheet providers={providers} onBack={() => setShowSettings(false)} onProviders={() => { setShowSettings(false); setPopover("providers"); }} />;
+  const appearanceProps = {
+    "data-hane-theme": appearance.theme,
+    "data-text-size": appearance.textSize,
+    style: { "--user-accent": appearance.accent, "--user-font": appearance.font === "mono" ? "var(--font-mono)" : appearance.font === "hane" ? '"Hane Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' : '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif' },
+  };
 
-  return <main className="app-shell" ref={rootRef}>
-    <aside className="left-sidebar">
-      <div className="brand-row"><img src="/brand/hane-logo.png" alt="Hane" /><button ref={gearRef} className="icon-button" aria-label="Abrir configurações do Hane" onClick={() => setShowSettings(true)}><GearSix /></button></div>
-      <label className="search-box"><MagnifyingGlass /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar missões" /><kbd>{MOD_KEY} K</kbd></label>
-      <button className="new-chat" onClick={focusComposer}><span><Plus weight="bold" /></span>Nova missão<CaretRight /></button>
+  if (showSettings) return <SettingsSheet providers={providers} onboarding={onboarding} githubDevice={githubDevice} workspace={workspace} busy={onboardingBusy} appearance={appearance} onAppearanceChange={setAppearance} onBack={() => setShowSettings(false)} onProviders={() => { setShowSettings(false); setPopover("providers"); }} onConnectGitHub={connectGitHub} onCheckGitHub={checkGitHubAuthorization} />;
+
+  return <main className={`app-shell ${panelOpen ? "" : "panel-collapsed"}`} ref={rootRef} {...appearanceProps}>
+    <aside className="left-sidebar" aria-label="Navegação do Hane">
+      <div className="brand-row"><img src="/brand/hane-logo.png" alt="Hane" /><button ref={gearRef} className="icon-button" aria-label="Abrir configurações do Hane" onClick={openSettings}><GearSix /></button></div>
+      <label className="search-box"><MagnifyingGlass /><input ref={searchRef} aria-label="Pesquisar missões" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar missões" /><kbd>{MOD_KEY} K</kbd></label>
+      <button className="new-chat" aria-label="Nova missão" onClick={focusComposer}><span><Plus weight="bold" /></span>Nova missão<CaretRight /></button>
 
       <nav className="sidebar-scroll" aria-label="Agentes e missões">
         <header className="section-head"><span>AGENTES</span><button aria-label="Recarregar dados dos agentes" onClick={reload}><ArrowsClockwise /></button></header>
-        {showOnboarding ? <button className="agent-nav selected" onClick={() => messagesRef.current?.scrollTo({ top: 0, behavior: "smooth" })}>
+        {showOnboarding ? <button className="agent-nav selected" aria-label="Abrir guia de início do Hane" onClick={() => messagesRef.current?.scrollTo({ top: 0, behavior: "smooth" })}>
           <Avatar person={onboardingAgent} size="sm" state="thinking" />
           <span><strong>Hane</strong><small>Guia de início</small></span>
           <i className="online" />
@@ -554,7 +734,7 @@ export function HaneApp() {
           const person = roles[role];
           const done = mission?.outputs?.[role] !== undefined;
           const working = mission && isActive(mission.status) && role === currentRole;
-          return <button className={`agent-nav ${role === observedRole && mission ? "selected" : ""}`} key={role} onClick={() => {
+          return <button className={`agent-nav ${role === observedRole && mission ? "selected" : ""}`} key={role} aria-label={`${person.name}: ${working ? "executando agora" : done ? "última saída pronta" : person.job}. ${mission ? "Abrir saída do agente" : "Abra ou crie uma missão para acompanhar o agente"}`} onClick={() => {
             if (!mission) return notify("Abra ou crie uma missão para acompanhar o agente.");
             focusOutput(role);
           }}>
@@ -563,6 +743,7 @@ export function HaneApp() {
             {working ? <i className="online" /> : done ? <Check weight="bold" className="pick" /> : null}
           </button>;
         })}
+        {customHanes.map((person) => <div className="agent-nav custom-hane" key={person.id}><Avatar person={person} size="sm" /><span><strong>{person.name}</strong><small>Hane personalizado</small></span></div>)}
         {loaded && noProviders && <EmptyMini Icon={Plugs} title="Nenhum provedor" action={{ label: "Detalhes", onClick: () => setPopover("providers") }}>
           Hane pode orientar você; conecte um provedor para executar missões.
         </EmptyMini>}
@@ -580,7 +761,7 @@ export function HaneApp() {
       </nav>
 
       <footer className="sidebar-footer">
-        <button onClick={() => setPopover("providers")}><Clock /><span><strong>Provedores</strong><small>{providers.length} configurado{providers.length === 1 ? "" : "s"}{chosenProvider ? ` · ${chosenProvider} ativo` : ""}</small></span><CaretRight /></button>
+        <button aria-label={`Provedores: ${providers.length} configurado${providers.length === 1 ? "" : "s"}${chosenProvider ? `, ${chosenProvider} ativo` : ""}`} onClick={() => setPopover("providers")}><Clock /><span><strong>Provedores</strong><small>{providers.length} configurado{providers.length === 1 ? "" : "s"}{chosenProvider ? ` · ${chosenProvider} ativo` : ""}</small></span><CaretRight /></button>
       </footer>
     </aside>
 
@@ -612,7 +793,7 @@ export function HaneApp() {
         {loaded && !mission && !selectedId && !noMissions && <EmptyStage Icon={UsersThree} title="Selecione uma missão" action={{ label: "Abrir a mais recente", onClick: () => setSelectedId(missions[0].id) }}>
           Escolha uma missão na esquerda para ver planejador, executor e revisor trabalharem, ou crie uma nova abaixo.
         </EmptyStage>}
-        {showOnboarding && !mission && !selectedId && <OnboardingMessage hasProvider={!noProviders} onOpenProviders={() => setPopover("providers")} onCreateMission={focusComposer} onCopy={copyNotice} />}
+        {showOnboarding && !mission && !selectedId && <OnboardingMessage step={onboardingStep} hasProvider={!noProviders} github={onboarding.github} githubAvailable={onboarding.githubAvailable} githubDevice={githubDevice} workspace={workspace} busy={onboardingBusy} onOpenProviders={() => setPopover("providers")} onCopy={copyNotice} onRequestWorkspace={requestWorkspacePermission} onConnectGitHub={connectGitHub} onCheckGitHub={checkGitHubAuthorization} onAdvance={advanceOnboarding} onCreateMission={beginFirstMission} onCreateAnother={() => setOnboardingStep(4)} profile={profileDraft} onProfileChange={setProfileDraft} onCreateProfile={createCustomHane} />}
       </div>
 
       {popover && <div className="pop-backdrop" onClick={() => setPopover(null)} />}
@@ -678,11 +859,12 @@ export function HaneApp() {
         </div>}
         {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Missão não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
         <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma missão para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da missão" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar missão" disabled={sending}><PaperPlaneRight weight="fill" /></button></div></div>
-        <small>Cada envio cria uma missão real executada por planejador, executor e revisor.</small>
+        <small>Cada envio cria uma missão real executada pelos papéis técnicos configurados.</small>
       </form>
+      <button ref={panelTriggerRef} type="button" className={`panel-reopen ${panelOpen ? "" : "visible"}`} aria-controls="hane-mission-context" aria-label="Mostrar painel de contexto" aria-expanded={panelOpen} title="Mostrar painel (Ctrl + \)" tabIndex={panelOpen ? -1 : 0} onClick={() => setPanelOpen(true)}><CaretLeft /></button>
     </section>
 
-    <aside className="right-panel"><header><span><strong>Contexto da missão</strong><small>{mission ? clock(mission.audit?.at(-1)?.at) || "agora" : "sem missão ativa"}</small></span></header><div className="panel-scroll">
+    <aside id="hane-mission-context" className="right-panel" aria-label="Contexto da missão" aria-hidden={!panelOpen} inert={panelOpen ? undefined : ""}><header><span><strong>Contexto da missão</strong><small>{mission ? clock(mission.audit?.at(-1)?.at) || "agora" : "sem missão ativa"}</small></span><button type="button" aria-controls="hane-mission-context" aria-label="Ocultar painel de contexto" aria-expanded={panelOpen} title="Ocultar painel (Ctrl + \)" onClick={closeContextPanel}><CaretRight /></button></header><div className="panel-scroll">
       <section className="panel-section live-computer"><div className="panel-title"><strong>Computador ao vivo</strong><span>{GATED_CAPABILITIES_NOTE}</span></div>
         <div className="computer-preview" aria-label="Eventos auditáveis da sessão da missão">
           <div className="window-bar"><span /><span /><span /><small>{mission ? "eventos persistidos da missão" : "sem sessão ativa"}</small></div>
@@ -722,7 +904,7 @@ export function HaneApp() {
         <button className="secondary-action" disabled={!mission} onClick={() => { if (mission) { copyText(mission.id).then((ok) => notify(ok ? `ID da missão copiado: ${mission.id.slice(0, 8)}…` : "O navegador bloqueou a área de transferência.")); } }}>Copiar ID da missão <CaretRight /></button>
       </section>
       <section className="panel-section artifacts"><div className="panel-title"><strong>Artefatos gerados</strong><span>{outputs.length} saída{outputs.length === 1 ? "" : "s"}</span></div>
-        {outputs.length === 0 && <PanelEmpty>{mission ? "Nenhum papel registrou saída nesta missão até agora." : "Os artefatos de Orion, Byte e Cipher aparecem aqui quando a missão roda."}</PanelEmpty>}
+        {outputs.length === 0 && <PanelEmpty>{mission ? "Nenhum papel registrou saída nesta missão até agora." : "Os artefatos dos papéis técnicos aparecem aqui quando a missão roda."}</PanelEmpty>}
         {outputs.map((role) => <Artifact key={role} type={role === "planner" ? "doc" : role === "executor" ? "json" : "secure"} title={`${roles[role].name} · ${roles[role].job}`} meta={`${mission.outputs[role].length} caracteres · abrir na trilha`} onOpen={() => focusOutput(role)} />)}
       </section>
       <section className="approval-card"><div><span>{mission?.status === "completed" ? <Check /> : mission?.status === "needs_attention" || mission?.status === "failed" ? <Warning /> : <Sparkle />}</span><span><strong>{mission ? selectedLabel : "Nenhuma missão"}</strong><small>{mission?.status === "completed" ? "O veredito do revisor encerrou a missão." : mission?.status === "awaiting_approval" ? "O revisor pediu revisão humana. Aprovar custa mais 2 chamadas." : mission?.status === "needs_attention" ? "Atenção: veredito sinalizado ou orçamento esgotado." : mission?.status === "failed" ? "Uma etapa falhou. Refazer continua de onde parou." : mission?.status === "cancelled" ? "A execução foi cancelada e o histórico foi preservado." : mission ? "Acompanhe os eventos auditáveis da missão." : offline ? "Sem conexão com o hane serve." : noProviders ? "Sem agente configurado para executar missões." : "Envie uma missão para começar."}</small></span></div>{mission?.status === "awaiting_approval" ? <button ref={approvalRef} disabled={actionBusy} onClick={() => act("approve")}>{actionBusy ? <Spinner /> : <Check />} Revisar e aprovar</button> : cancellable ? <button disabled={actionBusy} onClick={() => act("cancel")}>{actionBusy ? <Spinner /> : <Warning />}{actionBusy ? " Cancelando…" : " Cancelar execução"}</button> : retryable ? <button disabled={actionBusy} onClick={() => act("retry")}>{actionBusy ? <Spinner /> : <Sparkle />}{actionBusy ? " Refazendo…" : " Refazer etapa"}</button> : <Status kind={mission ? selectedChip : "queued"}>{mission ? selectedLabel : "ociosa"}</Status>}</section>
