@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertPositiveInteger } from '../contracts.js';
 import { assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../capabilities.js';
+import { resolveWorkspaceRoot } from '../workspace-scope.js';
 import { defaultDatabasePath } from '../storage/sqlite-database.js';
 import { ProviderConfigError } from '../providers/provider-factory.js';
 
@@ -23,10 +24,13 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
   const objective = positionals.join(' ').trim();
   const maxProviderCalls = assertPositiveInteger(Number(values['max-calls']), 'max-calls');
   const capabilityGrants = parseCapabilityFlags(values.capability);
-  const workspaceRoot = values.workspace?.trim() || null;
+  let workspaceRoot = values.workspace?.trim() || null;
   if (grantsNeedWorkspaceRoot(capabilityGrants) && workspaceRoot === null) {
     throw new Error('workspace capabilities need a root. hint: hane run --workspace <dir> --capability workspace.read=<scope>');
   }
+  // Resolved at ingress so a bad root is a usage error before the first
+  // provider call, and the mission stores the path it will actually enforce.
+  if (workspaceRoot !== null) workspaceRoot = resolveWorkspaceRoot(workspaceRoot);
   const dbPath = values.db ?? defaultDatabasePath();
   if (values.db) mkdirSync(path.dirname(values.db), { recursive: true });
 

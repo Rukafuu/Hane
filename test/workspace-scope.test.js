@@ -99,6 +99,20 @@ describe('createScopeResolver', () => {
     }
   });
 
+  test('the deny-list does not depend on the case the plan typed', () => {
+    const resolver = createScopeResolver({ root, grants: [read('.')] });
+    for (const candidate of ['.GIT/config', 'OUTPUTS/agent.sqlite', 'Node_Modules/pkg/index.js', '.Ssh/id_rsa', 'src/.ENV']) {
+      assert.equal(resolver.check(candidate).reason, 'denied_by_secret_policy', candidate);
+    }
+  });
+
+  test('the deny-list covers the credential stores a local checkout accumulates', () => {
+    const resolver = createScopeResolver({ root, grants: [read('.')] });
+    for (const candidate of ['.aws/credentials', '.docker/config.json', '.kube/config', '.gnupg/secring.gpg', '.azure/azureProfile.json', '.gcloud/properties', 'kubeconfig', 'infra/terraform.tfstate', 'gcp/application_default_credentials.json']) {
+      assert.equal(resolver.check(candidate).reason, 'denied_by_secret_policy', candidate);
+    }
+  });
+
   test('does not deny ordinary source files that merely mention tokens or secrets', () => {
     const resolver = createScopeResolver({ root, grants: [read('src')] });
     assert.equal(resolver.check('src/tokens.js').ok, true);
@@ -156,6 +170,58 @@ describe('createScopeResolver', () => {
     } finally {
       fs.rmSync(linkPath, { force: true });
     }
+  });
+
+  test('a link inside a granted scope that lands on a secret path is denied', (t) => {
+    const linkPath = path.join(root, 'src', 'git-link.txt');
+    try {
+      fs.symlinkSync(path.join(root, '.git', 'config'), linkPath, 'file');
+    } catch {
+      t.skip('symlink creation needs developer mode on this machine');
+      return;
+    }
+    try {
+      const resolver = createScopeResolver({ root, grants: [read('src')] });
+      assert.equal(resolver.check('src/git-link.txt').reason, 'denied_by_secret_policy');
+    } finally {
+      fs.rmSync(linkPath, { force: true });
+    }
+  });
+
+  test('a scope that climbs out of the root authorizes nothing', () => {
+    // `..` in a scope would otherwise cover every path under an ancestor, which
+    // is both a silent widening and a route out through a link.
+    for (const scope of ['..', '../elsewhere', 'src/../..']) {
+      const resolver = createScopeResolver({ root, grants: [read(scope)] });
+      assert.equal(resolver.check('src/task-run.js').reason, 'outside_granted_scope', scope);
+      assert.equal(resolver.check('src/task-run.js').ok, false, scope);
+    }
+  });
+
+  test('a scope that is a link to a directory outside the root grants nothing', (t) => {
+    const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-outside-')));
+    fs.writeFileSync(path.join(outside, 'neighbor.txt'), 'not mine');
+    const linkPath = path.join(root, 'link-dir');
+    try {
+      fs.symlinkSync(outside, linkPath, 'junction');
+    } catch {
+      t.skip('link creation needs developer mode on this machine');
+      return;
+    }
+    try {
+      // The link sits inside the root, so `.` style grants still resolve it, but a
+      // scope named after it reaches a directory the mission was never given.
+      const resolver = createScopeResolver({ root, grants: [read('link-dir')] });
+      assert.equal(resolver.check('link-dir/neighbor.txt').reason, 'outside_granted_scope');
+    } finally {
+      fs.rmSync(linkPath, { force: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('an absolute scope outside the root grants nothing', () => {
+    const resolver = createScopeResolver({ root, grants: [read(fs.realpathSync(os.tmpdir()))] });
+    assert.equal(resolver.check('src/task-run.js').reason, 'outside_granted_scope');
   });
 });
 

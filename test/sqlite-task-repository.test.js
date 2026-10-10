@@ -44,11 +44,11 @@ test('persists capability grants with the mission, not provider credentials', ()
   const task = new TaskRun({
     id: 'capability-grant-run',
     objective: 'Read a bounded workspace.',
-    capabilityGrants: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'A:/Hane/work/demo' }],
+    capabilityGrants: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'work/demo' }],
   });
   repository.save(task.snapshot());
 
-  assert.deepEqual(repository.findById('capability-grant-run').capabilityGrants, [{ name: CAPABILITY.WORKSPACE_READ, scope: 'A:/Hane/work/demo' }]);
+  assert.deepEqual(repository.findById('capability-grant-run').capabilityGrants, [{ name: CAPABILITY.WORKSPACE_READ, scope: 'work/demo' }]);
   repository.close();
 });
 
