@@ -69,13 +69,27 @@ budget.
 - Capabilities are attached to a mission only when the user explicitly grants
   a known name plus a bounded scope. The initial registry is `workspace.read`,
   `workspace.write`, `process.run`, and `network.request`; no capability is
-  implicit, and unknown or duplicate grants are rejected.
-- Grants are declarative in this slice: they are persisted and audited but do
-  not yet execute shell, filesystem, or network operations. A future sandbox
-  must enforce the exact stored scope rather than trust model output.
-- `workspace.write`, `process.run`, `network.request`, publishing, messaging,
-  or irreversible work require a human approval checkpoint at the action level,
-  even if a mission declares the capability.
+  implicit, and unknown or duplicate grants are rejected. A grant whose scope
+  names a path is a plain path relative to the mission's workspace root, not a
+  glob.
+- `workspace.read` is executed by the orchestrator, not by the model. The
+  mission carries a workspace root, and every path is resolved through a
+  containment check before any file is opened: absolute paths, drive letters,
+  UNC and device prefixes, `..` segments, anything outside a granted scope, and
+  anything matching the secret deny-list (`.env*`, key material, credential
+  files, `.git`, `node_modules`, `outputs`, SQLite databases) are refused.
+  Reads are byte-capped, line-aligned, and binary content is refused. Each read
+  and each refusal is an append-only audit entry
+  (`tool_read`, `tool_listing`, `tool_denied`, `tool_listing_denied`), and the
+  separate `maxToolCalls` budget bounds them independently of
+  `maxProviderCalls`.
+- Grants for `workspace.write`, `process.run`, and `network.request` remain
+  declarative: they are persisted and audited, but no tool executes them. They
+  additionally require a human approval checkpoint at the action level, even
+  when a mission declares the capability.
+- File content handed to a model is evidence, never instruction. The provider
+  request labels workspace evidence as untrusted data, and evidence is not
+  persisted with the task — a resume re-reads from disk under the same checks.
 
 ## Definition of done for this slice
 
@@ -83,4 +97,8 @@ budget.
 - The three roles run in order with minimal shared context.
 - Exhausting the budget stops further provider calls and produces
   `needs_attention`.
+- When a mission grants `workspace.read` and carries a root, the executor's
+  request carries the file contents the model asked for; when either is
+  missing, the run proceeds without evidence rather than reading
+  opportunistically.
 - Automated tests cover the successful run and budget stop.

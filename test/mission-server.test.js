@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { createMissionServer } from '../src/server/mission-server.js';
 import { openHaneDatabase } from '../src/storage/sqlite-database.js';
@@ -174,18 +177,55 @@ test('POST persists explicit capability grants for a mission', async (t) => {
   t.after(() => harness.close());
   await configureProvider(harness);
   const baseUrl = await harness.baseUrl();
-  const capabilities = [{ name: CAPABILITY.WORKSPACE_READ, scope: 'A:/Hane/work/mission-ui-prototype' }];
+  const workspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-')));
+  const capabilities = [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }];
 
   const response = await fetch(`${baseUrl}/api/missions`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ objective: 'Review the prototype safely.', capabilities }),
+    body: JSON.stringify({ objective: 'Review the prototype safely.', capabilities, workspaceRoot }),
   });
   assert.equal(response.status, 202);
   const queued = await response.json();
   assert.deepEqual(queued.capabilityGrants, capabilities);
+  assert.equal(queued.workspaceRoot, workspaceRoot);
   assert.ok(await waitFor(async () => (await getMission(baseUrl, queued.id)).status === 'completed'));
-  assert.deepEqual((await getMission(baseUrl, queued.id)).capabilityGrants, capabilities);
+  const stored = await getMission(baseUrl, queued.id);
+  assert.deepEqual(stored.capabilityGrants, capabilities);
+  assert.equal(stored.workspaceRoot, workspaceRoot);
+});
+
+test('workspace grants are refused when the root is missing or does not exist', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+  const post = (body) => fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ objective: 'Read the workspace.', ...body }),
+  });
+
+  const noRoot = await post({ capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }] });
+  assert.equal(noRoot.status, 400);
+  assert.match((await noRoot.json()).error, /workspaceRoot/);
+
+  const missingRoot = await post({
+    capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }],
+    workspaceRoot: path.join(os.tmpdir(), 'hane-api-missing-root'),
+  });
+  assert.equal(missingRoot.status, 400);
+  assert.match((await missingRoot.json()).error, /does not exist/);
+
+  const fileRoot = await post({
+    capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }],
+    workspaceRoot: import.meta.filename,
+  });
+  assert.equal(fileRoot.status, 400);
+  assert.match((await fileRoot.json()).error, /not a directory/);
+
+  const noGrants = await post({ workspaceRoot: fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-'))) });
+  assert.equal(noGrants.status, 202);
 });
 
 test('provider resolution errors map to 404 and 409 with hints', async (t) => {

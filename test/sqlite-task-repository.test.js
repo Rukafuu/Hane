@@ -52,6 +52,54 @@ test('persists capability grants with the mission, not provider credentials', ()
   repository.close();
 });
 
+test('persists the workspace root and tool counters, and restores them for a resume', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({
+    id: 'workspace-run',
+    objective: 'Read the bounded workspace.',
+    capabilityGrants: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }],
+    workspaceRoot: 'A:/Hane/work/demo',
+    maxToolCalls: 5,
+  });
+  task.reserveToolCall('executor');
+  repository.save(task.snapshot());
+
+  const stored = repository.findById('workspace-run');
+  assert.equal(stored.workspaceRoot, 'A:/Hane/work/demo');
+  assert.equal(stored.maxToolCalls, 5);
+  assert.equal(stored.toolCalls, 1);
+  assert.deepEqual(Object.keys(stored.outputs), [], 'file contents stay out of SQLite');
+
+  const rebuilt = TaskRun.fromSnapshot(stored);
+  assert.equal(rebuilt.toolCalls, 1);
+  assert.equal(rebuilt.workspaceRoot, 'A:/Hane/work/demo');
+  repository.close();
+});
+
+test('refuses to rewind the tool counter of a stored mission', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({ id: 'tool-rewind', objective: 'Read files.', workspaceRoot: 'A:/Hane', capabilityGrants: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }] });
+  task.reserveToolCall('executor');
+  repository.save(task.snapshot());
+
+  const rewind = { ...task.snapshot(), toolCalls: 0 };
+  assert.throws(() => repository.save(rewind), /fewer tool calls/);
+  repository.close();
+});
+
+test('a mission stored before the workspace columns loads with the tool defaults', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  repository.database.prepare('INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls) VALUES (?, ?, ?, ?, ?)')
+    .run('legacy-row', 'Stored before phase 5.', 'completed', 3, 3);
+
+  const stored = repository.findById('legacy-row');
+  assert.equal(stored.workspaceRoot, null);
+  assert.equal(stored.maxToolCalls, 24);
+  assert.equal(stored.toolCalls, 0);
+  assert.doesNotThrow(() => TaskRun.fromSnapshot(stored));
+  repository.close();
+});
+
 test('appends audit entries across incremental saves without rewriting stored history', () => {
   const repository = new SqliteTaskRepository(':memory:');
   const task = new TaskRun({ id: 'incremental-run', objective: 'Persist incrementally.', now: () => 'fixed-timestamp' });

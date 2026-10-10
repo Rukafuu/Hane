@@ -25,12 +25,14 @@ Date: 2026-10-09. Scope: the Node core, loopback API, and the active UI in
 
 - Missing provider configuration or missing credentials produces an explicit API error; it never generates substitute LLM text.
 - A provider failure remains a failed mission and a persisted audit event.
-- Capability grants are a declared ceiling only. There is no current path from an LLM output to file, shell, or network execution.
+- Capability grants are a ceiling the runtime enforces for `workspace.read` and a promise for everything else. There is still no path from an LLM output to file writes, shell, or network execution.
+- File content given to a model is labelled untrusted data in the provider request, and evidence is never stored with the mission; a resume repeats the grant-bounded reads.
 - The UI must present unavailable runtime capabilities as unavailable rather than inventing terminal or tool output.
 
 ## Verification performed
 
-- `npm test`: 104 tests passed, including persistence, SSE, provider retry, and an in-flight cancellation integration test.
+- `npm test`: 158 tests passed, including persistence, SSE, provider retry, an in-flight cancellation integration test, and the workspace containment suite (absolute paths, `..`, symlink escape, deny-list, size cap, tool budget, denied-read auditing).
+- `npm run check` over every source, bin and test file.
 - `npm run build` and `npm run test:sites` in `work/mission-ui-prototype`: build completed and 4 Sites tests passed.
 
 ## External end-to-end boundary

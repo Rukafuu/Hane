@@ -40,3 +40,11 @@ export function assertCapabilityGrants(candidate) {
 export function hasCapability(grants, name, scope) {
   return grants.some((grant) => grant.name === name && grant.scope === scope);
 }
+
+/**
+ * Workspace scopes are relative paths, so they mean nothing without a root.
+ * Rejected at ingress instead of silently authorizing nothing later.
+ */
+export function grantsNeedWorkspaceRoot(grants = []) {
+  return grants.some((grant) => grant.name === CAPABILITY.WORKSPACE_READ || grant.name === CAPABILITY.WORKSPACE_WRITE);
+}

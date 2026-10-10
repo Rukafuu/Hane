@@ -13,21 +13,38 @@ export class SqliteTaskRepository {
   save(task) {
     this.database.exec('BEGIN IMMEDIATE');
     try {
-      const stored = this.database.prepare('SELECT provider_calls AS providerCalls FROM task_runs WHERE id = ?').get(task.id);
+      const stored = this.database.prepare('SELECT provider_calls AS providerCalls, tool_calls AS toolCalls FROM task_runs WHERE id = ?').get(task.id);
       if (stored && task.providerCalls < stored.providerCalls) {
         throw new Error(`cannot persist a task with fewer provider calls (${task.providerCalls}) than already stored (${stored.providerCalls}).`);
       }
+      if (stored && task.toolCalls < stored.toolCalls) {
+        throw new Error(`cannot persist a task with fewer tool calls (${task.toolCalls}) than already stored (${stored.toolCalls}).`);
+      }
       this.database.prepare(`
-        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json, workspace_root, max_tool_calls, tool_calls)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           objective = excluded.objective,
           status = excluded.status,
           max_provider_calls = excluded.max_provider_calls,
           provider_calls = excluded.provider_calls,
           provider_label = excluded.provider_label,
-          capability_grants_json = excluded.capability_grants_json
-      `).run(task.id, task.objective, task.status, task.maxProviderCalls, task.providerCalls, task.providerLabel ?? null, JSON.stringify(task.capabilityGrants ?? []));
+          capability_grants_json = excluded.capability_grants_json,
+          workspace_root = excluded.workspace_root,
+          max_tool_calls = excluded.max_tool_calls,
+          tool_calls = excluded.tool_calls
+      `).run(
+        task.id,
+        task.objective,
+        task.status,
+        task.maxProviderCalls,
+        task.providerCalls,
+        task.providerLabel ?? null,
+        JSON.stringify(task.capabilityGrants ?? []),
+        task.workspaceRoot ?? null,
+        task.maxToolCalls ?? 24,
+        task.toolCalls ?? 0,
+      );
       const outputStatement = this.database.prepare('INSERT OR REPLACE INTO task_outputs (task_id, role, content) VALUES (?, ?, ?)');
       for (const [role, content] of Object.entries(task.outputs)) outputStatement.run(task.id, role, content);
       const base = this.database.prepare('SELECT COALESCE(MAX(ordinal), -1) AS base FROM task_audit_entries WHERE task_id = ?').get(task.id).base;
@@ -59,7 +76,8 @@ export class SqliteTaskRepository {
   findById(id) {
     const task = this.database.prepare(`
       SELECT id, objective, status, max_provider_calls AS maxProviderCalls, provider_calls AS providerCalls,
-             provider_label AS providerLabel, capability_grants_json AS capabilityGrantsJson
+             provider_label AS providerLabel, capability_grants_json AS capabilityGrantsJson,
+             workspace_root AS workspaceRoot, max_tool_calls AS maxToolCalls, tool_calls AS toolCalls
       FROM task_runs WHERE id = ?
     `).get(id);
     if (!task) return null;

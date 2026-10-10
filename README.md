@@ -6,8 +6,9 @@ and **reviewer** — under a hard call budget, and records everything it did in 
 append-only audit trail. Inference comes from a provider the user configures;
 control plane and data stay on the machine.
 
-Nothing here reads, writes, or executes workspace files. A model response alone
-never becomes a shell command.
+Nothing writes to, or executes inside, your workspace. The one tool that runs is
+`workspace.read`, and only for a mission the user explicitly gave a root and a
+scope to read. A model response alone never becomes a shell command.
 
 ## What is in the box
 
@@ -17,6 +18,8 @@ never becomes a shell command.
 | `src/providers/` | provider configuration, the credential → provider factory, the OpenAI-compatible adapter |
 | `src/storage/` | SQLite handle, numbered migrations, task repository, provider-config store |
 | `src/credentials/` | Windows Credential Manager bridge (PowerShell, stdin-only payload) |
+| `src/workspace-scope.js`, `src/tools/` | path containment, secret deny-list and the `workspace.read` tool |
+| `src/capabilities.js` | the capability registry and grant validation |
 | `src/cli/`, `bin/hane.js` | the `hane` command |
 | `src/server/mission-server.js` | loopback HTTP API + SSE events for a UI |
 | `work/mission-ui-prototype/` | UI prototype that consumes the HTTP API |
@@ -62,7 +65,7 @@ hane provider add --label <name> --base-url <url> --model <id> [--max-tokens N]
 hane provider list
 hane provider remove <label>
 hane provider set-secret <label>          # reads the secret from stdin, no echo
-hane run "<objective>" [--provider <label>] [--max-calls N] [--db <path>] [--json]
+hane run "<objective>" [--provider <label>] [--max-calls N] [--workspace <dir>] [--capability <name>=<scope>] [--db <path>] [--json]
 hane missions [--db <path>]
 hane mission <id> [--db <path>] [--json]
 hane retry <id> [--provider <label>] [--max-calls N] [--db <path>] [--json]
@@ -108,6 +111,47 @@ for `Retry-After`. Each retry is written to the audit trail as `provider_retry`
 and does not consume budget: it is the same call delivered again, not an extra
 call.
 
+## Workspace reads
+
+`workspace.read` is the one capability that executes. The model does not open
+files: before the executor runs, the orchestrator resolves the paths the plan
+named and hands their contents to the executor as evidence.
+
+```powershell
+node bin/hane.js run "Review the error handling in src/" --provider openrouter --workspace A:/Hane --capability workspace.read=src
+```
+
+`--workspace` sets the root a mission may never leave, and `--capability` grants
+one scope inside it, as `name=scope` (repeatable; `.` means the whole root). A
+workspace capability without a root is refused before the run starts, and so is
+a grant written without its scope. Over HTTP the same contract is carried by
+`POST /api/missions`, which takes `workspaceRoot` plus `capabilities`.
+
+What stands between a grant and your disk:
+
+- Every path is required to be relative to the root. Absolute paths, drive
+  letters, UNC and device prefixes, and any `..` segment are rejected.
+- A scope is a plain path, not a glob. A scope file must match exactly; a scope
+  directory must contain the candidate.
+- Secret material is denied even inside a granted scope: `.env*`, key and
+  certificate files, credential files and `.npmrc` / `.netrc` style configs,
+  `.git`, `node_modules`, `outputs`, and SQLite databases.
+- Symlinks are resolved before the containment check, so a link out of the
+  workspace reads as what it is — a refusal.
+- Reads are byte-capped and aligned to a line boundary, and binary content is
+  refused rather than streamed into a prompt.
+- Reads and refusals are audit entries (`tool_read`, `tool_listing`,
+  `tool_denied`), bounded by a separate `maxToolCalls` budget so tool use can
+  not be used to hide extra spend.
+
+File content is treated as untrusted data and is labelled that way in the
+provider request. Evidence is not stored with the mission: a resume re-reads
+from disk under the same checks.
+
+`workspace.write`, `process.run` and `network.request` are still declarative —
+they are recorded and audited, nothing executes them, and each one requires a
+human approval at the action level.
+
 ## Secrets
 
 - A provider configuration is declarative metadata: label, base URL, model,
@@ -142,7 +186,7 @@ data instead of mocks:
 ```text
 GET  /api/missions              # list, most recently active first
 GET  /api/missions/:id          # full record with outputs and audit
-POST /api/missions              # { objective, maxProviderCalls?, provider? }
+POST /api/missions              # { objective, maxProviderCalls?, provider?, workspaceRoot?, capabilities? }
 POST /api/missions/:id/approve  # spend the revision budget a human approved
 POST /api/missions/:id/retry    # resume needs_attention or failed
 POST /api/missions/:id/cancel   # abort an in-flight provider request; preserves audit
@@ -153,6 +197,7 @@ GET  /api/providers             # configured providers, never their keys
 ## Scope
 
 This is a core package plus a thin CLI and a loopback API. The desktop shell is
-still ahead of it, and any future tool must declare its scope and require an
-explicit human approval for writes, commands, external requests, or irreversible
-actions.
+still ahead of it. Every tool declares the scope it needs before it runs, and
+anything that writes, executes, requests out, or is irreversible still requires an
+explicit human approval for that action — `workspace.read` is the only capability
+with a working implementation today, and it stays inside the root you granted.

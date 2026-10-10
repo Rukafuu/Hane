@@ -1,4 +1,6 @@
 import { TASK_STATUS } from './contracts.js';
+import { createScopeResolver, grantsForWorkspaceRead, resolveWorkspaceRoot } from './workspace-scope.js';
+import { listWorkspaceDir, parseRequestedPaths, readWorkspaceFile } from './tools/workspace-read.js';
 import { TaskRun } from './task-run.js';
 import { parseVerdict } from './verdict.js';
 
@@ -30,10 +32,20 @@ export class Orchestrator {
 
   /**
    * @param {{ objective: string, maxProviderCalls?: number, providerLabel?: string|null,
+   *           capabilityGrants?: readonly object[], workspaceRoot?: string|null,
+   *           signal?: AbortSignal|null,
    *           onEvent?: ((event: OrchestratorEvent) => void) | null }} request
    */
-  async start({ objective, maxProviderCalls = 3, providerLabel = null, capabilityGrants = [], signal = null, onEvent = null }) {
-    const task = new TaskRun({ id: this.idFactory(), objective, maxProviderCalls, providerLabel, capabilityGrants });
+  async start({ objective, maxProviderCalls = 3, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = undefined, signal = null, onEvent = null }) {
+    const task = new TaskRun({
+      id: this.idFactory(),
+      objective,
+      maxProviderCalls,
+      providerLabel,
+      capabilityGrants,
+      workspaceRoot,
+      ...(maxToolCalls === undefined ? {} : { maxToolCalls }),
+    });
     return this.#execute(task, onEvent, signal);
   }
 
@@ -56,7 +68,11 @@ export class Orchestrator {
     for (const { role, activeStatus } of ROLE_FLOW) {
       if (signal?.aborted) return this.#cancel(task, onEvent, signal);
       if (task.outputs[role] !== undefined) continue;
-      const cancelled = await this.#runRole(task, role, activeStatus, onEvent, signal);
+      // Evidence is re-read instead of stored: file contents stay out of SQLite,
+      // so a resume repeats the same grant-bounded reads rather than replaying
+      // a cached copy of the workspace.
+      const evidence = role === 'executor' ? await this.#gatherWorkspaceEvidence(task) : null;
+      const cancelled = await this.#runRole(task, role, activeStatus, evidence, onEvent, signal);
       if (cancelled) return this.#finish(task, onEvent);
       if (task.status !== activeStatus) { settled = false; break; }
     }
@@ -64,7 +80,7 @@ export class Orchestrator {
     return this.#finish(task, onEvent);
   }
 
-  async #runRole(task, role, activeStatus, onEvent, signal) {
+  async #runRole(task, role, activeStatus, workspaceEvidence, onEvent, signal) {
     this.#transitionIfNeeded(task, activeStatus);
     if (!task.reserveProviderCall(role)) {
       this.#transitionIfNeeded(task, TASK_STATUS.NEEDS_ATTENTION);
@@ -78,6 +94,7 @@ export class Orchestrator {
         objective: task.objective,
         instruction: ROLE_INSTRUCTIONS[role],
         priorOutputs: { ...task.outputs },
+        workspaceEvidence,
         signal,
         onRetry: (info) => task.record('provider_retry', { role, ...info }),
       });
@@ -97,6 +114,50 @@ export class Orchestrator {
     }
     this.#persist(task);
     this.#emit(onEvent, { type: 'role_saved', role, task: task.snapshot() });
+  }
+
+  async #gatherWorkspaceEvidence(task) {
+    const grants = grantsForWorkspaceRead(task.capabilityGrants);
+    if (grants.length === 0 || task.workspaceRoot === null) return null;
+
+    let resolver;
+    let root;
+    try {
+      root = resolveWorkspaceRoot(task.workspaceRoot);
+      resolver = createScopeResolver({ root, grants });
+    } catch (error) {
+      task.record('workspace_unavailable', { message: error instanceof Error ? error.message : String(error) });
+      this.#persist(task);
+      return null;
+    }
+
+    const files = [];
+    const listings = [];
+    const denied = [];
+    for (const candidate of parseRequestedPaths(task.outputs.planner)) {
+      if (!task.reserveToolCall('executor')) break;
+      const wantsDirectory = candidate.endsWith('/') || candidate.endsWith('\\');
+      const relPath = wantsDirectory ? candidate.replace(/[\\/]+$/, '') || '.' : candidate;
+      const outcome = wantsDirectory
+        ? await listWorkspaceDir({ resolver, relPath })
+        : await readWorkspaceFile({ resolver, relPath });
+      if (!outcome.ok) {
+        denied.push({ path: outcome.relPath ?? relPath, reason: outcome.reason });
+        task.record(wantsDirectory ? 'tool_listing_denied' : 'tool_denied', { path: outcome.relPath ?? relPath, reason: outcome.reason });
+        continue;
+      }
+      if (wantsDirectory) {
+        listings.push({ path: outcome.relPath, entries: outcome.entries, truncated: outcome.truncated });
+        task.record('tool_listing', { path: outcome.relPath, entries: outcome.entries.length, truncated: outcome.truncated });
+      } else {
+        files.push({ path: outcome.relPath, content: outcome.content, truncated: outcome.truncated, totalBytes: outcome.totalBytes });
+        task.record('tool_read', { path: outcome.relPath, bytes: outcome.bytes, truncated: outcome.truncated, totalBytes: outcome.totalBytes });
+      }
+    }
+
+    this.#persist(task);
+    if (files.length === 0 && listings.length === 0 && denied.length === 0) return null;
+    return Object.freeze({ root, files, listings, denied });
   }
 
   #cancel(task, onEvent, signal) {

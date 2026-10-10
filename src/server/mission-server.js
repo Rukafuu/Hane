@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
-import { assertCapabilityGrants } from '../capabilities.js';
+import { assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../capabilities.js';
+import { resolveWorkspaceRoot } from '../workspace-scope.js';
 import { TaskRun } from '../task-run.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
 import { resolveProviderConfig } from '../cli/run-mission.js';
@@ -106,10 +107,18 @@ async function startMission({ request, response, repository, providerConfigStore
   let objective;
   let maxProviderCalls = 3;
   let capabilityGrants;
+  let workspaceRoot = null;
   try {
     objective = assertObjective(body?.objective);
     if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
     capabilityGrants = assertCapabilityGrants(body?.capabilities);
+    workspaceRoot = typeof body?.workspaceRoot === 'string' && body.workspaceRoot.trim() !== '' ? body.workspaceRoot.trim() : null;
+    if (grantsNeedWorkspaceRoot(capabilityGrants) && workspaceRoot === null) {
+      throw new TypeError('workspace capabilities require a workspaceRoot.');
+    }
+    // The path arrives from a browser, so it is validated here instead of
+    // failing later inside the run.
+    if (workspaceRoot !== null) resolveWorkspaceRoot(workspaceRoot);
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid mission request.' });
   }
@@ -128,12 +137,12 @@ async function startMission({ request, response, repository, providerConfigStore
   const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
   const onEvent = (event) => broadcast({ ...event, missionId });
 
-  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, capabilityGrants });
+  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, capabilityGrants, workspaceRoot });
 
   const controller = new AbortController();
   running.set(missionId, controller);
   try {
-    await orchestrator.start({ objective, maxProviderCalls, providerLabel, capabilityGrants, signal: controller.signal, onEvent });
+    await orchestrator.start({ objective, maxProviderCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
   } catch (error) {
     broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {

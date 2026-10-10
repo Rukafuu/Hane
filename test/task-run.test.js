@@ -99,3 +99,53 @@ test('cancelling an active task is persisted in its audit and is terminal', () =
   assert.deepEqual(task.audit.at(-1).detail, { reason: 'user_requested' });
   assert.throws(() => task.transition(TASK_STATUS.EXECUTING), /Cannot transition/);
 });
+
+test('a workspace root is stored as authored and survives a snapshot round trip', () => {
+  const task = new TaskRun({
+    id: 't-root',
+    objective: 'Read the workspace.',
+    workspaceRoot: '  A:/Hane/src  ',
+    capabilityGrants: [{ name: 'workspace.read', scope: 'storage' }],
+  });
+  assert.equal(task.workspaceRoot, 'A:/Hane/src');
+
+  const restored = TaskRun.fromSnapshot(task.snapshot());
+  assert.deepEqual(restored.snapshot(), task.snapshot());
+  assert.equal(restored.workspaceRoot, 'A:/Hane/src');
+});
+
+test('a mission without a workspace root keeps the field null', () => {
+  const task = new TaskRun({ id: 't-noroot', objective: 'No files needed.' });
+  assert.equal(task.workspaceRoot, null);
+  assert.equal(task.toolCalls, 0);
+  assert.equal(task.maxToolCalls, 24);
+});
+
+test('rejects a blank, multiline or oversized workspace root', () => {
+  assert.throws(() => new TaskRun({ id: 't-bad', objective: 'x', workspaceRoot: '   ' }), TypeError);
+  assert.throws(() => new TaskRun({ id: 't-bad', objective: 'x', workspaceRoot: 'a\nb' }), TypeError);
+  assert.throws(() => new TaskRun({ id: 't-bad', objective: 'x', workspaceRoot: 'a'.repeat(1025) }), TypeError);
+});
+
+test('tool calls have their own budget and never touch the provider budget', () => {
+  const task = new TaskRun({ id: 't-tools', objective: 'Read three files.', maxProviderCalls: 1, maxToolCalls: 2 });
+  assert.equal(task.reserveToolCall('executor'), true);
+  assert.equal(task.reserveToolCall('executor'), true);
+  assert.equal(task.toolCalls, 2);
+  assert.equal(task.providerCalls, 0);
+
+  assert.equal(task.reserveToolCall('executor'), false);
+  assert.ok(task.audit.some((entry) => entry.type === 'tool_budget_exhausted'));
+  assert.throws(() => task.reserveToolCall('unknown-role'), TypeError);
+});
+
+test('restores the tool counter from a snapshot without re-recording events', () => {
+  const task = new TaskRun({ id: 't-tools-restore', objective: 'Read files.', maxToolCalls: 5 });
+  task.reserveToolCall('executor');
+  const snapshot = task.snapshot();
+
+  const restored = TaskRun.fromSnapshot(snapshot);
+  assert.equal(restored.toolCalls, 1);
+  assert.deepEqual(restored.snapshot(), snapshot);
+  assert.throws(() => TaskRun.fromSnapshot({ ...snapshot, toolCalls: -1 }), TypeError);
+});

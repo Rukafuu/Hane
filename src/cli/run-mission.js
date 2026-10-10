@@ -3,6 +3,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertPositiveInteger } from '../contracts.js';
+import { assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { defaultDatabasePath } from '../storage/sqlite-database.js';
 import { ProviderConfigError } from '../providers/provider-factory.js';
 
@@ -14,11 +15,18 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
       'max-calls': { type: 'string', default: '3' },
       db: { type: 'string' },
       json: { type: 'boolean', default: false },
+      workspace: { type: 'string' },
+      capability: { type: 'string', multiple: true, default: [] },
     },
     allowPositionals: true,
   });
   const objective = positionals.join(' ').trim();
   const maxProviderCalls = assertPositiveInteger(Number(values['max-calls']), 'max-calls');
+  const capabilityGrants = parseCapabilityFlags(values.capability);
+  const workspaceRoot = values.workspace?.trim() || null;
+  if (grantsNeedWorkspaceRoot(capabilityGrants) && workspaceRoot === null) {
+    throw new Error('workspace capabilities need a root. hint: hane run --workspace <dir> --capability workspace.read=<scope>');
+  }
   const dbPath = values.db ?? defaultDatabasePath();
   if (values.db) mkdirSync(path.dirname(values.db), { recursive: true });
 
@@ -45,18 +53,39 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
 
   if (!values.json) {
     stdout.write(`hane · mission ${missionId}\n`);
-    stdout.write(`provider: ${config.label} (${config.model}) · budget: ${maxProviderCalls} calls · db: ${dbPath}\n\n`);
+    stdout.write(`provider: ${config.label} (${config.model}) · budget: ${maxProviderCalls} calls · db: ${dbPath}\n`);
+    if (capabilityGrants.length > 0) {
+      stdout.write(`grants: ${capabilityGrants.map((grant) => `${grant.name}(${grant.scope})`).join(', ')}\n`);
+      stdout.write(`workspace: ${workspaceRoot}\n`);
+    }
+    stdout.write('\n');
   }
 
-  const task = await orchestrator.start({ objective, maxProviderCalls, providerLabel: config.label, onEvent });
+  const task = await orchestrator.start({
+    objective,
+    maxProviderCalls,
+    providerLabel: config.label,
+    capabilityGrants,
+    workspaceRoot,
+    onEvent,
+  });
 
   if (values.json) {
     stdout.write(`${JSON.stringify(task.snapshot(), null, 2)}\n`);
   } else {
-    stdout.write(`\nstatus: ${task.status} · audit: ${task.audit.length} entries\n`);
+    stdout.write(`\nstatus: ${task.status} · audit: ${task.audit.length} entries · tool calls: ${task.toolCalls}\n`);
     if (task.outputs.reviewer) stdout.write(`--- reviewer ---\n${task.outputs.reviewer}\n`);
   }
   return exitCodeForStatus(task.status);
+}
+
+/** `--capability workspace.read=src` becomes one declarative grant. */
+function parseCapabilityFlags(flags) {
+  return assertCapabilityGrants(flags.map((flag) => {
+    const separator = flag.indexOf('=');
+    if (separator === -1) throw new TypeError(`--capability expects name=scope, got "${flag}".`);
+    return { name: flag.slice(0, separator).trim(), scope: flag.slice(separator + 1) };
+  }));
 }
 
 export function exitCodeForStatus(status) {

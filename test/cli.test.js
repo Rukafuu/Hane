@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -396,4 +396,40 @@ test('approve on an unknown mission exits 1 with a hint', async () => {
   await configureProvider(harness);
   assert.equal(await harness.run(['approve', 'ghost-id']), 1);
   assert.match(harness.errors(), /unknown mission "ghost-id"/);
+});
+
+test('run records the workspace root and grants it was given', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-')));
+
+  const code = await harness.run(['run', 'Inspect the workspace.', '--workspace', root, '--capability', 'workspace.read=src']);
+  assert.equal(code, 0);
+  assert.match(harness.output(), new RegExp(`grants: workspace\\.read\\(src\\)`));
+  assert.match(harness.output(), new RegExp(`workspace: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(harness.output(), /tool calls: 0/);
+
+  const stored = harness.database.prepare('SELECT workspace_root AS workspaceRoot, capability_grants_json AS grants, tool_calls AS toolCalls FROM task_runs').get();
+  assert.equal(stored.workspaceRoot, root);
+  assert.deepEqual(JSON.parse(stored.grants), [{ name: 'workspace.read', scope: 'src' }]);
+  assert.equal(stored.toolCalls, 0);
+});
+
+test('workspace capabilities without a root are a usage error, not a silent no-op', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+
+  assert.equal(await harness.run(['run', 'Read some files.', '--capability', 'workspace.read=src']), 1);
+  assert.match(harness.errors(), /--workspace <dir>/);
+});
+
+test('a malformed capability flag is rejected before any provider call', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+
+  assert.equal(await harness.run(['run', 'Read some files.', '--workspace', realpathSync(tmpdir()), '--capability', 'workspace.read']), 1);
+  assert.match(harness.errors(), /name=scope/);
+
+  assert.equal(await harness.run(['run', 'Read some files.', '--workspace', realpathSync(tmpdir()), '--capability', 'delete.everything=/']), 1);
+  assert.match(harness.errors(), /Unknown capability/);
 });

@@ -53,6 +53,15 @@ const MIGRATIONS = Object.freeze([
       "ALTER TABLE task_runs ADD COLUMN capability_grants_json TEXT NOT NULL DEFAULT '[]';",
     ]),
   }),
+  Object.freeze({
+    id: 5,
+    name: 'mission_workspace_read',
+    statements: Object.freeze([
+      'ALTER TABLE task_runs ADD COLUMN workspace_root TEXT;',
+      'ALTER TABLE task_runs ADD COLUMN max_tool_calls INTEGER NOT NULL DEFAULT 24;',
+      'ALTER TABLE task_runs ADD COLUMN tool_calls INTEGER NOT NULL DEFAULT 0;',
+    ]),
+  }),
 ]);
 
 export function latestMigrationId() {

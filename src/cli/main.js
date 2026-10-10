@@ -25,7 +25,7 @@ commands:
   provider list
   provider remove <label>
   provider set-secret <label>
-  run "<objective>" [--provider <label>] [--max-calls N] [--db <path>] [--json]
+  run "<objective>" [--provider <label>] [--max-calls N] [--db <path>] [--workspace <dir>] [--capability <name>=<scope>] [--json]
   missions [--db <path>]
   mission <id> [--db <path>] [--json]
   retry <id> [--provider <label>] [--max-calls N] [--db <path>] [--json]

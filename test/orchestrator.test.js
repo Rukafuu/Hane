@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { Orchestrator } from '../src/orchestrator.js';
 import { TaskRun } from '../src/task-run.js';
@@ -182,4 +185,166 @@ test('cancels an in-flight role without fabricating an output', async () => {
   assert.equal(task.status, 'cancelled');
   assert.deepEqual(task.outputs, {});
   assert.ok(task.audit.some((entry) => entry.type === 'mission_cancelled'));
+});
+
+class RecordingProvider {
+  constructor(plannerOutput) {
+    this.plannerOutput = plannerOutput;
+    this.requests = [];
+  }
+  async complete(request) {
+    this.requests.push(request);
+    if (request.role === 'planner') return this.plannerOutput;
+    if (request.role === 'reviewer') return APPROVING_REVIEWER;
+    return 'executor output';
+  }
+}
+
+function makeWorkspace(files) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-orch-')));
+  for (const [relative, content] of Object.entries(files)) {
+    const target = path.join(root, ...relative.split('/'));
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+  }
+  return root;
+}
+
+const readGrant = (scope) => ({ name: 'workspace.read', scope });
+
+test('reads granted files and hands the executor real evidence', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A content\n', 'docs/note.md': 'note\n' });
+  const provider = new RecordingProvider('Look at `src/a.js` only.');
+  try {
+    const task = await new Orchestrator({ provider, idFactory: () => 'run-evidence' }).start({
+      objective: 'Summarize a.js.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+    });
+
+    assert.equal(task.status, 'completed');
+    const executorRequest = provider.requests.find((request) => request.role === 'executor');
+    assert.deepEqual(executorRequest.workspaceEvidence.files.map((file) => file.path), ['src/a.js']);
+    assert.equal(executorRequest.workspaceEvidence.files[0].content, 'A content\n');
+    assert.equal(provider.requests.find((request) => request.role === 'reviewer').workspaceEvidence, null);
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_read' && entry.detail.path === 'src/a.js'));
+    assert.equal(task.toolCalls, 1);
+    assert.equal(task.providerCalls, 3, 'reading files does not spend the provider budget');
+    assert.equal(task.outputs.executor, 'executor output', 'evidence is not persisted as an output');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the planner cannot ask for paths the grants do not cover, and the denial is audited', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A content\n', '.env': 'SECRET=leak', 'outside.txt': 'leak\n' });
+  const provider = new RecordingProvider('read src/a.js and ../outside.txt and .env');
+  try {
+    const task = await new Orchestrator({ provider, idFactory: () => 'run-denied' }).start({
+      objective: 'Try to read everything.',
+      capabilityGrants: [readGrant('.')],
+      workspaceRoot: root,
+    });
+
+    const evidence = provider.requests.find((request) => request.role === 'executor').workspaceEvidence;
+    assert.deepEqual(evidence.files.map((file) => file.path), ['src/a.js']);
+    assert.deepEqual(evidence.denied, [
+      { path: '../outside.txt', reason: 'escapes_workspace_root' },
+      { path: '.env', reason: 'denied_by_secret_policy' },
+    ]);
+    assert.equal(task.status, 'completed');
+    assert.equal(task.audit.filter((entry) => entry.type === 'tool_denied').length, 2);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('lists a granted directory instead of refusing because it is not a file', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n', 'src/nested/b.js': 'B\n' });
+  const provider = new RecordingProvider('start with src/');
+  try {
+    await new Orchestrator({ provider, idFactory: () => 'run-list' }).start({
+      objective: 'Map the source tree.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+    });
+
+    const evidence = provider.requests.find((request) => request.role === 'executor').workspaceEvidence;
+    assert.deepEqual(evidence.listings, [{ path: 'src', entries: ['a.js', 'nested/'], truncated: false }]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the tool budget bounds how much of the workspace one role can pull in', async () => {
+  const root = makeWorkspace(Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`src/f${n}.js`, `${n}\n`])));
+  const provider = new RecordingProvider('read src/f1.js, src/f2.js, src/f3.js, src/f4.js, src/f5.js');
+  try {
+    const task = await new Orchestrator({ provider, idFactory: () => 'run-tool-budget' }).start({
+      objective: 'Read all of it.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+      maxToolCalls: 2,
+    });
+
+    const evidence = provider.requests.find((request) => request.role === 'executor').workspaceEvidence;
+    assert.deepEqual(evidence.files.map((file) => file.path), ['src/f1.js', 'src/f2.js']);
+    assert.equal(task.toolCalls, 2);
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_budget_exhausted'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('grants without a root, without grants, and a vanished root all fail closed', async () => {
+  const withoutRoot = new RecordingProvider('read src/a.js');
+  const plainTask = await new Orchestrator({ provider: withoutRoot, idFactory: () => 'run-no-root' }).start({
+    objective: 'Ask for files that have no root.',
+    capabilityGrants: [readGrant('src')],
+  });
+  assert.equal(withoutRoot.requests.find((request) => request.role === 'executor').workspaceEvidence, null);
+  assert.equal(plainTask.status, 'completed');
+
+  const noGrants = new RecordingProvider('read src/a.js');
+  await new Orchestrator({ provider: noGrants, idFactory: () => 'run-no-grants' }).start({ objective: 'No grants at all.' });
+  assert.equal(noGrants.requests.find((request) => request.role === 'executor').workspaceEvidence, null);
+
+  const missingRoot = new RecordingProvider('read src/a.js');
+  const goneTask = await new Orchestrator({ provider: missingRoot, idFactory: () => 'run-gone-root' }).start({
+    objective: 'Point at a directory that does not exist.',
+    capabilityGrants: [readGrant('src')],
+    workspaceRoot: path.join(os.tmpdir(), 'hane-does-not-exist'),
+  });
+  assert.equal(missingRoot.requests.find((request) => request.role === 'executor').workspaceEvidence, null);
+  assert.equal(goneTask.status, 'completed');
+  assert.ok(goneTask.audit.some((entry) => entry.type === 'workspace_unavailable'));
+});
+
+test('a resumed mission re-reads the workspace instead of replaying stored contents', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'first\n' });
+  try {
+    const provider = new RecordingProvider('read src/a.js');
+    const repository = { save: () => {} };
+    const orchestrator = new Orchestrator({ provider, repository, idFactory: () => 'run-resume' });
+    const task = await orchestrator.start({
+      objective: 'Read once.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+    });
+
+    fs.writeFileSync(path.join(root, 'src', 'a.js'), 'second\n');
+    const rebuilt = TaskRun.fromSnapshot({
+      ...task.snapshot(),
+      status: 'needs_attention',
+      providerCalls: 1,
+      toolCalls: 0,
+      outputs: { planner: task.outputs.planner },
+    });
+    await orchestrator.resume(rebuilt);
+
+    const lastExecutor = provider.requests.filter((request) => request.role === 'executor').at(-1);
+    assert.equal(lastExecutor.workspaceEvidence.files[0].content, 'second\n');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
