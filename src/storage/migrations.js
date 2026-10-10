@@ -157,6 +157,9 @@ const MIGRATIONS = Object.freeze([
     'ALTER TABLE task_runs ADD COLUMN team_id TEXT REFERENCES teams(id) ON DELETE RESTRICT;',
     'CREATE INDEX task_runs_team ON task_runs(team_id);',
   ]) }),
+  Object.freeze({ id: 12, name: 'library_import_receipts', statements: Object.freeze([
+    'CREATE TABLE library_imports (id TEXT PRIMARY KEY, digest TEXT NOT NULL, result_json TEXT NOT NULL, created_at TEXT NOT NULL) STRICT;',
+  ]) }),
 ]);
 
 export function latestMigrationId() {
