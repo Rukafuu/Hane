@@ -2,9 +2,6 @@ import { open, readdir } from 'node:fs/promises';
 
 export const DEFAULT_MAX_FILE_BYTES = 64 * 1024;
 export const DEFAULT_MAX_ENTRIES = 200;
-export const DEFAULT_MAX_PATHS = 12;
-
-const PATHISH = /^[~.]?[A-Za-z0-9_.@+\-/\\:]+$/;
 
 /**
  * Reads only up to the byte cap and never trusts the earlier resolver stat:
@@ -73,27 +70,4 @@ export async function listWorkspaceDir({ resolver, relPath, maxEntries = DEFAULT
   } catch (error) {
     return { ok: false, reason: 'list_failed', relPath: checked.relPath, message: error instanceof Error ? error.message : String(error) };
   }
-}
-
-/**
- * Only a hint of what the planner wants to see; every token still goes through
- * the resolver, so a fabricated or absolute path becomes an audited denial
- * instead of being silently dropped here.
- */
-export function parseRequestedPaths(text, { maxPaths = DEFAULT_MAX_PATHS } = {}) {
-  if (typeof text !== 'string' || text.trim() === '') return [];
-  const found = [];
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').replace(/`/g, '');
-    if (line.length > 512 || line.includes('://')) continue;
-    for (const rawToken of line.split(/[\s,;]+/)) {
-      const candidate = rawToken.replace(/^["'(]+/, '').replace(/["').,!?:;]+$/, '');
-      if (candidate.length === 0 || candidate.length > 512) continue;
-      if (!PATHISH.test(candidate)) continue;
-      const looksLikePath = candidate.includes('/') || candidate.includes('\\') || /\.[A-Za-z0-9]{1,6}$/.test(candidate);
-      if (!looksLikePath) continue;
-      if (!found.includes(candidate)) found.push(candidate);
-    }
-  }
-  return found.slice(0, maxPaths);
 }

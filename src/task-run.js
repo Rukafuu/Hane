@@ -4,6 +4,13 @@ import { assertCapabilityGrants } from './capabilities.js';
 const RESUMABLE_STATUSES = Object.freeze([TASK_STATUS.PLANNED, TASK_STATUS.EXECUTING, TASK_STATUS.REVIEWING]);
 export const DEFAULT_MAX_TOOL_CALLS = 24;
 
+/**
+ * Three roles plus the turns a looped role can spend. A tool turn is a provider
+ * call, so a mission whose executor reads four files costs eight calls, not one:
+ * the budget has to be the real spend or it stops meaning anything.
+ */
+export const DEFAULT_MAX_PROVIDER_CALLS = 10;
+
 const TRANSITIONS = Object.freeze({
   [TASK_STATUS.DRAFT]: new Set([TASK_STATUS.PLANNED, TASK_STATUS.NEEDS_ATTENTION, TASK_STATUS.FAILED, TASK_STATUS.CANCELLED]),
   [TASK_STATUS.PLANNED]: new Set([TASK_STATUS.EXECUTING, TASK_STATUS.NEEDS_ATTENTION, TASK_STATUS.FAILED, TASK_STATUS.CANCELLED]),
@@ -20,7 +27,7 @@ export class TaskRun {
   #calls = 0;
   #toolCalls = 0;
 
-  constructor({ id, objective, maxProviderCalls = 3, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = DEFAULT_MAX_TOOL_CALLS, now = () => new Date().toISOString() }) {
+  constructor({ id, objective, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = DEFAULT_MAX_TOOL_CALLS, now = () => new Date().toISOString() }) {
     if (typeof id !== 'string' || id.length === 0) throw new TypeError('id is required.');
     if (providerLabel !== null && (typeof providerLabel !== 'string' || providerLabel.trim().length === 0)) {
       throw new TypeError('providerLabel must be a non-empty string or null.');

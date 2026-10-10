@@ -4,7 +4,7 @@ import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
 import { assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
-import { TaskRun } from '../task-run.js';
+import { TaskRun, DEFAULT_MAX_PROVIDER_CALLS } from '../task-run.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
 import { resolveProviderConfig } from '../cli/run-mission.js';
 import { GitHubAuthorizationPendingError, pollGitHubDeviceAuthorization, startGitHubDeviceAuthorization } from '../integrations/github-device-flow.js';
@@ -169,7 +169,7 @@ async function startMission({ request, response, repository, providerConfigStore
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid JSON body.' });
   }
   let objective;
-  let maxProviderCalls = 3;
+  let maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS;
   let maxToolCalls;
   let capabilityGrants;
   let workspaceRoot = null;

@@ -508,7 +508,7 @@ test('approve after a revise verdict re-runs executor and reviewer and settles c
   const baseUrl = await harness.baseUrl();
   reviewerVerdict = "revise";
 
-  const id = await startMission(baseUrl, "Improve the flaky test result.");
+  const id = await startMission(baseUrl, "Improve the flaky test result.", { maxProviderCalls: 3 });
   assert.ok(await waitFor(async () => (await getMission(baseUrl, id)).status === "awaiting_approval"));
 
   reviewerVerdict = "approved";
@@ -626,10 +626,24 @@ test('POST /api/missions carries an explicit tool budget and refuses a non-posit
 
 test('approve with maxToolCalls reopens a spent tool budget and the reads resume', async (t) => {
   class BudgetProvider {
+    constructor() {
+      // Every executor turn of every run asks the same two reads, so the second
+      // run shows what the reopened budget lets it do.
+      this.turns = [
+        { content: null, toolCalls: [
+          { id: 'call-0', name: 'read_file', arguments: { path: 'notes.md' }, source: 'native' },
+          { id: 'call-1', name: 'read_file', arguments: { path: 'todo.md' }, source: 'native' },
+        ] },
+        { content: 'executor output', toolCalls: [] },
+      ];
+    }
     async complete({ role }) {
       if (role === 'planner') return 'open notes.md then todo.md';
       if (role === 'reviewer') return 'reviewer output\nverdict: revise';
       return 'executor output';
+    }
+    async completeTurn() {
+      return this.turns.shift() ?? { content: 'executor output', toolCalls: [] };
     }
   }
   const harness = createHarness({ providerConstructor: BudgetProvider });
@@ -653,7 +667,7 @@ test('approve with maxToolCalls reopens a spent tool budget and the reads resume
   const approved = await fetch(`${baseUrl}/api/missions/${id}/approve`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ maxToolCalls: 4 }),
+    body: JSON.stringify({ maxToolCalls: 4, maxProviderCalls: 8 }),
   });
   assert.equal(approved.status, 202);
   assert.equal((await approved.json()).maxToolCalls, 4);

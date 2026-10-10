@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { Orchestrator } from '../orchestrator.js';
-import { DEFAULT_MAX_TOOL_CALLS } from '../task-run.js';
+import { DEFAULT_MAX_PROVIDER_CALLS, DEFAULT_MAX_TOOL_CALLS } from '../task-run.js';
 import { TASK_STATUS, assertPositiveInteger } from '../contracts.js';
 import { assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
@@ -14,7 +14,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     args,
     options: {
       provider: { type: 'string' },
-      'max-calls': { type: 'string', default: '3' },
+      'max-calls': { type: 'string' },
       'max-tool-calls': { type: 'string' },
       db: { type: 'string' },
       json: { type: 'boolean', default: false },
@@ -24,7 +24,11 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     allowPositionals: true,
   });
   const objective = positionals.join(' ').trim();
-  const maxProviderCalls = assertPositiveInteger(Number(values['max-calls']), 'max-calls');
+  // A turn of the executor's tool loop is a provider call, so this budget is the
+  // mission's real spend; its default stays where TaskRun defines it.
+  const maxProviderCalls = values['max-calls'] === undefined
+    ? DEFAULT_MAX_PROVIDER_CALLS
+    : assertPositiveInteger(Number(values['max-calls']), 'max-calls');
   // An omitted flag leaves the default where it is defined: TaskRun.
   const maxToolCalls = values['max-tool-calls'] === undefined
     ? undefined

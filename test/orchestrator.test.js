@@ -187,19 +187,6 @@ test('cancels an in-flight role without fabricating an output', async () => {
   assert.ok(task.audit.some((entry) => entry.type === 'mission_cancelled'));
 });
 
-class RecordingProvider {
-  constructor(plannerOutput) {
-    this.plannerOutput = plannerOutput;
-    this.requests = [];
-  }
-  async complete(request) {
-    this.requests.push(request);
-    if (request.role === 'planner') return this.plannerOutput;
-    if (request.role === 'reviewer') return APPROVING_REVIEWER;
-    return 'executor output';
-  }
-}
-
 function makeWorkspace(files) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-orch-')));
   for (const [relative, content] of Object.entries(files)) {
@@ -212,65 +199,155 @@ function makeWorkspace(files) {
 
 const readGrant = (scope) => ({ name: 'workspace.read', scope });
 
-test('reads granted files and hands the executor real evidence', async () => {
+/**
+ * The gateway the loop was built for: it answers with native tool calls until its
+ * script runs out, and it keeps every message list it was handed — because the
+ * only way to check what the model was shown is to look at what came back.
+ */
+class ToolGateway {
+  constructor(turns = []) {
+    this.turns = [...turns];
+    this.requests = [];
+    this.turnsAsked = [];
+  }
+
+  async complete(request) {
+    this.requests.push(request);
+    if (request.role === 'reviewer') return APPROVING_REVIEWER;
+    return `${request.role} output`;
+  }
+
+  async completeTurn({ messages, tools }) {
+    this.turnsAsked.push({ messages: structuredClone(messages), tools });
+    const spec = this.turns.length > 0 ? this.turns.shift() : { content: 'executor output' };
+    const calls = (spec.calls ?? []).map((call, index) => ({
+      id: call.id ?? `call-${index}`,
+      source: call.source ?? 'native',
+      ...call,
+    }));
+    return {
+      content: spec.content ?? null,
+      protocol: spec.protocol ?? (calls.length > 0 ? 'native' : 'none'),
+      toolCalls: calls,
+    };
+  }
+}
+
+const readCall = (path) => ({ name: 'read_file', arguments: { path } });
+const listCall = (path) => ({ name: 'list_dir', arguments: { path } });
+
+/**
+ * The message the loop handed back for the calls made on turn `turn` (0-based):
+ * it is the last thing in the *next* request, because the model only sees the
+ * answer when it is asked again.
+ */
+function answerOn(gateway, turn = 0) {
+  return gateway.turnsAsked[turn + 1].messages.at(-1);
+}
+
+test('the executor asks for a file, reads it, and answers from the bytes', async () => {
   const root = makeWorkspace({ 'src/a.js': 'A content\n', 'docs/note.md': 'note\n' });
-  const provider = new RecordingProvider('Look at `src/a.js` only.');
+  const gateway = new ToolGateway([
+    { calls: [readCall('src/a.js')] },
+    { content: 'src/a.js holds A content.' },
+  ]);
   try {
-    const task = await new Orchestrator({ provider, idFactory: () => 'run-evidence' }).start({
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-loop' }).start({
       objective: 'Summarize a.js.',
       capabilityGrants: [readGrant('src')],
       workspaceRoot: root,
     });
 
     assert.equal(task.status, 'completed');
-    const executorRequest = provider.requests.find((request) => request.role === 'executor');
-    assert.deepEqual(executorRequest.workspaceEvidence.files.map((file) => file.path), ['src/a.js']);
-    assert.equal(executorRequest.workspaceEvidence.files[0].content, 'A content\n');
-    assert.equal(provider.requests.find((request) => request.role === 'reviewer').workspaceEvidence, null);
-    assert.ok(task.audit.some((entry) => entry.type === 'tool_read' && entry.detail.path === 'src/a.js'));
-    assert.equal(task.toolCalls, 1);
-    assert.equal(task.providerCalls, 3, 'reading files does not spend the provider budget');
-    assert.equal(task.outputs.executor, 'executor output', 'evidence is not persisted as an output');
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('the planner cannot ask for paths the grants do not cover, and the denial is audited', async () => {
-  const root = makeWorkspace({ 'src/a.js': 'A content\n', '.env': 'SECRET=leak', 'outside.txt': 'leak\n' });
-  const provider = new RecordingProvider('read src/a.js and ../outside.txt and .env');
-  try {
-    const task = await new Orchestrator({ provider, idFactory: () => 'run-denied' }).start({
-      objective: 'Try to read everything.',
-      capabilityGrants: [readGrant('.')],
-      workspaceRoot: root,
+    assert.deepEqual(gateway.turnsAsked[0].tools.map((schema) => schema.function.name), ['read_file', 'list_dir']);
+    assert.deepEqual(JSON.parse(answerOn(gateway).content), {
+      ok: true, tool: 'read_file', path: 'src/a.js', bytes: 10, totalBytes: 10, truncated: false, content: 'A content\n',
     });
+    assert.equal(answerOn(gateway).role, 'tool', 'a native call is answered on the channel the API defines');
 
-    const evidence = provider.requests.find((request) => request.role === 'executor').workspaceEvidence;
-    assert.deepEqual(evidence.files.map((file) => file.path), ['src/a.js']);
-    assert.deepEqual(evidence.denied, [
-      { path: '../outside.txt', reason: 'escapes_workspace_root' },
-      { path: '.env', reason: 'denied_by_secret_policy' },
-    ]);
-    assert.equal(task.status, 'completed');
-    assert.equal(task.audit.filter((entry) => entry.type === 'tool_denied').length, 2);
+    const audit = task.audit.filter((entry) => entry.type === 'tool_read');
+    assert.deepEqual(audit.map((entry) => entry.detail), [{ path: 'src/a.js', bytes: 10, truncated: false, totalBytes: 10 }]);
+    assert.equal(task.toolCalls, 1);
+    assert.equal(task.providerCalls, 4, 'planner, two executor turns, reviewer');
+    assert.equal(task.outputs.executor, 'src/a.js holds A content.');
+    assert.deepEqual(gateway.requests.map((request) => request.role), ['planner', 'reviewer'], 'only the executor is offered tools');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('lists a granted directory instead of refusing because it is not a file', async () => {
+test('a listing comes back as entries, not as file bytes', async () => {
   const root = makeWorkspace({ 'src/a.js': 'A\n', 'src/nested/b.js': 'B\n' });
-  const provider = new RecordingProvider('start with src/');
+  const gateway = new ToolGateway([
+    { calls: [listCall('src')] },
+    { content: 'two entries' },
+  ]);
   try {
-    await new Orchestrator({ provider, idFactory: () => 'run-list' }).start({
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-listing' }).start({
       objective: 'Map the source tree.',
       capabilityGrants: [readGrant('src')],
       workspaceRoot: root,
     });
 
-    const evidence = provider.requests.find((request) => request.role === 'executor').workspaceEvidence;
-    assert.deepEqual(evidence.listings, [{ path: 'src', entries: ['a.js', 'nested/'], truncated: false }]);
+    assert.deepEqual(JSON.parse(answerOn(gateway).content), {
+      ok: true, tool: 'list_dir', path: 'src', entries: ['a.js', 'nested/'], truncated: false,
+    });
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_listing'
+      && entry.detail.path === 'src' && entry.detail.entries === 2));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a path the grants do not cover is refused by the sandbox and audited, and the run goes on', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A content\n', '.env': 'SECRET=leak' });
+  const gateway = new ToolGateway([
+    { calls: [readCall('../outside.txt'), readCall('.env'), readCall('src/a.js')] },
+    { content: 'only the granted file came back' },
+  ]);
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-denied' }).start({
+      objective: 'Try to read everything.',
+      capabilityGrants: [readGrant('.')],
+      workspaceRoot: root,
+    });
+
+    assert.equal(task.status, 'completed');
+    assert.deepEqual(
+      task.audit.filter((entry) => entry.type === 'tool_denied').map((entry) => entry.detail),
+      [
+        { path: '../outside.txt', reason: 'escapes_workspace_root' },
+        { path: '.env', reason: 'denied_by_secret_policy' },
+      ],
+    );
+    assert.equal(JSON.parse(answerOn(gateway).content).ok, true);
+    assert.equal(task.toolCalls, 3, 'a refusal is still an action the mission spent');
+    assert.equal(JSON.stringify(task.audit).includes('SECRET'), false, 'a denied file never reaches the audit');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a call the mission has no tool for never reaches the sandbox', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n' });
+  const gateway = new ToolGateway([
+    { calls: [{ name: 'delete_file', arguments: { path: 'src/a.js' } }] },
+    { content: 'refused, so I described the file' },
+  ]);
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-unknown' }).start({
+      objective: 'Try to remove a file.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+    });
+
+    assert.deepEqual(
+      task.audit.filter((entry) => entry.type === 'tool_call_refused').map((entry) => entry.detail),
+      [{ role: 'executor', tool: 'delete_file', reason: 'unknown_tool', protocol: 'native' }],
+    );
+    assert.equal(JSON.parse(answerOn(gateway).content).reason, 'unknown_tool');
+    assert.equal(task.toolCalls, 1, 'a call the model made is a call the mission pays for, even one it was refused');
+    assert.equal(fs.existsSync(path.join(root, 'src', 'a.js')), true);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -278,54 +355,169 @@ test('lists a granted directory instead of refusing because it is not a file', a
 
 test('the tool budget bounds how much of the workspace one role can pull in', async () => {
   const root = makeWorkspace(Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`src/f${n}.js`, `${n}\n`])));
-  const provider = new RecordingProvider('read src/f1.js, src/f2.js, src/f3.js, src/f4.js, src/f5.js');
+  const gateway = new ToolGateway([
+    { calls: [1, 2, 3, 4, 5].map((n) => readCall(`src/f${n}.js`)) },
+    { content: 'I read two of them' },
+  ]);
   try {
-    const task = await new Orchestrator({ provider, idFactory: () => 'run-tool-budget' }).start({
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-tool-budget' }).start({
       objective: 'Read all of it.',
       capabilityGrants: [readGrant('src')],
       workspaceRoot: root,
       maxToolCalls: 2,
     });
 
-    const evidence = provider.requests.find((request) => request.role === 'executor').workspaceEvidence;
-    assert.deepEqual(evidence.files.map((file) => file.path), ['src/f1.js', 'src/f2.js']);
     assert.equal(task.toolCalls, 2);
+    assert.equal(task.audit.filter((entry) => entry.type === 'tool_read').length, 2);
     assert.ok(task.audit.some((entry) => entry.type === 'tool_budget_exhausted'));
+    const finalTurn = gateway.turnsAsked[1];
+    assert.equal(finalTurn.tools, null, 'the answer is asked without tools, so it cannot spend its way back into the same wall');
+    const refused = finalTurn.messages.filter((message) => message.role === 'tool');
+    assert.deepEqual(refused.map((message) => JSON.parse(message.content)), [
+      { ok: true, tool: 'read_file', path: 'src/f1.js', bytes: 2, totalBytes: 2, truncated: false, content: '1\n' },
+      { ok: true, tool: 'read_file', path: 'src/f2.js', bytes: 2, totalBytes: 2, truncated: false, content: '2\n' },
+      { ok: false, tool: 'read_file', path: 'src/f3.js', reason: 'tool_budget_exhausted' },
+      { ok: false, tool: 'read_file', path: 'src/f4.js', reason: 'tool_budget_exhausted' },
+      { ok: false, tool: 'read_file', path: 'src/f5.js', reason: 'tool_budget_exhausted' },
+    ], 'every call is answered, so the model knows which of its five asks went unread');
+    assert.match(finalTurn.messages.at(-1).content, /^No more tool calls are available/);
+    assert.equal(task.status, 'completed');
+    assert.equal(task.outputs.executor, 'I read two of them');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('grants without a root, without grants, and a vanished root all fail closed', async () => {
-  const withoutRoot = new RecordingProvider('read src/a.js');
+test('grants without a root, without grants, and a vanished root all run without tools', async () => {
+  const withoutRoot = new ToolGateway([{ content: 'should never be asked' }]);
   const plainTask = await new Orchestrator({ provider: withoutRoot, idFactory: () => 'run-no-root' }).start({
     objective: 'Ask for files that have no root.',
     capabilityGrants: [readGrant('src')],
   });
-  assert.equal(withoutRoot.requests.find((request) => request.role === 'executor').workspaceEvidence, null);
+  assert.equal(withoutRoot.turnsAsked.length, 0);
   assert.equal(plainTask.status, 'completed');
+  assert.equal(plainTask.toolCalls, 0);
 
-  const noGrants = new RecordingProvider('read src/a.js');
+  const noGrants = new ToolGateway();
   await new Orchestrator({ provider: noGrants, idFactory: () => 'run-no-grants' }).start({ objective: 'No grants at all.' });
-  assert.equal(noGrants.requests.find((request) => request.role === 'executor').workspaceEvidence, null);
+  assert.equal(noGrants.turnsAsked.length, 0);
 
-  const missingRoot = new RecordingProvider('read src/a.js');
+  const missingRoot = new ToolGateway([{ content: 'should never be asked' }]);
   const goneTask = await new Orchestrator({ provider: missingRoot, idFactory: () => 'run-gone-root' }).start({
     objective: 'Point at a directory that does not exist.',
     capabilityGrants: [readGrant('src')],
     workspaceRoot: path.join(os.tmpdir(), 'hane-does-not-exist'),
   });
-  assert.equal(missingRoot.requests.find((request) => request.role === 'executor').workspaceEvidence, null);
+  assert.equal(missingRoot.turnsAsked.length, 0);
   assert.equal(goneTask.status, 'completed');
   assert.ok(goneTask.audit.some((entry) => entry.type === 'workspace_unavailable'));
+});
+
+test('a provider that cannot take a turn loses its tools loudly, not silently', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n' });
+  const provider = new FakeProvider();
+  try {
+    const task = await new Orchestrator({ provider, idFactory: () => 'run-no-turn' }).start({
+      objective: 'Read a file with a model that has no loop.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+    });
+
+    assert.equal(task.status, 'completed');
+    assert.equal(task.providerCalls, 3);
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_unavailable'
+      && entry.detail.reason === 'provider_cannot_take_a_turn'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a provider budget spent mid-loop stops the role instead of saving half an answer', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n', 'src/b.js': 'B\n' });
+  const gateway = new ToolGateway([
+    { calls: [readCall('src/a.js')] },
+    { content: 'unreachable: the loop has no call left to ask for it' },
+  ]);
+  const events = [];
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-loop-budget' }).start({
+      objective: 'Read until the budget says stop.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+      maxProviderCalls: 2,
+      onEvent: (event) => events.push(event),
+    });
+
+    assert.equal(task.status, 'needs_attention');
+    assert.equal(task.toolCalls, 1);
+    assert.deepEqual(task.outputs, { planner: 'planner output' });
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_stopped' && entry.detail.reason === 'provider_budget'));
+    assert.equal(gateway.turnsAsked.length, 1, 'a role with no call left is not asked for a closing answer');
+    assert.deepEqual(events.map((event) => event.type), ['role_saved', 'tool_audited', 'role_skipped_budget', 'run_finished']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the turn guard stops a model that keeps asking and never answers', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n' });
+  const gateway = new ToolGateway([
+    ...Array.from({ length: 8 }, () => ({ calls: [readCall('src/a.js')] })),
+    { content: 'asked once too often, then answered' },
+  ]);
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-turn-guard' }).start({
+      objective: 'Read the same file nine times.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+      maxProviderCalls: 12,
+    });
+
+    assert.equal(task.status, 'completed');
+    assert.equal(task.toolCalls, 8);
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_stopped' && entry.detail.reason === 'turn_guard'));
+    assert.equal(task.providerCalls, 12, 'eight turns, the turn the guard spent, the closing answer, and one call per other role');
+    assert.equal(task.outputs.executor, 'asked once too often, then answered');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an inline call is audited as a fallback and answered as text, not on the tool channel', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A content\n' });
+  const gateway = new ToolGateway([
+    { protocol: 'inline', content: '```hane-tool\n{"tool":"read_file","args":{"path":"src/a.js"}}\n```', calls: [{ source: 'inline', id: null, name: 'read_file', arguments: { path: 'src/a.js' } }] },
+    { content: 'the gateway dropped my tools but the read happened' },
+  ]);
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-inline' }).start({
+      objective: 'Read a.js through a gateway that ignores tools.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+    });
+
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_protocol_fallback'
+      && entry.detail.turn === 1 && entry.detail.calls === 1));
+    const answered = answerOn(gateway);
+    assert.equal(answered.role, 'user', 'a gateway with no tool role needs the result in the text');
+    assert.match(answered.content, /^tool_result read_file: /);
+    assert.equal(task.toolCalls, 1);
+    assert.equal(task.status, 'completed');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('a resumed mission re-reads the workspace instead of replaying stored contents', async () => {
   const root = makeWorkspace({ 'src/a.js': 'first\n' });
   try {
-    const provider = new RecordingProvider('read src/a.js');
-    const repository = { save: () => {} };
-    const orchestrator = new Orchestrator({ provider, repository, idFactory: () => 'run-resume' });
+    const gateway = new ToolGateway([
+      { calls: [readCall('src/a.js')] },
+      { content: 'read the first version' },
+      { calls: [readCall('src/a.js')] },
+      { content: 'read the second version' },
+    ]);
+    const orchestrator = new Orchestrator({ provider: gateway, repository: { save: () => {} }, idFactory: () => 'run-resume' });
     const task = await orchestrator.start({
       objective: 'Read once.',
       capabilityGrants: [readGrant('src')],
@@ -342,8 +534,9 @@ test('a resumed mission re-reads the workspace instead of replaying stored conte
     });
     await orchestrator.resume(rebuilt);
 
-    const lastExecutor = provider.requests.filter((request) => request.role === 'executor').at(-1);
-    assert.equal(lastExecutor.workspaceEvidence.files[0].content, 'second\n');
+    const lastRead = answerOn(gateway, gateway.turnsAsked.length - 2);
+    assert.equal(JSON.parse(lastRead.content).content, 'second\n');
+    assert.equal(rebuilt.toolCalls, 1, 'the tool budget was reset with the mission, then spent once');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

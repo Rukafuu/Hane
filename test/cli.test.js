@@ -28,14 +28,27 @@ class RecordingProvider {
     if (request.role === 'reviewer') return `${request.role} output\nverdict: approved`;
     return `${request.role} output`;
   }
+  /** A turn with nothing scripted is a role that simply answers. */
+  async completeTurn() {
+    return { content: 'executor output', protocol: 'none', toolCalls: [] };
+  }
 }
 
-function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null } = {}) {
+/** One native tool call, in the shape the provider adapter hands the loop. */
+const readTurn = (path) => ({
+  content: null,
+  protocol: 'native',
+  toolCalls: [{ id: `call-${path}`, name: 'read_file', arguments: { path }, source: 'native' }],
+});
+const answerTurn = (content) => ({ content, protocol: 'none', toolCalls: [] });
+
+function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null, turns = [] } = {}) {
   const database = openHaneDatabase(':memory:');
   const credentialManager = new FakeCredentialManager();
   const createdProviders = [];
   const stdoutLines = [];
   const stderrLines = [];
+  const turnQueue = [...turns];
   let reviewerCalls = 0;
   const LifecycleProvider = class extends RecordingProvider {
     async complete(request) {
@@ -44,6 +57,12 @@ function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', 
       if (request.role !== 'reviewer') return `${request.role} output`;
       reviewerCalls += 1;
       return typeof reviewerOutput === 'function' ? reviewerOutput(reviewerCalls) : reviewerOutput;
+    }
+    // The script lives with the harness, not the provider: a resume builds a new
+    // provider but continues the same mission, so its turns follow where the
+    // queue was left.
+    async completeTurn() {
+      return turnQueue.shift() ?? { content: 'executor output', protocol: 'none', toolCalls: [] };
     }
   };
   const collector = (lines) => ({ write: (text) => { lines.push(text); return true; } });
@@ -88,8 +107,9 @@ async function configureProvider(harness, { stdin } = {}) {
 test('runs the full provider flow and reports progress role by role', async () => {
   const harness = createHarness();
   await configureProvider(harness);
-  assert.equal(await harness.run(['run', 'Draft a migration plan.']), 0);
+  assert.equal(await harness.run(['run', 'Draft a migration plan.', '--max-calls', '3']), 0);
 
+  assert.match(harness.output(), /budget: 3 calls/);
   assert.match(harness.output(), /\[1\/3\] planner {2}saved \(call 1\/3\)/);
   assert.match(harness.output(), /\[3\/3\] reviewer saved \(call 3\/3\)/);
   assert.match(harness.output(), /status: completed · audit: \d+ entries/);
@@ -273,8 +293,8 @@ test('missions lists recorded missions with status and budget', async () => {
   assert.equal(await harness.run(['missions']), 0);
   assert.match(harness.output(), /No missions recorded/);
 
-  assert.equal(await harness.run(['run', 'First recorded mission.']), 0);
-  assert.equal(await harness.run(['run', 'Second recorded mission.']), 0);
+  assert.equal(await harness.run(['run', 'First recorded mission.', '--max-calls', '3']), 0);
+  assert.equal(await harness.run(['run', 'Second recorded mission.', '--max-calls', '3']), 0);
   assert.equal(await harness.run(['missions']), 0);
 
   const lines = harness.output().split('\n').filter((line) => line.includes(' · '));
@@ -286,7 +306,7 @@ test('missions lists recorded missions with status and budget', async () => {
 test('mission <id> shows the stored outputs and --json returns the record', async () => {
   const harness = createHarness();
   await configureProvider(harness);
-  assert.equal(await harness.run(['run', 'Inspect mission details.']), 0);
+  assert.equal(await harness.run(['run', 'Inspect mission details.', '--max-calls', '3']), 0);
   const id = harness.latestMissionId();
 
   assert.equal(await harness.run(['mission', id]), 0);
@@ -365,7 +385,7 @@ test('retry refuses a completed mission and points a parked mission at approve',
 test('approve spends new calls on the revision and completes the mission', async () => {
   const harness = createHarness({ reviewerOutput: (attempt) => attempt === 1 ? 'Still weak.\nverdict: revise' : 'Much better.\nverdict: approved' });
   await configureProvider(harness);
-  assert.equal(await harness.run(['run', 'Improve the result.']), 2);
+  assert.equal(await harness.run(['run', 'Improve the result.', '--max-calls', '3']), 2);
   const id = harness.latestMissionId();
   assert.equal(harness.database.prepare('SELECT status FROM task_runs WHERE id = ?').get(id).status, 'awaiting_approval');
   const auditBefore = harness.database.prepare('SELECT COUNT(*) AS entries FROM task_audit_entries WHERE task_id = ?').get(id).entries;
@@ -380,6 +400,18 @@ test('approve spends new calls on the revision and completes the mission', async
   assert.equal(stored.providerCalls, 5);
   assert.equal(harness.reviewerCallCount(), 2);
   assert.equal(harness.database.prepare('SELECT COUNT(*) AS entries FROM task_audit_entries WHERE task_id = ?').get(id).entries, auditBefore + 9);
+});
+
+test('the role budget defaults to what a looping executor can spend and a flag overrides it', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+
+  assert.equal(await harness.run(['run', 'A mission on the default budget.']), 0);
+  assert.match(harness.output(), /budget: 10 calls/);
+  assert.equal(harness.database.prepare('SELECT max_provider_calls AS m FROM task_runs ORDER BY rowid DESC LIMIT 1').get().m, 10);
+
+  assert.equal(await harness.run(['run', 'A mission on a stated budget.', '--max-calls', '3']), 0);
+  assert.match(harness.output(), /budget: 3 calls/);
 });
 
 test('approve refuses a mission that never parked for review', async () => {
@@ -487,7 +519,21 @@ test('a non-positive tool budget is a usage error before anything is recorded', 
 });
 
 test('a spent tool budget is announced, and --max-tool-calls reopens it on the next resume', async () => {
-  const harness = createHarness({ plannerOutput: 'open notes.md then todo.md', reviewerOutput: 'reviewer output\nverdict: revise' });
+  const harness = createHarness({
+    plannerOutput: 'open notes.md then todo.md',
+    reviewerOutput: 'reviewer output\nverdict: revise',
+    // Run one asks twice and gets refused the second time; the first approve has
+    // nothing left to ask for; the reopened run asks both again.
+    turns: [
+      readTurn('notes.md'),
+      readTurn('todo.md'),
+      answerTurn('read the first note'),
+      answerTurn('the budget is spent, so I answered from what I had'),
+      readTurn('notes.md'),
+      readTurn('todo.md'),
+      answerTurn('read both'),
+    ],
+  });
   await configureProvider(harness);
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-')));
   writeFileSync(path.join(root, 'notes.md'), 'the first note\n');

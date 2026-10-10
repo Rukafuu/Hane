@@ -148,7 +148,7 @@ async function resumeMission({ task, context, values, stdout, dependencies }) {
   if (!values.json && task.workspaceRoot !== null
     && grantsForWorkspaceRead(task.capabilityGrants).length > 0
     && task.toolCalls >= task.maxToolCalls) {
-    stdout.write(`warning: tool budget is spent (${task.toolCalls}/${task.maxToolCalls}); this resume reads no workspace evidence.\nhint: pass --max-tool-calls <higher> to raise it\n\n`);
+    stdout.write(`warning: tool budget is spent (${task.toolCalls}/${task.maxToolCalls}); this resume can run no tools.\nhint: pass --max-tool-calls <higher> to raise it\n\n`);
   }
   const resumed = await orchestrator.resume(task, { onEvent: values.json ? null : createProgressReporter({ stdout }) });
 

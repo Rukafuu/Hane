@@ -14,11 +14,13 @@ scope to read. A model response alone never becomes a shell command.
 
 | Path | Role |
 | --- | --- |
-| `src/contracts.js`, `task-run.js`, `orchestrator.js`, `verdict.js` | the lifecycle core: statuses, budget, audit, verdict parsing |
+| `src/contracts.js`, `task-run.js`, `orchestrator.js`, `verdict.js` | the lifecycle core: statuses, budget, tool loop, audit, verdict parsing |
+| `src/sandbox/` | the seam between a mission's grants and the machine that carries them out |
+| `src/tools/` | the tool table, the router that turns a call into a sandbox verb, the read/list implementations and the inline call protocol |
 | `src/providers/` | provider configuration, the credential → provider factory, the OpenAI-compatible adapter |
 | `src/storage/` | SQLite handle, numbered migrations, task repository, provider-config store |
 | `src/credentials/` | Windows Credential Manager bridge (PowerShell, stdin-only payload) |
-| `src/workspace-scope.js`, `src/tools/` | path containment, secret deny-list and the `workspace.read` tool |
+| `src/workspace-scope.js` | path containment and the secret deny-list every read runs through |
 | `src/capabilities.js` | the capability registry and grant validation |
 | `src/skills/`, `src/storage/sqlite-skill-store.js` | data-only local skill manifests and the installed-skill catalog |
 | `src/cli/`, `bin/hane.js` | the `hane` command |
@@ -103,6 +105,7 @@ draft -> planned -> executing -> reviewing -> completed
                                         |-> needs_attention   (verdict: needs_attention, or unparseable)
 any role -> failed
 budget exhausted -> needs_attention
+tool loop out of calls -> needs_attention
 ```
 
 The reviewer's verdict closes the cycle. `revise` parks the run in
@@ -116,8 +119,12 @@ a real, resumable record behind.
 
 ## Budget, calls and retries
 
-`--max-calls` is the number of **logical role calls**, checked before every
-provider request; a reserved call that fails is still spent.
+`--max-calls` is the number of **provider requests the mission may make**,
+checked before each one: one per role, plus one per turn of the executor's tool
+loop — ten by default, because an executor that reads four files spends eight
+calls doing it. A reserved call that fails is still spent. A loop that runs out
+leaves the role unsaved and the mission in `needs_attention`: half a thought is
+not an output.
 
 Transport flakiness is handled one level down. A request that hits a rate limit,
 a server error, a timeout or a dropped connection is retried inside a single
@@ -126,11 +133,20 @@ for `Retry-After`. Each retry is written to the audit trail as `provider_retry`
 and does not consume budget: it is the same call delivered again, not an extra
 call.
 
-## Workspace reads
+## The executor's tools
 
-`workspace.read` is the one capability that executes. The model does not open
-files: before the executor runs, the orchestrator resolves the paths the plan
-named and hands their contents to the executor as evidence.
+`workspace.read` is the one capability that executes. The executor is offered
+`read_file` and `list_dir` as tools and asks for the paths itself: one turn is
+one provider call, the sandbox answers with the bytes or with a refusal, and the
+answer goes back into the same message list, so what the role says is a result of
+what it read rather than of what a planner happened to name. Only the executor is
+offered tools — the planner plans in the dark and the reviewer reads what was
+written.
+
+A gateway that ignores the `tools` field (common on free tiers) is asked to write
+its call into a ` ```hane-tool ` fence instead, and the fallback is audited as
+`tool_protocol_fallback`. A call whose JSON cannot be read is refused and audited;
+it is never executed by guessing.
 
 ```powershell
 node bin/hane.js run "Review the error handling in src/" --provider openrouter --workspace A:/Hane --capability workspace.read=src
@@ -184,15 +200,17 @@ What stands between a grant and your disk:
   granted directory that lands on `.git/config` is a refusal, not a read.
 - Reads are byte-capped and aligned to a line boundary, and binary content is
   refused rather than streamed into a prompt.
-- Reads and refusals are audit entries (`tool_read`, `tool_listing`,
-  `tool_denied`), bounded by a separate `maxToolCalls` budget so tool use can
-  not be used to hide extra spend.
+- Reads, listings and refusals are audit entries (`tool_read`, `tool_listing`,
+  `tool_denied`, `tool_call_refused`) persisted and broadcast as they happen,
+  bounded by a separate `maxToolCalls` budget so tool use can not be used to
+  hide extra spend.
 - That budget is a per-mission counter that survives resumes: cumulative
   across `retry` and `approve`, and independent of the provider-call budget. A
-  resume arriving with it already spent reads no workspace evidence at all,
-  and says so — the CLI warns `warning: tool budget is spent (N/N); this
-  resume reads no workspace evidence.`, hints `pass --max-tool-calls <higher>
-  to raise it`, and the audit records `tool_budget_exhausted`.
+  resume arriving with it already spent can run no tools at all, and says so —
+  the CLI warns `warning: tool budget is spent (N/N); this resume can run no
+  tools.`, hints `pass --max-tool-calls <higher> to raise it`, and every call
+  past the limit is answered with `tool_budget_exhausted`. The role still gets
+  one tool-less turn to say what it saw before the wall.
 
 That ceiling is settable at ingress, not only inside the runtime:
 `hane run --max-tool-calls N` — 24 by default, and the same flag on `retry`
@@ -204,9 +222,10 @@ positive integer.` On a resume the field may only raise the budget — a value
 that does not exceed the current one is refused — and the raise is recorded as
 `tool_budget_extended`.
 
-File content is treated as untrusted data and is labelled that way in the
-provider request. Evidence is not stored with the mission: a resume re-reads
-from disk under the same checks.
+File content is treated as untrusted data and is labelled that way in every
+request that carries it. Nothing is stored as evidence: the mission keeps its
+audit and its message history, and a resume re-reads from disk under the same
+checks rather than replaying bytes it saw before.
 
 `workspace.write`, `process.run` and `network.request` are still declarative —
 they are recorded and audited, nothing executes them, and each one requires a

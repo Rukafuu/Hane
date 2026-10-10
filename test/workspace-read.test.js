@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { listWorkspaceDir, parseRequestedPaths, readWorkspaceFile } from '../src/tools/workspace-read.js';
+import { listWorkspaceDir, readWorkspaceFile } from '../src/tools/workspace-read.js';
 import { createScopeResolver } from '../src/workspace-scope.js';
 import { CAPABILITY } from '../src/capabilities.js';
 
@@ -112,39 +112,5 @@ describe('listWorkspaceDir', () => {
     assert.equal((await listWorkspaceDir({ resolver, relPath: 'src/small.js' })).reason, 'not_a_directory');
     assert.equal((await listWorkspaceDir({ resolver, relPath: 'node_modules' })).reason, 'denied_by_secret_policy');
     assert.equal((await listWorkspaceDir({ resolver, relPath: 'nope' })).reason, 'not_found');
-  });
-});
-
-describe('parseRequestedPaths', () => {
-  test('collects path-like tokens from prose and lists', () => {
-    const plan = [
-      'I will read `src/task-run.js` first.',
-      '- docs/mvp-contract.md',
-      '* src/orchestrator.js, src/contracts.js',
-      '1. README.md',
-      'no paths on this line',
-      'https://example.com/foo/bar',
-    ].join('\n');
-    assert.deepEqual(parseRequestedPaths(plan), [
-      'src/task-run.js',
-      'docs/mvp-contract.md',
-      'src/orchestrator.js',
-      'src/contracts.js',
-      'README.md',
-    ]);
-  });
-
-  test('dedupes, caps, and tolerates junk', () => {
-    const many = Array.from({ length: 40 }, (_, i) => `src/f${i}.js`).join(', ');
-    assert.equal(parseRequestedPaths(many).length, 12);
-    assert.deepEqual(parseRequestedPaths('src/a.js; src/a.js'), ['src/a.js']);
-    assert.deepEqual(parseRequestedPaths(''), []);
-    assert.deepEqual(parseRequestedPaths(null), []);
-    assert.deepEqual(parseRequestedPaths('src/a.js'.repeat(200)), []);
-  });
-
-  test('keeps hostile paths so the resolver can audit the denial', () => {
-    assert.deepEqual(parseRequestedPaths('../outside.txt'), ['../outside.txt']);
-    assert.deepEqual(parseRequestedPaths('C:/Windows/win.ini'), ['C:/Windows/win.ini']);
   });
 });

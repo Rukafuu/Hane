@@ -14,10 +14,12 @@ draft -> planned -> executing -> reviewing -> completed
                                         |-> needs_attention   (verdict: needs_attention, or unparseable)
 any role -> failed                      (provider call failed)
 budget exhausted -> needs_attention
+tool loop stopped (no calls left) -> needs_attention
 ```
 
-The orchestrator owns the lifecycle. Agents return structured evidence only;
-they cannot change the lifecycle, run tools, or spend beyond the task budget.
+The orchestrator owns the lifecycle. Agents return text and tool requests only:
+a tool request is a question asked of the sandbox, never a syscall, and it can
+not change the lifecycle or spend beyond the task budget.
 
 The reviewer's verdict decides how a run ends. `revise` parks the run in
 `awaiting_approval` instead of spending more calls: rework is a budget
@@ -43,7 +45,10 @@ A mission records the label of the provider it ran on, so `hane retry` and
 
 ## Call budget versus transport retries
 
-`maxProviderCalls` bounds logical role calls: planner, executor, reviewer. A
+`maxProviderCalls` bounds every request that asks a model for something: one per
+role, and one per turn of a role that runs tools. The default is ten, not three,
+because an executor that reads four files spends eight calls doing it — a budget
+that counted only roles would be a number with no relation to the spend. A
 provider request that fails at the HTTP level (rate limit, server error,
 timeout, dropped connection) may be retried inside a single logical call, with a
 bounded number of attempts, exponential backoff and jitter, and respect for
@@ -52,12 +57,19 @@ does not consume budget, because it is the same call being delivered again, not
 an additional call. A reserved call that finally fails still counts against the
 budget.
 
+`maxToolCalls` bounds the actions instead, so a mission cannot gather an
+unbounded amount of the workspace on a fixed number of calls. A loop also stops
+at eight turns whether or not either budget is left, and the reason it stopped is
+audited as `tool_loop_stopped` (`tool_budget`, `provider_budget`, `turn_guard`):
+a role that ran out of calls is parked for a human to raise the budget rather
+than saved as half an answer.
+
 ## Initial roles
 
 | Role | Output |
 | --- | --- |
 | Planner | a concise, bounded plan |
-| Executor | a proposed result and evidence |
+| Executor | a proposed result, from tools it asked for |
 | Reviewer | verdict: approved, revise, or needs_attention |
 
 ## Non-negotiable guardrails
@@ -79,9 +91,11 @@ budget.
   and a `*`, an absolute path, or a `..` in one is rejected before the run
   starts, so a grant can never widen itself into a pattern or reach a place the
   root does not cover.
-- `workspace.read` is executed by the orchestrator, not by the model. The
-  mission carries a workspace root, and every path is resolved through a
-  containment check before any file is opened: absolute paths, drive letters,
+- `workspace.read` is executed by the sandbox, not by the model. The executor is
+  offered `read_file` and `list_dir` and asks for the paths itself; the
+  orchestrator never opens a file on a hunch about what the plan wanted. Every
+  path is resolved through a containment check before any file is opened:
+  absolute paths, drive letters,
   UNC and device prefixes, `..` segments, anything outside a granted scope, and
   anything matching the secret deny-list (`.env*`, key material, credential
   files, cloud and container config directories, `.git`, `node_modules`,
@@ -91,10 +105,11 @@ budget.
   own real target sits outside the root — a link to somewhere else, or a `..`
   that reached the resolver by another route — grants nothing at all, so the
   root stays the ceiling even when the link itself lives inside it.
-  Reads are byte-capped, line-aligned, and binary content is refused. Each read
-  and each refusal is an append-only audit entry
-  (`tool_read`, `tool_listing`, `tool_denied`, `tool_listing_denied`), and the
-  separate `maxToolCalls` budget bounds them independently of
+  Reads are byte-capped, line-aligned, and binary content is refused. Each read,
+  listing, refusal and call that never reached the sandbox is an append-only
+  audit entry (`tool_read`, `tool_listing`, `tool_denied`,
+  `tool_listing_denied`, `tool_call_refused`) persisted and broadcast as it
+  happens, and the separate `maxToolCalls` budget bounds them independently of
   `maxProviderCalls`.
 - The `maxToolCalls` ceiling is settable at both ingresses — `--max-tool-calls`
   on `hane run`, `retry` and `approve`, and `maxToolCalls` on
@@ -104,9 +119,9 @@ budget.
   it; a non-positive value is refused as `400` with `maxToolCalls must be a
   positive integer.`, and on the CLI as a usage error that exits 1 before any
   provider call. A resume arriving with no budget left is announced rather
-  than silent — the CLI warns that the budget is spent and reads no workspace
-  evidence, and the audit records `tool_budget_exhausted`; a raise is audited
-  as `tool_budget_extended`.
+  than silent — the CLI warns that the budget is spent and that this resume can
+  run no tools, and every call past the limit is answered with
+  `tool_budget_exhausted`; a raise is audited as `tool_budget_extended`.
 - Grants for `workspace.write`, `process.run`, and `network.request` remain
   declarative: they are persisted and audited, but no tool executes them. They
   additionally require a human approval checkpoint at the action level, even
@@ -126,9 +141,10 @@ budget.
   before the first provider call. A mission already stored keeps the scope it
   was granted with: re-parsing on resume could only strand a running task, and
   a stranded task is worse than an unfinished policy.
-- File content handed to a model is evidence, never instruction. The provider
-  request labels workspace evidence as untrusted data, and evidence is not
-  persisted with the task — a resume re-reads from disk under the same checks.
+- File content handed to a model is data, never instruction. Every turn of a
+  tool loop is opened with that label, a call that cannot be parsed is refused
+  rather than guessed at, and nothing read from disk is persisted with the task —
+  a resume re-reads under the same checks instead of replaying bytes it saw once.
 - Capability execution goes through one seam. `src/sandbox/interface.js` names
   the six verbs a mission may ask of a machine and the tokens a refusal may
   carry; `src/sandbox/workspace-dir.js` is the only backend and implements
@@ -143,8 +159,8 @@ budget.
 - The three roles run in order with minimal shared context.
 - Exhausting the budget stops further provider calls and produces
   `needs_attention`.
-- When a mission grants `workspace.read` and carries a root, the executor's
-  request carries the file contents the model asked for; when either is
-  missing, the run proceeds without evidence rather than reading
+- When a mission grants `workspace.read` and carries a root, the executor runs a
+  tool loop and the files it names itself are what it reads; when either is
+  missing, the run proceeds with no tools at all rather than reading
   opportunistically.
 - Automated tests cover the successful run and budget stop.
