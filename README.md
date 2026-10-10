@@ -267,3 +267,24 @@ with a working implementation today, and it stays inside the root you granted.
 The desktop UI starts with a three-step local onboarding: a personal profile, an optional provider, and an optional first group. The profile is stored in the same SQLite database without replacing existing executions, providers, or agents. Optional password protection uses Argon2id, backend sessions and a single-use offline recovery code; photos are decoded and stored as processed WebP files beside the database. Install root dependencies with `npm ci --include=optional` before serving.
 
 Locking protects HTTP APIs and the interface, but does not encrypt local files or restrict the CLI under the operating-system account. See [profile implementation and security decisions](docs/profile-onboarding.md) for storage, limits, origins, and validation.
+
+## License
+
+The code in this repository is licensed under the [Apache License 2.0](LICENSE). That covers
+`src/`, `bin/`, `scripts/`, `test/`, `docs/` and the interface sources. You may use, modify and
+redistribute it, commercially or not, without asking, as long as you keep the license and the
+copyright notices.
+
+Two things are not covered by that license:
+
+- **The Hane name, logo and visual identity.** Apache-2.0 grants no trademark rights, and the
+  project spells out what it treats as descriptive use and what needs written permission in
+  [TRADEMARKS.md](TRADEMARKS.md). A fork keeps the code and takes its own name.
+- **The Hane Sans typeface binaries**, which are under the [SIL Open Font License 1.1](src/Hane%20fonts/OFL.txt)
+  with `Hane Sans` and `HaneSans` as Reserved Font Names. Use and bundling are free; a modified
+  version may not keep the name.
+
+`Frontend/` is a design reference exported from Figma Make rather than project code, and the root
+license makes no claim about it — see [Frontend/README.md](Frontend/README.md).
+
+A full breakdown of what sits under which license is in [docs/licensing.md](docs/licensing.md).

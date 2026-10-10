@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "description": "Original local-first multi-agent orchestration core.",
+  "license": "Apache-2.0",
+  "author": "Lucas Frischeisen",
   "type": "module",
   "bin": {
     "hane": "./bin/hane.js"

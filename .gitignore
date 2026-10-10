@@ -29,3 +29,6 @@ src/Hane fonts/Hane-v0.4/Hane-v0.4/
 
 # Processed personal profile photos stay local.
 *.sqlite.profiles/
+
+# Browser profiles written by QA runs. Not project data, and not ours to publish.
+chrome-qa/

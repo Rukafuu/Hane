@@ -226,3 +226,66 @@ agentes/equipes em `localStorage` e o SQLite, que não conhece agentes.
 - Refatorar `HaneApp.jsx` (888 linhas) antes de adicionar telas de equipe.
 - O `runtime-honesty-audit.md` passa a exigir, para cada superfície, de onde vem o dado — se
   é SQLite, é REAL; se é navegador e a UI diz "persistente", é PARTIAL.
+
+# ADR-0006 — Código em Apache-2.0, fonte em OFL 1.1, marca fora da licença
+
+Status: aceito (Lucas escolheu as três partes em 2026-10-10).
+
+## Contexto
+
+O repositório é público desde o `3246f45` sem `LICENSE`, sem campo `license` no `package.json`
+e sem header de copyright em arquivo algum. Sem licença o padrão legal é *all rights reserved*:
+quem clona para contribuir está em terreno indefinido, e a estratégia que pede catálogo
+comunitário e Hane Packs compartilháveis não tem em que se apoiar.
+
+A exigência original tinha uma contradição de formulação: "o Hane é open source, mas usar o
+nome, logo, tipografia, código ou afins sem autorização, com ou sem fins lucrativos, não é
+permitido". Para **código** as duas metades se excluem — licença aberta *é* a autorização prévia.
+A separação que resolve é a que o direito já faz: copyright de código, marca e fonte são três
+objetos com mecânicas diferentes, e dá para tratar cada um no instrumento certo.
+
+## Decisão
+
+- **Código: Apache-2.0.** Sobre MIT por duas razões concretas: a seção 6 nega nominalmente
+  direito sobre nomes comerciais e logotipo, então a proteção de marca nasce dentro da licença
+  em vez de depender de um aviso solto; e a concessão de patente com terminação defensiva tem
+  valor num mercado onde a estratégia aponta concorrentes financiados.
+- **Marca: `TRADEMARKS.md`, fora da licença.** Uso descritivo e de procedência é permitido; dar
+  ao seu produto o nome Hane, usar o logotipo ou insinuar endosso precisa de autorização
+  escrita. Fork redistribui o código com **o próprio nome** — a exigência é renomear, não pedir.
+- **Fonte: SIL OFL 1.1 com Reserved Font Names `Hane Sans` e `HaneSans`.** O Lucas escolheu a
+  OFL sabendo que ela é o oposto de "usar a tipografia sem autorização não é permitido": uso,
+  embutir e redistribuir são livres, inclusive comercialmente. O que a OFL protege é o **nome**:
+  versão modificada não pode se chamar Hane Sans. A proteção de tipografia deste projeto é o
+  mecanismo de RFN, ponto. Se a intenção for proibir uso, o instrumento tem que ser outro
+  (licença proprietária de fonte) e isso reabre este ADR.
+- **Artefatos de terceiros removidos do rastreamento** no mesmo commit: 855 arquivos de perfil
+  de navegador (`work/**/chrome-qa`) estavam trackeados e publicados. Medidos: zero cookies e
+  uma linha de histórico, `http://localhost:5173` — sem incidente de privacidade, mas eram
+  binários de componentes do Google sem atribuição dentro de um repo que se diz o código do Hane.
+- **`Frontend/` fica, com a proveniência declarada ao lado** (`Frontend/README.md`): é export do
+  Figma Make, e a licença raiz não faz alegação sobre ele, porque não verifiquei os termos sob
+  os quais a saída daquela ferramenta pode ser redistribuída.
+
+## Alternativas rejeitadas
+
+- **BSL-1.1 / source-available** — casa com "usar código sem autorização não é permitido", mas
+  mata a palavra *open source*, afasta contribuidores e quebraria a premissa de ecossistema.
+- **AGPL-3.0** — protegeria contra hospedadores comerciais; num produto local-first e BYOK, onde
+  quase ninguém hospeda, o custo recai sobre quem contribui e o benefício é teórico.
+- **MIT** — perfeitamente defensável; perderia a cláusula de marca e a de patente. Se um dia a
+  marca deixar de importar, MIT é o downgrade natural.
+- **Fonte proprietária restrita** — era a leitura literal da frase original. Rejeitada pelo Lucas
+  em favor da OFL.
+
+## Consequências
+
+- `LICENSE`, `src/Hane fonts/OFL.txt` e as duas cópias em `public/fonts/` entram no repo; os
+  textos são verbatim das fontes canônicas, com só os cabeçalhos de autoria preenchidos.
+- `package.json` ganha `"license": "Apache-2.0"` e `"author"`, e o `README.md` ganha a seção
+  *License* — os dois arquivos estavam sendo editados pela outra sessão e só entraram depois que
+  aquilo landou, para não misturar linha alheia neste commit.
+- O histórico público continua contendo os artefatos removidos; sumir de verdade exige rewrite
+  e `push --force`, que é decisão do Lucas.
+- `SECURITY.md` e `CONTRIBUTING.md`, que a estratégia também pedia, ficaram para depois —
+  sem eles a licença já vale, mas o repo ainda não diz como reportar vulnerabilidade.
