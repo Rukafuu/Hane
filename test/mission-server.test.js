@@ -33,7 +33,7 @@ class RecordingProvider {
   }
 }
 
-function createHarness({ providerConstructor = RecordingProvider, githubClientId = null, githubFlow, defaultWorkspaceRoot = null } = {}) {
+function createHarness({ providerConstructor = RecordingProvider, githubClientId = null, githubFlow, defaultWorkspaceRoot = null, detectMachine = null } = {}) {
   const database = openHaneDatabase(':memory:');
   const repository = new SqliteTaskRepository({ database });
   const providerConfigStore = new SqliteProviderConfigStore({ database });
@@ -48,6 +48,7 @@ function createHarness({ providerConstructor = RecordingProvider, githubClientId
     credentialManager,
     createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor }),
     defaultWorkspaceRoot,
+    detectMachine,
     githubClientId,
     githubFlow,
   });
@@ -678,4 +679,47 @@ test('approve with maxToolCalls reopens a spent tool budget and the reads resume
   assert.equal(reopened.toolCalls, 3);
   assert.ok(reopened.audit.some((entry) => entry.type === 'tool_budget_extended'));
   assert.ok(reopened.audit.some((entry) => entry.type === 'tool_denied' && entry.detail.path === 'todo.md'));
+});
+
+test('GET /api/machine says it was never probed rather than describing a box', async (t) => {
+  const harness = createHarness();
+  t.after(async () => { await harness.close(); });
+
+  const body = await (await fetch(`${await harness.baseUrl()}/api/machine`)).json();
+  assert.equal(body.available, false);
+  assert.equal(body.reason, 'not_detected');
+  assert.deepEqual(body.distros, []);
+});
+
+test('GET /api/machine answers with the probe once, however many times it is asked', async (t) => {
+  let probes = 0;
+  const harness = createHarness({
+    detectMachine: async () => {
+      probes += 1;
+      return { backend: 'wsl', available: true, reason: 'no_distro', detail: 'WSL answers but no distribution is installed.', wslVersion: '2.7.14.0', hint: 'wsl --install -d Ubuntu', distros: [] };
+    },
+  });
+  t.after(async () => { await harness.close(); });
+  const baseUrl = await harness.baseUrl();
+
+  const first = await (await fetch(`${baseUrl}/api/machine`)).json();
+  const second = await (await fetch(`${baseUrl}/api/machine`)).json();
+  assert.equal(first.reason, 'no_distro');
+  assert.equal(first.hint, 'wsl --install -d Ubuntu');
+  assert.deepEqual(second, first);
+  assert.equal(probes, 1);
+});
+
+test('a probe that throws becomes a stated failure, never a 500 and never a ready box', async (t) => {
+  const harness = createHarness({
+    detectMachine: async () => { throw new Error('wsl.exe hung'); },
+  });
+  t.after(async () => { await harness.close(); });
+
+  const response = await fetch(`${await harness.baseUrl()}/api/machine`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.available, false);
+  assert.equal(body.reason, 'wsl_command_failed');
+  assert.equal(body.detail, 'The machine probe threw; nothing about the box is known.');
 });

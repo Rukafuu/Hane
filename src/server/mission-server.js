@@ -12,6 +12,16 @@ import { GitHubAuthorizationPendingError, pollGitHubDeviceAuthorization, startGi
 const MAX_BODY_BYTES = 64 * 1024;
 const SSE_HEARTBEAT_MS = 25_000;
 const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
+/** A server built without a probe says so, rather than implying an empty box. */
+const NOT_DETECTED_MACHINE = Object.freeze({
+  backend: 'wsl',
+  available: false,
+  reason: 'not_detected',
+  detail: 'This server was started without a machine probe.',
+  wslVersion: null,
+  hint: null,
+  distros: Object.freeze([]),
+});
 
 /**
  * Local-only HTTP API over the mission store. Binds are the caller's concern
@@ -21,11 +31,25 @@ const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
  * @param {{ repository: object, providerConfigStore: object,
  *           credentialManager: object, createProvider: Function,
  *           defaultProvider?: string | null,
- *           defaultWorkspaceRoot?: string | null }} dependencies
+ *           defaultWorkspaceRoot?: string | null,
+ *           detectMachine?: (() => Promise<object>) | null }} dependencies
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, profileStore = null, allowedOrigins, avatarLimits, githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, allowedOrigins, avatarLimits, githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
   const sseClients = new Set();
+  // The probes spawn wsl.exe, so they are not taken at bind time and never
+  // taken per request: the first caller of /api/machine pays for one probe and
+  // every later caller reads the same answer. A serve process is short-lived
+  // enough that "as of the first question" is the honest scope.
+  let machineProbe = null;
+  const machineReport = async () => {
+    if (!detectMachine) return NOT_DETECTED_MACHINE;
+    machineProbe ??= Promise.resolve().then(detectMachine).then(
+      (report) => report ?? NOT_DETECTED_MACHINE,
+      () => ({ ...NOT_DETECTED_MACHINE, reason: 'wsl_command_failed', detail: 'The machine probe threw; nothing about the box is known.' }),
+    );
+    return await machineProbe;
+  };
   const profileApi = profileStore ? createProfileApi({ store: profileStore, allowedOrigins, avatarLimits, closeStreams: () => { for (const client of sseClients) client.end(); sseClients.clear(); } }) : null;
   const streamRequests = new WeakMap();
   const running = new Map();
@@ -44,7 +68,7 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
     streamRequests.set(response, request);
     Promise.resolve().then(async () => {
       if (profileApi && await profileApi.handle(request, response)) return;
-      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
+      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
     })
       .catch((error) => {
         if (!response.headersSent) {
@@ -111,6 +135,13 @@ async function handle(context) {
   if (pathname === '/api/workspace' && request.method === 'GET') {
     const root = context.defaultWorkspaceRoot ?? null;
     return respondJson(response, 200, { available: root !== null, root });
+  }
+
+  // Metadata about the box that could carry writes and commands. Detection
+  // only: this route installs nothing, and it never reports a capability the
+  // sandbox seam does not actually execute.
+  if (pathname === '/api/machine' && request.method === 'GET') {
+    return respondJson(response, 200, await context.machineReport());
   }
 
   if (pathname === '/api/onboarding' && request.method === 'GET') {

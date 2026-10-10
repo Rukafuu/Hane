@@ -42,7 +42,7 @@ const readTurn = (path) => ({
 });
 const answerTurn = (content) => ({ content, protocol: 'none', toolCalls: [] });
 
-function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null, turns = [] } = {}) {
+function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null, turns = [], machine = null } = {}) {
   const database = openHaneDatabase(':memory:');
   const credentialManager = new FakeCredentialManager();
   const createdProviders = [];
@@ -79,6 +79,7 @@ function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', 
       createTaskRepository: (db) => new SqliteTaskRepository({ database: db }),
       createProviderConfigStore: (db) => new SqliteProviderConfigStore({ database: db }),
       credentialManager,
+      detectMachine: machine ? async () => machine : undefined,
       createProvider: async (options) => {
         const provider = await createProviderFromConfig({ ...options, providerConstructor: LifecycleProvider });
         createdProviders.push(provider);
@@ -669,4 +670,51 @@ test('serve --workspace rejects a file root and a blank value', async () => {
   assert.match(blank.errors, /non-empty path/);
   assert.equal(blank.printed, false);
   database.close();
+});
+
+test('hane machine status reports the box in the probe’s own words and never runs the hint', async () => {
+  const harness = createHarness({
+    machine: {
+      backend: 'wsl',
+      available: true,
+      reason: 'no_distro',
+      detail: 'WSL answers but no distribution is installed.',
+      wslVersion: '2.7.14.0',
+      hint: 'wsl --install -d Ubuntu',
+      distros: [],
+    },
+  });
+
+  assert.equal(await harness.run(['machine', 'status']), 0);
+  const printed = harness.output();
+  assert.match(printed, /backend: wsl · answers · WSL 2\.7\.14\.0/);
+  assert.match(printed, /reason: no_distro/);
+  assert.match(printed, /distros: none/);
+  assert.match(printed, /executors behind the seam: read, list \(write · run · fetch have none yet\)/);
+  assert.match(printed, /hint: wsl --install -d Ubuntu — Hane never runs this for you\./);
+});
+
+test('hane machine status --json prints exactly what the probe answered', async () => {
+  const machine = { backend: 'wsl', available: true, reason: 'distro_present', detail: null, wslVersion: null, hint: null, distros: [{ name: 'Ubuntu', state: 'Em execução', version: 2 }] };
+  const harness = createHarness({ machine });
+
+  assert.equal(await harness.run(['machine', 'status', '--json']), 0);
+  assert.deepEqual(JSON.parse(harness.output()), machine);
+});
+
+test('hane machine status prints the distributions it found, with the state left untranslated', async () => {
+  const harness = createHarness({
+    machine: { backend: 'wsl', available: true, reason: 'distro_present', detail: 'A distribution exists.', wslVersion: '2.7.14.0', hint: null, distros: [{ name: 'Ubuntu', state: 'Em execução', version: 2 }] },
+  });
+
+  assert.equal(await harness.run(['machine', 'status']), 0);
+  assert.match(harness.output(), /distro: Ubuntu · wsl2 · Em execução/);
+  assert.equal(harness.output().includes('wsl --install'), false);
+});
+
+test('an unknown machine command exits 1 with the usage', async () => {
+  const harness = createHarness({ machine: { backend: 'wsl', available: false, reason: 'not_windows', detail: null, wslVersion: null, hint: null, distros: [] } });
+  assert.equal(await harness.run(['machine', 'init']), 1);
+  assert.match(harness.errors(), /unknown machine command "init"/);
+  assert.match(harness.errors(), /machine status \[--json\]/);
 });

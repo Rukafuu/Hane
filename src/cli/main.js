@@ -11,6 +11,7 @@ import { SqliteSkillStore } from '../storage/sqlite-skill-store.js';
 import { WindowsCredentialManager } from '../credentials/windows-credential-manager.js';
 import { createProviderFromConfig } from '../providers/provider-factory.js';
 import { skillsInstallCommand, skillsListCommand } from './manage-skills.js';
+import { machineStatusCommand } from './machine.js';
 
 export function createDefaultDependencies() {
   return {
@@ -40,6 +41,7 @@ commands:
   retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
   approve <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
   serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>]
+  machine status [--json]
 `;
 
 /**
@@ -75,6 +77,11 @@ export async function runCli({ argv = [], stdout = process.stdout, stderr = proc
     if (command === 'retry') return await retryCommand({ args: argv.slice(1), stdout, stderr, dependencies });
     if (command === 'approve') return await approveCommand({ args: argv.slice(1), stdout, stderr, dependencies });
     if (command === 'serve') return await serveMissionCommand({ args: argv.slice(1), stdout, stderr, dependencies });
+    if (command === 'machine') {
+      if (subcommand === 'status') return await machineStatusCommand({ args: rest, stdout, stderr, dependencies });
+      stderr.write(`error: unknown machine command "${subcommand ?? ''}".\n${USAGE}`);
+      return 1;
+    }
     stderr.write(`error: unknown command "${command ?? ''}".\n${USAGE}`);
     return 1;
   } catch (error) {

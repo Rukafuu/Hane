@@ -21,6 +21,7 @@ scope to read. A model response alone never becomes a shell command.
 | `src/storage/` | SQLite handle, numbered migrations, task repository, provider-config store |
 | `src/credentials/` | Windows Credential Manager bridge (PowerShell, stdin-only payload) |
 | `src/workspace-scope.js` | path containment and the secret deny-list every read runs through |
+| `src/machine/` | read-only probes that answer whether a Linux box could carry writes and commands here; detection only, never installation |
 | `src/capabilities.js` | the capability registry and grant validation |
 | `src/skills/`, `src/storage/sqlite-skill-store.js` | data-only local skill manifests and the installed-skill catalog |
 | `src/cli/`, `bin/hane.js` | the `hane` command |
@@ -79,6 +80,7 @@ hane mission <id> [--db <path>] [--json]
 hane retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
 hane approve <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
 hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>] [--github-client-id <id>] [--ui-origin <loopback-http-origin>]
+hane machine status [--json]
 ```
 
 The default database is `outputs/hane.sqlite`, resolved from the package root so
@@ -231,6 +233,15 @@ checks rather than replaying bytes it saw before.
 they are recorded and audited, nothing executes them, and each one requires a
 human approval at the action level.
 
+The machine that would execute them is a Linux box, not this disk. `hane machine
+status` says what this Windows install can prove about such a box — whether WSL
+answers, which distributions exist — and nothing else: it installs nothing, and
+when a distribution is missing it prints `wsl --install -d Ubuntu` as a line to
+read, never a command Hane runs. `hane machine init`, which would configure a
+distribution as a mission box with Windows drives unmounted, is not implemented.
+The same report is readable over HTTP as `GET /api/machine`, probed once per
+server rather than per request.
+
 ## Secrets
 
 - A provider configuration is declarative metadata: label, base URL, model,
@@ -271,6 +282,7 @@ POST /api/missions/:id/retry    # resume needs_attention or failed
 POST /api/missions/:id/cancel   # abort an in-flight provider request; preserves audit
 GET  /api/events                # SSE: role_saved, role_failed, run_finished, …
 GET  /api/providers             # configured providers, never their keys
+GET  /api/machine               # WSL probe: available, reason, distros — metadata only, probed once
 ```
 
 ## Scope

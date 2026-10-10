@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { defaultDatabasePath } from '../storage/sqlite-database.js';
 import { createMissionServer } from '../server/mission-server.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
+import { detectWsl } from '../machine/detect.js';
 
 export async function serveMissionCommand({ args, stdout, stderr, dependencies }) {
   const { values } = parseArgs({
@@ -67,6 +68,7 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
     createProvider: dependencies.createProvider,
     defaultProvider: values.provider ?? null,
     defaultWorkspaceRoot,
+    detectMachine: dependencies.detectMachine ?? detectWsl,
     githubClientId: values['github-client-id'] ?? null,
   });
 
@@ -78,7 +80,7 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
   }
 
   const address = server.address();
-  stdout.write(`hane serve · http://${address.address}:${address.port}\ndb: ${dbPath}\nroutes: GET /api/missions · GET /api/missions/:id · POST /api/missions · GET /api/events · GET /api/providers · GET /api/skills · GET /api/workspace · GET /api/onboarding\n`);
+  stdout.write(`hane serve · http://${address.address}:${address.port}\ndb: ${dbPath}\nroutes: GET /api/missions · GET /api/missions/:id · POST /api/missions · GET /api/events · GET /api/providers · GET /api/skills · GET /api/workspace · GET /api/machine · GET /api/onboarding\n`);
   if (!values.provider) stdout.write('provider: auto (single configured provider)\n');
   else stdout.write(`provider: ${values.provider}\n`);
   stdout.write(`github: ${values['github-client-id'] ? 'device flow enabled' : 'not configured (pass --github-client-id)'}\n`);
