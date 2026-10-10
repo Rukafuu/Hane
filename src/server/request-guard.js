@@ -22,6 +22,7 @@
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const CROSS_SITE_FETCHES = new Set(['cross-site', 'cross-origin']);
+const AVATAR_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 export class RequestGuardError extends Error {
   constructor(status, message) {
@@ -88,17 +89,17 @@ export function normalizeAllowedOrigin(value) {
  * widening: a different local service is a different site, not the same origin.
  */
 function sameOriginOf(host, port) {
-  return `http://${host}${port.length > 0 ? `:${port}` : ''}`;
+  return `http://${host.includes(':') ? `[${host}]` : host}${port.length > 0 ? `:${port}` : ''}`;
 }
 
 /**
- * @param {{ allowedOrigins?: readonly string[], allowAnyHost?: boolean }} options
+ * @param {{ allowedOrigins?: readonly string[], allowAnyHost?: boolean, requireExplicitRequest?: boolean }} options
  *        `allowAnyHost` is set only when the server was bound away from
  *        loopback, where a loopback-only Host rule would refuse its own clients.
  * @returns {(request: { method?: string, headers?: Record<string, string | string[] | undefined> }) => void}
  *          throws a RequestGuardError when the request must not reach the router
  */
-export function createRequestGuard({ allowedOrigins = [], allowAnyHost = false } = {}) {
+export function createRequestGuard({ allowedOrigins = [], allowAnyHost = false, requireExplicitRequest = false } = {}) {
   const origins = new Set(allowedOrigins.map(normalizeAllowedOrigin));
 
   return function guard(request) {
@@ -113,11 +114,17 @@ export function createRequestGuard({ allowedOrigins = [], allowAnyHost = false }
     const fetchSite = String(headers['sec-fetch-site'] ?? '').toLowerCase();
     const method = String(request.method ?? 'GET').toUpperCase();
     const mutating = MUTATING_METHODS.has(method);
-    if (method === 'OPTIONS' && (origin !== undefined || fetchSite.length > 0)) {
+    if (method === 'OPTIONS' && (requireExplicitRequest || origin !== undefined || fetchSite.length > 0)) {
       // No CORS is offered, so a preflight can only ever fail; say so plainly.
       throw new RequestGuardError(403, 'Cross-origin access is not available on this API.');
     }
-    if (origin === undefined && fetchSite.length === 0) return;
+    if (origin === undefined && fetchSite.length === 0) {
+      // Profile-enabled servers already require opt-in from native clients too.
+      if (requireExplicitRequest && mutating && headers['x-hane-request'] !== '1') {
+        throw new RequestGuardError(403, 'An explicit local request requires x-hane-request: 1.');
+      }
+      return;
+    }
 
     if (CROSS_SITE_FETCHES.has(fetchSite)) {
       throw new RequestGuardError(403, `A ${method} from a ${fetchSite} page is refused. hint: the API answers pages served from an allowed origin only (hane serve --ui-origin <origin>).`);
@@ -126,7 +133,7 @@ export function createRequestGuard({ allowedOrigins = [], allowAnyHost = false }
     if (origin !== undefined) {
       const normalized = String(origin).trim().toLowerCase();
       if (normalized === 'null' || normalized === 'nil') {
-        if (mutating) throw new RequestGuardError(403, 'An opaque (null) origin cannot change server state.');
+        throw new RequestGuardError(403, 'An opaque (null) origin cannot access this API.');
       } else if (!origins.has(normalized) && normalized !== sameOriginOf(host, port)) {
         throw new RequestGuardError(403, `Origin "${origin}" is not allowed. hint: hane serve --ui-origin ${normalized}`);
       }
@@ -139,7 +146,10 @@ export function createRequestGuard({ allowedOrigins = [], allowAnyHost = false }
     const hasBody = Number(headers['content-length'] ?? 0) > 0 || headers['transfer-encoding'] !== undefined;
     if (!hasBody) return;
     const contentType = String(headers['content-type'] ?? '');
-    if (!/^application\/json\b/i.test(contentType)) {
+    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
+    if (method === 'POST' && pathname === '/api/profile/avatar' && AVATAR_CONTENT_TYPES.has(contentType)) return;
+    // Match the complete MIME type, not application/jsonp or application/json-foo.
+    if (contentType.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
       throw new RequestGuardError(415, 'A request from a page with a body must be application/json. hint: text/plain form posts are refused so a page cannot reach this API without CORS.');
     }
   };

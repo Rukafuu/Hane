@@ -154,12 +154,12 @@ test('a page with no origin is still refused by Sec-Fetch-Site', async (t) => {
   assert.equal(sameSite.status, 200);
 });
 
-test('an opaque null origin can read but cannot change state', async (t) => {
+test('an opaque null origin cannot read or change state', async (t) => {
   const server = await guarded({ allowedOrigins: ALLOWED_UI });
   t.after(() => server.close());
 
   const read = await wire({ port: server.port, headers: { host: `127.0.0.1:${server.port}`, origin: 'null' } });
-  assert.equal(read.status, 200);
+  assert.equal(read.status, 403);
 
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
     const write = await wire({
@@ -170,7 +170,7 @@ test('an opaque null origin can read but cannot change state', async (t) => {
     assert.equal(write.status, 403, method);
     assert.match(JSON.parse(write.text).error, /opaque \(null\) origin/);
   }
-  assert.equal(server.state.handled, 1);
+  assert.equal(server.state.handled, 0);
 });
 
 test('a page mutation must identify itself and send JSON', async (t) => {
@@ -285,4 +285,39 @@ test('a policy that names anything but a bare origin is a usage error', () => {
   }
 
   assert.throws(() => createRequestGuard({ allowedOrigins: ['http://localhost:5173/evil'] }), TypeError);
+});
+
+
+test('image bodies are accepted only for explicit avatar POSTs from an allowed page', async (t) => {
+  const server = await guarded({ allowedOrigins: ALLOWED_UI });
+  t.after(() => server.close());
+  for (const type of ['image/png', 'image/jpeg', 'image/webp', 'image/gif']) {
+    const allowed = await wire({ port: server.port, method: 'POST', path: '/api/profile/avatar', headers: { ...LOCAL_PAGE, 'content-type': type }, body: 'image bytes' });
+    assert.equal(allowed.status, 200, type);
+  }
+  for (const [path, method, type, extra, status] of [
+    ['/api/missions', 'POST', 'image/png', {}, 415],
+    ['/api/profile/avatar', 'PATCH', 'image/png', {}, 415],
+    ['/api/profile/avatar', 'POST', 'image/svg+xml', {}, 415],
+    ['/api/profile/avatar', 'POST', 'image/png', { 'x-hane-request': '' }, 403],
+    ['/api/profile/avatar', 'POST', 'image/png', { origin: 'https://evil.example' }, 403],
+    ['/api/profile/avatar', 'POST', 'image/png', { 'sec-fetch-site': 'cross-site' }, 403],
+    ['/api/missions', 'POST', 'application/json-foo', {}, 415],
+    ['/api/missions', 'POST', 'application/jsonp', {}, 415],
+  ]) {
+    const refused = await wire({ port: server.port, method, path, headers: { ...LOCAL_PAGE, 'content-type': type, ...extra }, body: '{}' });
+    assert.equal(refused.status, status, method + ' ' + path + ' ' + type);
+  }
+  assert.equal(server.state.handled, 4);
+});
+
+
+test('IPv6 self-origin remains accepted and profile mode preserves native opt-in', async t => {
+ const server=await guarded({requireExplicitRequest:true});t.after(()=>server.close());
+ const self=await wire({port:server.port,headers:{host:'[::1]:7788',origin:'http://[::1]:7788'}});assert.equal(self.status,200);
+ for(const method of ['POST','PUT','PATCH','DELETE','OPTIONS']) {
+  const refused=await wire({port:server.port,method});assert.equal(refused.status,403,method);
+ }
+ const explicit=await wire({port:server.port,method:'POST',headers:{'x-hane-request':'1'}});assert.equal(explicit.status,200);
+ assert.equal(server.state.handled,2);
 });

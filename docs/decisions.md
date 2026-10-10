@@ -40,7 +40,7 @@ palavra passaria a significar o grupo e a rodada ao mesmo tempo.
 # ADR-0002 — A fronteira do browser é incondicional e independe do perfil local
 
 Status: aceito (Lucas pediu o P0 de segurança como primeira execução). O mecanismo está em
-`src/server/request-guard.js` com testes; o wiring incondicional ainda é um hunk pendente.
+`src/server/request-guard.js` com testes; o wiring incondicional e a fusão com perfil estão concluídos.
 
 ## Contexto
 
@@ -102,18 +102,17 @@ origem fora da allowlist responde 403 com a flag que conserta; a origem default 
 ao roteador e cria a missão com 202 sem nenhuma configuração passada; e um servidor informado de
 `0.0.0.0` responde ao Host da LAN enquanto o mesmo Host é recusado no bind loopback.
 
-A fusão com `checkOrigin` do perfil **não** foi feita, e o motivo é medido, não comodidade. As
-duas regras não são equivalentes em dois eixos: (a) o perfil recusa `Origin: null` até em leitura,
-e o guard recusa só em mutação — o teste commiteado `test/local-profile.test.js:67` pinua o
-comportamento mais estrito, então apagar `checkOrigin` trocaria um 403 por um 200; (b) o upload de
-avatar manda um corpo `image/png|jpeg|webp|gif` (o próprio perfil exige isso em
-`profile-api.js:118`), e a regra de content-type deste guard responde 415 a qualquer corpo de página
-que não seja JSON — inclusive com `x-hane-request: 1` presente, que é o caso pinuado em
-`test/request-guard.test.js:189-203`. Montar o guard acima do perfil quebraria a foto de perfil no
-navegador. Então hoje: rota de perfil usa o validor do perfil, toda o resto usa este guard, e cada
-rota tem fronteira — a dívida de dois validores continua existindo, visível, e a fusão pede
-primeiro uma decisão de produto sobre origem opaca e sobre quais content-types um corpo de página
-pode ter.
+Fusão concluída em 2026-10-10 (Lucas pediu mensagens de fronteira em inglês e fechamento
+do risco localhost): o servidor chama o guard antes de qualquer rota, incluindo perfil;
+`createProfileApi` reutiliza a mesma função de guard, inclusive quando instanciada sozinha.
+`Origin: null` (ou `nil`) é recusado em leitura e mutação. Corpos de página exigem MIME
+`application/json` exato (parâmetros como charset são aceitos); a única exceção de imagem
+é `POST /api/profile/avatar`, com PNG, JPEG, WebP ou GIF e todas as verificações de origem,
+Host, Fetch Metadata e `x-hane-request: 1` mantidas. As mensagens dessa fronteira são em inglês.
+Servidores com perfil preservam a exigência de opt-in também para mutações de clientes locais;
+sem perfil, clientes sem identidade de browser preservam o contrato do CLI.
+As quatro origens explícitas de desenvolvimento/preview, incluindo `localhost:4173`,
+continuam aceitas. Outras portas exigem `--ui-origin`; não existe wildcard de localhost.
 
 ## Consequências
 
@@ -121,9 +120,8 @@ pode ter.
   `retry` e `cancel`, ou as três ações quebram em 403. **Já envia, e já está no HEAD**
   (`work/mission-ui-prototype/src/api.js:46,48,60,66` e `src/profile-api.js:1,17,18`) — a
   preocupação original deste ADR, de que header e guard fossem um só entregável, se resolveu
-  sozinha: a fatia da UI landou antes. O que o guard ainda não cobre são as rotas de perfil, que
-  respondem com o validor delas próprias (ver "REAL" acima).
-- Clientes locais sem header de origem (CLI, testes) permanecem irrestritos, e isso é
+  sozinha: a fatia da UI landou antes. O guard também cobre as rotas de perfil (ver a fusão acima).
+- Sem perfil, clientes locais sem header de origem (CLI, testes) permanecem irrestritos, e isso é
   deliberado: um processo que fala HTTP no loopback já lê o mesmo arquivo SQLite, então
   fingir autenticação ali não protege nada.
 - Se a fatia de perfil for revertida, a fronteira continua de pé.

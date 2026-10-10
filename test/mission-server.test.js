@@ -820,7 +820,7 @@ test('a page on a default origin reaches the mission router', async (t) => {
   const accepted = await wire({
     port,
     method: 'POST',
-    headers: { origin: 'http://localhost:5173', 'sec-fetch-site': 'same-site', 'x-hane-request': '1', 'content-type': 'application/json' },
+    headers: { origin: 'http://localhost:4173', 'sec-fetch-site': 'same-site', 'x-hane-request': '1', 'content-type': 'application/json' },
     body: '{"objective":"Investigate flaky checkout tests."}',
   });
   assert.equal(accepted.status, 202, accepted.text);

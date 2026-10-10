@@ -38,7 +38,7 @@ const NOT_DETECTED_MACHINE = Object.freeze({
  * Every route sits behind `createRequestGuard`, mounted here rather than in the
  * CLI, because the browser boundary is a property of the server: an embedder
  * that builds this server by hand gets the same refusal a page would hit, and
- * cannot forget to turn it on. `allowedOrigins` defaults to the two origins the
+ * cannot forget to turn it on. `allowedOrigins` defaults to the four origins the
  * bundled UI is served from during development, so an embedder that passes
  * nothing still accepts its own page.
  * @param {{ repository: object, providerConfigStore: object,
@@ -56,7 +56,7 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
   agentStore ??= repository.database ? new SqliteAgentStore({database:repository.database}) : null;
   teamStore ??= repository.database ? new SqliteTeamStore({database:repository.database}) : null;
   const teamsApi = createTeamsApi({agentStore,teamStore,readJsonBody,respondJson});
-  const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopbackHost(bindHost) });
+  const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopbackHost(bindHost), requireExplicitRequest: Boolean(profileStore) });
   const sseClients = new Set();
   // The probes spawn wsl.exe, so they are not taken at bind time and never
   // taken per request: the first caller of /api/machine pays for one probe and
@@ -71,7 +71,7 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
     );
     return await machineProbe;
   };
-  const profileApi = profileStore ? createProfileApi({ store: profileStore, allowedOrigins, avatarLimits, closeStreams: () => { for (const client of sseClients) client.end(); sseClients.clear(); } }) : null;
+  const profileApi = profileStore ? createProfileApi({ store: profileStore, allowedOrigins, requestGuard: guard, avatarLimits, closeStreams: () => { for (const client of sseClients) client.end(); sseClients.clear(); } }) : null;
   const streamRequests = new WeakMap();
   const running = new Map();
   const pendingGitHubAuthorizations = new Map();
@@ -88,12 +88,9 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
   const server = createServer((request, response) => {
     streamRequests.set(response, request);
     Promise.resolve().then(async () => {
-      // The profile surface validates browser requests with its own rules until
-      // the fusion ADR-0002 asks for lands (see the measured divergences there):
-      // an avatar upload carries an image body, which this guard answers 415 for,
-      // and a page with an opaque origin may read but never mutate here.
-      if (profileApi && await profileApi.handle(request, response)) return;
+      // Enforce the same browser boundary before every route, including profile.
       guard(request);
+      if (profileApi && await profileApi.handle(request, response)) return;
       const isAuthorized = () => !profileApi || profileApi.authenticated(request);
       if (await teamsApi({request,response,isAuthorized})) return;
       return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, teamStore, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });

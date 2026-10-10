@@ -265,3 +265,26 @@ test('development and preview origins can create a local profile while other ori
   const refused=await h.request('/api/profile',{method:'POST',body:fields,headers:{origin,'sec-fetch-site':'same-origin'}});assert.equal(refused.status,403,origin);assert.equal(h.store.get(),null);
  }
 });
+
+
+test('profile uses the browser guard before reads and writes, with English boundary errors', async t => {
+ const h=await harness(t);
+ for(const headers of [
+  {origin:'null'},
+  {origin:'http://localhost:4173','sec-fetch-site':'cross-site'},
+  {origin:'http://localhost:4174'},
+ ]) {
+  const refused=await h.request('/api/profile',{method:'POST',body:fields,headers});
+  assert.equal(refused.status,403);assert.equal(h.store.get(),null);
+  assert.match(refused.data.error,/opaque|cross-site|Origin/);
+  const read=await h.request('/api/profile/session',{headers});assert.equal(read.status,403);
+ }
+ const mime=await h.request('/api/profile',{method:'POST',body:fields,headers:{origin:'http://localhost:4173','content-type':'application/json-foo'}});
+ assert.equal(mime.status,415);assert.equal(h.store.get(),null);
+ const created=await h.request('/api/profile',{method:'POST',body:fields,headers:{origin:'http://localhost:4173','sec-fetch-site':'same-site'}});
+ assert.equal(created.status,201);
+ const image=await sharp({create:{width:64,height:64,channels:3,background:'pink'}}).png().toBuffer();
+ const avatar=await h.request('/api/profile/avatar',{method:'POST',body:image,raw:true,headers:{origin:'http://localhost:4173','sec-fetch-site':'same-site','content-type':'image/png'}});
+ assert.equal(avatar.status,200);assert.ok(h.store.get().avatarPath);
+ const metadata=await h.request('/api/missions',{headers:{origin:'null'}});assert.equal(metadata.status,403);
+});

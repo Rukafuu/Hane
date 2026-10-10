@@ -1,4 +1,5 @@
 import { DEFAULT_UI_ORIGINS } from './ui-origins.js';
+import { createRequestGuard, RequestGuardError } from './request-guard.js';
 import { LocalProfileAuth, ProfileError, validatePassword } from '../profile/local-auth.js';
 import { AVATAR_LIMITS, loadAvatar, removeAvatar, saveAvatar } from '../profile/avatar.js';
 import { validateProfileFields } from '../storage/sqlite-profile-store.js';
@@ -19,29 +20,19 @@ function readBody(request, max = 16384) {
   });
 }
 async function readJson(request) {
-  if (!request.headers['content-type']?.startsWith('application/json')) throw new ProfileError(415, 'Use JSON neste formulário.');
+  if (!request.headers['content-type']?.startsWith('application/json')) throw new ProfileError(415, 'Request body must be application/json.');
   try { const value = JSON.parse((await readBody(request)).toString('utf8')); if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error(); return value; }
   catch (e) { if (e instanceof ProfileError) throw e; throw new ProfileError(400, 'Formulário inválido.'); }
 }
-export function createProfileApi({ store, allowedOrigins = DEFAULT_UI_ORIGINS, now, sessionMs, closeStreams = () => {}, avatarLimits = AVATAR_LIMITS }) {
+export function createProfileApi({ store, allowedOrigins = DEFAULT_UI_ORIGINS, requestGuard = createRequestGuard({ allowedOrigins, requireExplicitRequest: true }), now, sessionMs, closeStreams = () => {}, avatarLimits = AVATAR_LIMITS }) {
   const auth = new LocalProfileAuth({store,now,sessionMs});
-  const origins = new Set(allowedOrigins);
   function publicProfile(profile) { return { ...profile, avatarUrl:profile.avatarPath ? `/api/profile/avatar?v=${encodeURIComponent(profile.avatarPath)}` : null }; }
-  function checkOrigin(request, response) {
-    let host;
-    try { host = new URL(`http://${request.headers.host}`).hostname; } catch { host = ''; }
-    if (!['localhost','127.0.0.1','[::1]'].includes(host)) { respond(response,403,{error:'Host local inválido.'}); return false; }
-    const origin = request.headers.origin;
-    // A page at an attacker-controlled hostname cannot use DNS rebinding or CSRF.
-    const localOrigin = `http://${request.headers.host}`;
-    if (origin && origin !== localOrigin && !origins.has(origin)) { respond(response,403,{error:'Origem não autorizada.'}); return false; }
-    if (request.method === 'OPTIONS') { respond(response,403,{error:'Acesso entre origens indisponível.'}); return false; }
-    if (!['GET','HEAD'].includes(request.method) && request.headers['x-hane-request'] !== '1') { respond(response,403,{error:'Requisição local explícita obrigatória.'}); return false; }
-    return true;
-  }
   async function handle(request,response) {
     const pathname = new URL(request.url,'http://127.0.0.1').pathname;
-    if (!checkOrigin(request,response)) return true;
+    try { requestGuard(request); } catch (error) {
+      if (!(error instanceof RequestGuardError)) throw error;
+      respond(response,error.status,{error:error.message});return true;
+    }
     response.setHeader('cache-control','no-store');
     response.setHeader('x-content-type-options','nosniff');
     const profile = store.get(); const authenticated = auth.authenticated(request);
@@ -115,7 +106,7 @@ export function createProfileApi({ store, allowedOrigins = DEFAULT_UI_ORIGINS, n
         requireSession(); response.writeHead(200,{'content-type':'image/webp','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'"});response.end(bytes);return true;
       }
       if (pathname === '/api/profile/avatar' && request.method === 'POST') {
-        if (!['image/png','image/jpeg','image/webp','image/gif'].includes(request.headers['content-type'])) throw new ProfileError(415,'Use PNG, JPEG, WebP ou GIF.');
+        if (!['image/png','image/jpeg','image/webp','image/gif'].includes(request.headers['content-type'])) throw new ProfileError(415,'Avatar uploads must use PNG, JPEG, WebP or GIF.');
         const reference = await saveAvatar(store.dataDirectory,await readBody(request,avatarLimits.maxBytes),avatarLimits);
         try { if (!auth.authenticated(request)) throw new ProfileError(401,'A sessão foi encerrada. Desbloqueie novamente.'); const old = store.get().avatarPath; store.setAvatar(reference); await removeAvatar(store.dataDirectory,old).catch(()=>{}); } catch(e) { await removeAvatar(store.dataDirectory,reference);throw e; }
         // New photo is committed first; old files are removed only after replacement.
