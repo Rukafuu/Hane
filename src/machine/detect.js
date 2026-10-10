@@ -8,8 +8,9 @@ import { spawn } from 'node:child_process';
  * whole vocabulary of that proof: `not_windows`, `wsl_not_found`,
  * `wsl_command_failed`, `no_distro`, `distro_present` (a distribution exists
  * that Hane has not configured as a mission box), or `null` only when nothing
- * was wrong and nothing was asked. `hane machine init` is deliberately not
- * implemented, and nothing in this file has the authority to install anything.
+ * was wrong and nothing was asked. Installation belongs to `hane machine
+ * install` (ADR-0007), which lives in another file: nothing here has the
+ * authority to run an installer.
  */
 
 const WSL_EXECUTABLE = 'wsl.exe';

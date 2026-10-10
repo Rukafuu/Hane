@@ -21,7 +21,7 @@ scope to read. A model response alone never becomes a shell command.
 | `src/storage/` | SQLite handle, numbered migrations, task repository, provider-config store |
 | `src/credentials/` | Windows Credential Manager bridge (PowerShell, stdin-only payload) |
 | `src/workspace-scope.js` | path containment and the secret deny-list every read runs through |
-| `src/machine/` | read-only probes that answer whether a Linux box could carry writes and commands here; detection only, never installation |
+| `src/machine/` | read-only probes that answer whether a Linux box could carry writes and commands here, plus the one command that can install a box image — which shows its argv first and runs only when told to |
 | `src/capabilities.js` | the capability registry and grant validation |
 | `src/skills/`, `src/storage/sqlite-skill-store.js` | data-only local skill manifests and the installed-skill catalog |
 | `src/cli/`, `bin/hane.js` | the `hane` command |
@@ -81,6 +81,7 @@ hane retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db 
 hane approve <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
 hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>] [--github-client-id <id>] [--ui-origin <loopback-http-origin>]
 hane machine status [--json]
+hane machine install <image.wsl> [--yes]
 ```
 
 The default database is `outputs/hane.sqlite`, resolved from the package root so
@@ -237,10 +238,16 @@ The machine that would execute them is a Linux box, not this disk. `hane machine
 status` says what this Windows install can prove about such a box — whether WSL
 answers, which distributions exist — and nothing else: it installs nothing, and
 when a distribution is missing it prints `wsl --install -d Ubuntu` as a line to
-read, never a command Hane runs. `hane machine init`, which would configure a
-distribution as a mission box with Windows drives unmounted, is not implemented.
-The same report is readable over HTTP as `GET /api/machine`, probed once per
-server rather than per request.
+read, never a command Hane runs. The box itself is meant to be a `.wsl` image the
+release ships (ADR-0007): a root filesystem with `/etc/wsl.conf` baked in, so
+Windows drives stay unmounted and no Windows binary is reachable from inside,
+instead of a distribution Hane configures after the fact. `hane machine install
+<image.wsl>` is the one command that can put something on the machine, so it
+prints the exact argv before anything happens and refuses to run it without
+`--yes` — no probe, no spawn, and an exit code that says so. No image is
+published yet, so that command has nothing to install. The same report is
+readable over HTTP as `GET /api/machine`, probed once per server rather than per
+request.
 
 ## Secrets
 

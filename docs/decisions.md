@@ -303,3 +303,96 @@ objetos com mecânicas diferentes, e dá para tratar cada um no instrumento cert
   e `push --force`, que é decisão do Lucas.
 - `SECURITY.md` e `CONTRIBUTING.md`, que a estratégia também pedia, ficaram para depois —
   sem eles a licença já vale, mas o repo ainda não diz como reportar vulnerabilidade.
+
+# ADR-0007 — A caixa é uma distro `.wsl` própria, com `wsl.conf` assado dentro
+
+Status: aceito (Lucas: "beleza, seguimos assim então", 2026-10-10).
+
+## Contexto
+
+O painel "Computador ao vivo" deixou de ser log raspado do plano e virou um loop em que o
+modelo pede `read_file`/`list_dir` e o sandbox responde (`d0a1906`). Para escrita, comando e
+rede, a decisão do Lucas é uma **máquina Linux separada**, onde os agentes criam arquivos e
+pesquisam sem tocar no disco dele — é o que mantém verdadeiro o "Nothing writes to, or
+executes inside, your workspace" do `README.md`. As restrições que ele deu são simultâneas:
+grátis, sem conta de terceiro, sem dor de cabeça de instalação, e o Hane continua sendo app
+desktop **e depois mobile**.
+
+Medido nesta máquina, não presumido (`7457a1e`, `src/machine/detect.js`): WSL 2.7.14.0
+responde, `reason: "no_distro"`, e o daemon do Docker não existe (`npipe`
+`dockerDesktopLinuxEngine` ausente). Zero distros instaladas.
+
+A doc da Microsoft ([Build a Custom Linux Distro for WSL](https://learn.microsoft.com/en-us/windows/wsl/build-custom-distro))
+resolve a parte que eu não podia afirmar antes de decidir: uma distro WSL é **um tar gzip do
+rootfs renomeado para `.wsl`**, "can be distributed however you please", instala com
+`wsl --install --from-file <caminho>` ou por duplo-clique, sem Microsoft Store e sem conta, e
+leva dentro `/etc/wsl-distribution.conf` (OOBE, `oobe.defaultName`) e `/etc/wsl.conf`. Requer
+WSL ≥ 2.4.4.
+
+## Decisão
+
+- **A imagem é nossa.** O release do Hane constrói um rootfs mínimo e o publica como
+  `hane-box-<versão>.wsl`; o instalador o embute ou o baixa, e a caixa entra com
+  `wsl --install --from-file <caminho>`. O nome registrado (`hane`) vem de `oobe.defaultName`
+  dentro da imagem, não de flag que eu ainda não verifiquei.
+- **A fronteira nasce assada, não configurada depois.** `/etc/wsl.conf` dentro da imagem:
+  `[automount] enabled=false`, `[interop] enabled=false`, `appendWindowsPath=false`,
+  `[user] default=haneagent` sem `sudo`. Isso é mais forte que o plano original de escrever
+  `wsl.conf` após a instalação: a caixa não chega a existir num estado em que vê `C:`.
+- **OOBE é onde a rede se monta.** `/etc/wsl-distribution.conf [oobe] command` roda no primeiro
+  boot como root **dentro** da distro: é ali que o proxy local e a regra `nftables` com
+  `meta skuid` do agente entram, sem elevação no Windows. Sem isso a allowlist de
+  `network.request` é decorativa, porque WSL2 dá saída por NAT a qualquer `curl`.
+- **Hane mostra e pede; Hane não instala sozinho.** `hane machine install <caminho>` imprime o
+  argv exato que vai executar e recusa rodá-lo sem `--yes`; se `hane machine status` disser
+  `wsl_not_found`, nada é spawnado. A instalação de distro é escolha visível, como `set-secret`
+  é escolha do CLI.
+- **Aprovacão humana passa a existir em exceções, não por ação.** Dentro da caixa, escrita e
+  comando rodam sem clique. Clique em: (a) trazer um artefato para o disco do usuário,
+  (b) egress fora da allowlist concedida, (c) qualquer coisa que tente alcançar o Windows —
+  que é configuracionalmente improvável pelo item anterior. Isso reescreve a linha do
+  `docs/mvp-contract.md` que prometia "human approval checkpoint at the action level" para
+  `workspace.write`/`process.run`/`network.request`.
+
+## Consequências
+
+- O plano da Fase 6 se reordena: **6.2 deixa de ser "`hane machine init` escreve config"** e
+  passa a ser "imagem `.wsl` + `wsl --install --from-file`"; o 6.5 (`nftables` + proxy) vira
+  conteúdo do OOBE da imagem, não passo pós-instalação no host.
+- O que o instalador **não** torna silencioso: habilitar `VirtualMachinePlatform` / instalar o
+  runtime WSL quando ele falta. Isso pede administração e, em máquina limpa, pode pedir um
+  restart. Precisa ser **medido numa VM limpa** antes de a UI prometer "um clique e a caixa
+  existe"; enquanto não for medido, a UI oferece e o `machine status` responde o que falta.
+- Custo de distribuição: base de ~50–100 MB por release (Debian minimal; Alpine ~8 MB mas é
+  musl, e o ecossistema de wheels de Python assume glibc). Se a caixa já vier com
+  `python3`/`pip` utilizáveis sem download, são centenas de MB — decisão de release, não de código.
+- Licença e marca: redistribuir um rootfs cria obrigação de oferta de fonte sobre componentes
+  GPL, que entra na matriz do `docs/licensing.md`; e a distro se chama **`hane`**, não "Ubuntu",
+  coerente com o `TRADEMARKS.md` do ADR-0006.
+- Mobile não muda nada, e é aqui que `src/sandbox/interface.js` paga: Android/iOS são clientes
+  de um host Hane (a máquina dele, ou uma caixa futura na nuvem). **Quem escolhe backend é o
+  host, nunca a UI** — por isso embutir WSL no instalador desktop não fecha o caminho mobile.
+- `docs/runtime-honesty-audit.md` continua dizendo a verdade: enquanto nenhum executor de
+  escrita/comando existir atrás do seam, `workspace.write`/`process.run`/`network.request`
+  seguem NOT IMPLEMENTED, e o comando de instalação é PARTIAL até existir imagem publicada.
+
+## Alternativas rejeitadas
+
+- **`wsl --install -d Ubuntu` no primeiro uso** — grátis e sem conta, mas a caixa seria de
+  terceiros, não determinística entre máquinas, e não poderíamos assar `wsl.conf` nela: a
+  garantia de "nada vê o C:" viraria um passo que roda depois, não a natureza da imagem.
+- **Embutir Docker Desktop** — satisfaz "roda container", mas o Docker Desktop tem termos
+  comerciais próprios (licença paga acima de ~250 funcionários ou US$ 10M de faturamento) e um
+  daemon que o usuário precisa manter de pé. Arrastar isso para dentro do instalador transformaria
+  a licença do produto em dependência de terceiros.
+- **Hyper-V direto via HCS/`vmcompute`** — controle total da VM, mas Hyper-V não existe no
+  Windows Home, exige mais elevação, e o host da VM passa a ser manutenção nossa.
+- **Windows Sandbox (`windows-sandbox-cpp`)** — isolamento do SO com esforço pequeno, porém
+  efêmero: o workdir dos agentes não sobrevive, e só existe em Pro/Enterprise.
+- **QEMU próprio com kernel nosso** — embutível e sem WSL, mas distribuímos kernel e pagamos a
+  performance; o ganho do WSL é ser infraestrutura do Windows já mantida pela Microsoft.
+- **Caixa na nuvem no lugar da caixa local** — recusado na ocasião pelas restrições do Lucas:
+  Cloudflare Containers exige plano Workers Paid (US$ 5/mês, cobrança a cada 10 ms), E2B Hobby
+  dá US$ 100 de crédito com 1 h contínuo de teto e o self-host é Enterprise. A camada de seam
+  existe exatamente para isso poder virar backend depois sem reescrever orquestrador, auditoria
+  nem UI.

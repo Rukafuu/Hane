@@ -42,7 +42,7 @@ const readTurn = (path) => ({
 });
 const answerTurn = (content) => ({ content, protocol: 'none', toolCalls: [] });
 
-function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null, turns = [], machine = null } = {}) {
+function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null, turns = [], machine = null, machineInstallRun = null, machinePlatform = null } = {}) {
   const database = openHaneDatabase(':memory:');
   const credentialManager = new FakeCredentialManager();
   const createdProviders = [];
@@ -80,6 +80,8 @@ function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', 
       createProviderConfigStore: (db) => new SqliteProviderConfigStore({ database: db }),
       credentialManager,
       detectMachine: machine ? async () => machine : undefined,
+      runWslInstall: machineInstallRun ?? undefined,
+      machinePlatform: machinePlatform ?? undefined,
       createProvider: async (options) => {
         const provider = await createProviderFromConfig({ ...options, providerConstructor: LifecycleProvider });
         createdProviders.push(provider);
@@ -717,4 +719,92 @@ test('an unknown machine command exits 1 with the usage', async () => {
   assert.equal(await harness.run(['machine', 'init']), 1);
   assert.match(harness.errors(), /unknown machine command "init"/);
   assert.match(harness.errors(), /machine status \[--json\]/);
+});
+
+const boxImageFile = (name = 'hane-box-0.1.wsl') => {
+  const imagePath = path.join(mkdtempSync(path.join(tmpdir(), 'hane-cli-box-')), name);
+  writeFileSync(imagePath, 'a stand-in for a rootfs tar');
+  return imagePath;
+};
+
+test('hane machine install previews the command and touches nothing without --yes', async () => {
+  const imagePath = boxImageFile();
+  const calls = [];
+  const harness = createHarness({
+    machine: { backend: 'wsl', available: true, reason: 'no_distro', detail: null, wslVersion: '2.7.14.0', hint: null, distros: [] },
+    machineInstallRun: async (file, args) => {
+      calls.push([file, [...args]]);
+      return { status: 0, error: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+    },
+    machinePlatform: 'win32',
+  });
+
+  assert.equal(await harness.run(['machine', 'install', imagePath]), 1);
+  const printed = harness.output();
+  assert.equal(printed.includes('command: wsl.exe --install --from-file'), true);
+  assert.equal(printed.includes(imagePath), true);
+  assert.match(printed, /installed: no · needs_confirmation/);
+  assert.match(printed, /why: Nothing was run\. Pass --yes/);
+  assert.equal(calls.length, 0);
+});
+
+test('hane machine install --yes runs exactly the argv it showed, and points at the probe after', async () => {
+  const imagePath = boxImageFile();
+  const calls = [];
+  const harness = createHarness({
+    machine: { backend: 'wsl', available: true, reason: 'no_distro', detail: null, wslVersion: '2.7.14.0', hint: null, distros: [] },
+    machineInstallRun: async (file, args) => {
+      calls.push([file, [...args]]);
+      return { status: 0, error: null, stdout: Buffer.from('Instalando…\r\n', 'utf16le'), stderr: Buffer.alloc(0) };
+    },
+    machinePlatform: 'win32',
+  });
+
+  assert.equal(await harness.run(['machine', 'install', imagePath, '--yes']), 0);
+  assert.deepEqual(calls, [['wsl.exe', ['--install', '--from-file', imagePath]]]);
+  const printed = harness.output();
+  assert.match(printed, /installed: yes/);
+  assert.match(printed, /output: Instalando…/);
+  assert.match(printed, /next: hane machine status/);
+});
+
+test('hane machine install hands the machine’s own failure words back, untranslated', async () => {
+  const imagePath = boxImageFile();
+  const harness = createHarness({
+    machine: { backend: 'wsl', available: true, reason: 'distro_present', detail: null, wslVersion: null, hint: null, distros: [] },
+    machineInstallRun: async () => ({
+      status: 1,
+      error: null,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.from('Já existe uma distribuição com esse nome.\r\n', 'utf16le'),
+    }),
+    machinePlatform: 'win32',
+  });
+
+  assert.equal(await harness.run(['machine', 'install', imagePath, '--yes']), 1);
+  assert.match(harness.output(), /installed: no · install_failed/);
+  assert.match(harness.output(), /why: Já existe uma distribuição com esse nome\./);
+});
+
+test('hane machine install needs an image path and says so instead of guessing', async () => {
+  const harness = createHarness();
+  assert.equal(await harness.run(['machine', 'install']), 1);
+  assert.match(harness.errors(), /needs the path to a \.wsl image/);
+  assert.match(harness.errors(), /hane machine install hane-box-0\.1\.wsl --yes/);
+});
+
+test('hane machine install does not install a WSL box on a platform that has no WSL', async () => {
+  const imagePath = boxImageFile();
+  const calls = [];
+  const harness = createHarness({
+    machineInstallRun: async (file, args) => {
+      calls.push([file, [...args]]);
+      return { status: 0, error: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) };
+    },
+    machinePlatform: 'linux',
+  });
+
+  assert.equal(await harness.run(['machine', 'install', imagePath, '--yes']), 1);
+  assert.match(harness.output(), /installed: no · not_windows/);
+  assert.equal(calls.length, 0);
 });
