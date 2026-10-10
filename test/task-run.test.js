@@ -89,3 +89,13 @@ test('parked and interrupted tasks expose resume transitions, completed stays te
   done.transition(TASK_STATUS.COMPLETED);
   assert.throws(() => done.transition(TASK_STATUS.EXECUTING), /Cannot transition/);
 });
+
+test('cancelling an active task is persisted in its audit and is terminal', () => {
+  const task = new TaskRun({ id: 't-cancel', objective: 'Stop the network request.' });
+  task.transition(TASK_STATUS.PLANNED);
+  task.cancel('user_requested');
+
+  assert.equal(task.status, TASK_STATUS.CANCELLED);
+  assert.deepEqual(task.audit.at(-1).detail, { reason: 'user_requested' });
+  assert.throws(() => task.transition(TASK_STATUS.EXECUTING), /Cannot transition/);
+});

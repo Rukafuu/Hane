@@ -4,6 +4,7 @@ import { Orchestrator } from '../src/orchestrator.js';
 import { TaskRun } from '../src/task-run.js';
 import { openHaneDatabase } from '../src/storage/sqlite-database.js';
 import { SqliteTaskRepository } from '../src/storage/sqlite-task-repository.js';
+import { CAPABILITY } from '../src/capabilities.js';
 
 test('persists the task result and ordered audit in SQLite without credentials', async () => {
   const repository = new SqliteTaskRepository(':memory:');
@@ -35,6 +36,19 @@ test('persists and restores the provider label', () => {
   const unlabelled = new TaskRun({ id: 'plain-run', objective: 'No provider recorded.' });
   repository.save(unlabelled.snapshot());
   assert.equal(repository.findById('plain-run').providerLabel, null);
+  repository.close();
+});
+
+test('persists capability grants with the mission, not provider credentials', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({
+    id: 'capability-grant-run',
+    objective: 'Read a bounded workspace.',
+    capabilityGrants: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'A:/Hane/work/demo' }],
+  });
+  repository.save(task.snapshot());
+
+  assert.deepEqual(repository.findById('capability-grant-run').capabilityGrants, [{ name: CAPABILITY.WORKSPACE_READ, scope: 'A:/Hane/work/demo' }]);
   repository.close();
 });
 

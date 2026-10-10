@@ -22,3 +22,7 @@ work/mission-ui-prototype/reference-hane.webp
 work/hane-landing/work/*.png
 __pycache__/
 *.pyc
+# archive duplicates the tracked unpacked copy in Frontend/
+/Premium AI Workspace UI Design.zip
+# stale v0.3 build left inside the v0.4 folder
+src/Hane fonts/Hane-v0.4/Hane-v0.4/

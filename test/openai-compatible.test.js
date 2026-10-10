@@ -148,3 +148,12 @@ test('a single logical call can span several transport attempts', async () => {
   assert.equal(await provider.complete(REQUEST), 'eventually');
   assert.equal(calls.length, 3);
 });
+
+test('does not start or retry a request after the mission is cancelled', async () => {
+  const { provider, calls } = harness([httpResponse({ body: 'never reached' })]);
+  const controller = new AbortController();
+  controller.abort(new Error('user_requested'));
+
+  await assert.rejects(() => provider.complete({ ...REQUEST, signal: controller.signal }), /user_requested/);
+  assert.equal(calls.length, 0);
+});

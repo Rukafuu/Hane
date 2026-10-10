@@ -165,3 +165,21 @@ test('audits transport retries without spending mission budget', async () => {
   const retries = task.audit.filter((entry) => entry.type === 'provider_retry');
   assert.deepEqual(retries.map((entry) => entry.detail), [{ role: 'planner', attempt: 1, maxAttempts: 3, delayMs: 500, reason: 'http_429' }]);
 });
+
+test('cancels an in-flight role without fabricating an output', async () => {
+  class BlockingProvider {
+    async complete({ signal }) {
+      await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      return 'unreachable';
+    }
+  }
+  const controller = new AbortController();
+  const orchestrator = new Orchestrator({ provider: new BlockingProvider(), idFactory: () => 'run-cancelled' });
+  const pending = orchestrator.start({ objective: 'Cancel this safely.', signal: controller.signal });
+  controller.abort(new Error('user_requested'));
+  const task = await pending;
+
+  assert.equal(task.status, 'cancelled');
+  assert.deepEqual(task.outputs, {});
+  assert.ok(task.audit.some((entry) => entry.type === 'mission_cancelled'));
+});

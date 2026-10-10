@@ -32,9 +32,9 @@ export class Orchestrator {
    * @param {{ objective: string, maxProviderCalls?: number, providerLabel?: string|null,
    *           onEvent?: ((event: OrchestratorEvent) => void) | null }} request
    */
-  async start({ objective, maxProviderCalls = 3, providerLabel = null, onEvent = null }) {
-    const task = new TaskRun({ id: this.idFactory(), objective, maxProviderCalls, providerLabel });
-    return this.#execute(task, onEvent);
+  async start({ objective, maxProviderCalls = 3, providerLabel = null, capabilityGrants = [], signal = null, onEvent = null }) {
+    const task = new TaskRun({ id: this.idFactory(), objective, maxProviderCalls, providerLabel, capabilityGrants });
+    return this.#execute(task, onEvent, signal);
   }
 
   /**
@@ -42,23 +42,29 @@ export class Orchestrator {
    * that have no saved output. The task may have been rebuilt via
    * TaskRun.fromSnapshot and had its budget extended beforehand.
    */
-  async resume(task, { onEvent = null } = {}) {
+  async resume(task, { onEvent = null, signal = null } = {}) {
     if (!(task instanceof TaskRun)) throw new TypeError('resume requires a TaskRun instance.');
-    return this.#execute(task, onEvent);
+    return this.#execute(task, onEvent, signal);
   }
 
-  async #execute(task, onEvent) {
+  async #execute(task, onEvent, signal) {
+    // Persist the mission before its first provider call. This makes a queued
+    // request immediately inspectable and, crucially, cancellable even while
+    // the first network request is still in flight.
+    this.#persist(task);
     let settled = true;
     for (const { role, activeStatus } of ROLE_FLOW) {
+      if (signal?.aborted) return this.#cancel(task, onEvent, signal);
       if (task.outputs[role] !== undefined) continue;
-      await this.#runRole(task, role, activeStatus, onEvent);
+      const cancelled = await this.#runRole(task, role, activeStatus, onEvent, signal);
+      if (cancelled) return this.#finish(task, onEvent);
       if (task.status !== activeStatus) { settled = false; break; }
     }
     if (settled && task.status === TASK_STATUS.REVIEWING) this.#settleByVerdict(task);
     return this.#finish(task, onEvent);
   }
 
-  async #runRole(task, role, activeStatus, onEvent) {
+  async #runRole(task, role, activeStatus, onEvent, signal) {
     this.#transitionIfNeeded(task, activeStatus);
     if (!task.reserveProviderCall(role)) {
       this.#transitionIfNeeded(task, TASK_STATUS.NEEDS_ATTENTION);
@@ -72,10 +78,17 @@ export class Orchestrator {
         objective: task.objective,
         instruction: ROLE_INSTRUCTIONS[role],
         priorOutputs: { ...task.outputs },
+        signal,
         onRetry: (info) => task.record('provider_retry', { role, ...info }),
       });
       task.saveOutput(role, content);
     } catch (error) {
+      if (signal?.aborted) {
+        task.cancel(cancellationReason(signal));
+        this.#persist(task);
+        this.#emit(onEvent, { type: 'role_cancelled', role, task: task.snapshot() });
+        return true;
+      }
       task.record('provider_call_failed', { role, message: error instanceof Error ? error.message : 'Unknown provider failure' });
       this.#transitionIfNeeded(task, TASK_STATUS.FAILED);
       this.#persist(task);
@@ -84,6 +97,13 @@ export class Orchestrator {
     }
     this.#persist(task);
     this.#emit(onEvent, { type: 'role_saved', role, task: task.snapshot() });
+  }
+
+  #cancel(task, onEvent, signal) {
+    task.cancel(cancellationReason(signal));
+    this.#persist(task);
+    this.#emit(onEvent, { type: 'run_cancelled', task: task.snapshot() });
+    return this.#finish(task, onEvent);
   }
 
   #settleByVerdict(task) {
@@ -116,4 +136,9 @@ export class Orchestrator {
     if (this.repository) this.repository.save(task.snapshot());
     return task;
   }
+}
+
+function cancellationReason(signal) {
+  const reason = signal?.reason;
+  return reason instanceof Error && reason.message ? reason.message : 'user_requested';
 }

@@ -5,6 +5,7 @@ import { openHaneDatabase } from '../src/storage/sqlite-database.js';
 import { SqliteTaskRepository } from '../src/storage/sqlite-task-repository.js';
 import { SqliteProviderConfigStore } from '../src/storage/sqlite-provider-config-store.js';
 import { createProviderFromConfig } from '../src/providers/provider-factory.js';
+import { CAPABILITY } from '../src/capabilities.js';
 
 class FakeCredentialManager {
   constructor() { this.secrets = new Map(); }
@@ -26,7 +27,7 @@ class RecordingProvider {
   }
 }
 
-function createHarness() {
+function createHarness({ providerConstructor = RecordingProvider } = {}) {
   const database = openHaneDatabase(':memory:');
   const repository = new SqliteTaskRepository({ database });
   const providerConfigStore = new SqliteProviderConfigStore({ database });
@@ -35,7 +36,7 @@ function createHarness() {
     repository,
     providerConfigStore,
     credentialManager,
-    createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor: RecordingProvider }),
+    createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor }),
   });
   const baseUrlPromise = new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -161,8 +162,30 @@ test('POST rejects invalid bodies with 400', async (t) => {
   const badBudget = await fetch(`${baseUrl}/api/missions`, { method: 'POST', body: JSON.stringify({ objective: 'Valid objective.', maxProviderCalls: 0 }) });
   assert.equal(badBudget.status, 400);
 
+  const badCapability = await fetch(`${baseUrl}/api/missions`, { method: 'POST', body: JSON.stringify({ objective: 'Valid objective.', capabilities: [{ name: 'filesystem.delete', scope: '*' }] }) });
+  assert.equal(badCapability.status, 400);
+
   const badJson = await fetch(`${baseUrl}/api/missions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{oops' });
   assert.equal(badJson.status, 400);
+});
+
+test('POST persists explicit capability grants for a mission', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+  const capabilities = [{ name: CAPABILITY.WORKSPACE_READ, scope: 'A:/Hane/work/mission-ui-prototype' }];
+
+  const response = await fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ objective: 'Review the prototype safely.', capabilities }),
+  });
+  assert.equal(response.status, 202);
+  const queued = await response.json();
+  assert.deepEqual(queued.capabilityGrants, capabilities);
+  assert.ok(await waitFor(async () => (await getMission(baseUrl, queued.id)).status === 'completed'));
+  assert.deepEqual((await getMission(baseUrl, queued.id)).capabilityGrants, capabilities);
 });
 
 test('provider resolution errors map to 404 and 409 with hints', async (t) => {
@@ -288,4 +311,26 @@ test('approve and retry reject missions in the wrong state with 409, unknown ids
 
   const missing = await fetch(`${baseUrl}/api/missions/00000000-0000-4000-8000-000000000000/approve`, { method: "POST" });
   assert.equal(missing.status, 404);
+});
+
+test('POST /cancel aborts a running provider call and preserves an auditable cancelled mission', async (t) => {
+  class BlockingProvider {
+    async complete({ signal }) {
+      await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      return 'unreachable';
+    }
+  }
+  const harness = createHarness({ providerConstructor: BlockingProvider });
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+
+  const id = await startMission(baseUrl, 'Cancel the active provider request.');
+  assert.ok(await waitFor(() => harness.repository.findById(id) !== null));
+  const cancelled = await fetch(`${baseUrl}/api/missions/${id}/cancel`, { method: 'POST' });
+  assert.equal(cancelled.status, 202);
+  assert.ok(await waitFor(async () => (await getMission(baseUrl, id)).status === 'cancelled'));
+  const mission = await getMission(baseUrl, id);
+  assert.deepEqual(mission.outputs, {});
+  assert.ok(mission.audit.some((entry) => entry.type === 'mission_cancelled'));
 });

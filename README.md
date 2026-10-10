@@ -145,6 +145,7 @@ GET  /api/missions/:id          # full record with outputs and audit
 POST /api/missions              # { objective, maxProviderCalls?, provider? }
 POST /api/missions/:id/approve  # spend the revision budget a human approved
 POST /api/missions/:id/retry    # resume needs_attention or failed
+POST /api/missions/:id/cancel   # abort an in-flight provider request; preserves audit
 GET  /api/events                # SSE: role_saved, role_failed, run_finished, …
 GET  /api/providers             # configured providers, never their keys
 ```

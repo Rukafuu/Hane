@@ -18,15 +18,16 @@ export class SqliteTaskRepository {
         throw new Error(`cannot persist a task with fewer provider calls (${task.providerCalls}) than already stored (${stored.providerCalls}).`);
       }
       this.database.prepare(`
-        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           objective = excluded.objective,
           status = excluded.status,
           max_provider_calls = excluded.max_provider_calls,
           provider_calls = excluded.provider_calls,
-          provider_label = excluded.provider_label
-      `).run(task.id, task.objective, task.status, task.maxProviderCalls, task.providerCalls, task.providerLabel ?? null);
+          provider_label = excluded.provider_label,
+          capability_grants_json = excluded.capability_grants_json
+      `).run(task.id, task.objective, task.status, task.maxProviderCalls, task.providerCalls, task.providerLabel ?? null, JSON.stringify(task.capabilityGrants ?? []));
       const outputStatement = this.database.prepare('INSERT OR REPLACE INTO task_outputs (task_id, role, content) VALUES (?, ?, ?)');
       for (const [role, content] of Object.entries(task.outputs)) outputStatement.run(task.id, role, content);
       const base = this.database.prepare('SELECT COALESCE(MAX(ordinal), -1) AS base FROM task_audit_entries WHERE task_id = ?').get(task.id).base;
@@ -58,15 +59,25 @@ export class SqliteTaskRepository {
   findById(id) {
     const task = this.database.prepare(`
       SELECT id, objective, status, max_provider_calls AS maxProviderCalls, provider_calls AS providerCalls,
-             provider_label AS providerLabel
+             provider_label AS providerLabel, capability_grants_json AS capabilityGrantsJson
       FROM task_runs WHERE id = ?
     `).get(id);
     if (!task) return null;
     const outputs = Object.fromEntries(this.database.prepare('SELECT role, content FROM task_outputs WHERE task_id = ? ORDER BY role').all(id).map(({ role, content }) => [role, content]));
     const audit = this.database.prepare('SELECT at, type, detail_json AS detailJson FROM task_audit_entries WHERE task_id = ? ORDER BY ordinal').all(id)
       .map(({ at, type, detailJson }) => ({ at, type, detail: JSON.parse(detailJson) }));
-    return { ...task, outputs, audit };
+    return { ...task, capabilityGrants: parseCapabilityGrants(task.capabilityGrantsJson), outputs, audit };
   }
 
   close() { this.database.close(); }
+}
+
+function parseCapabilityGrants(value) {
+  try {
+    const grants = JSON.parse(value ?? '[]');
+    if (!Array.isArray(grants)) throw new TypeError('not an array');
+    return grants;
+  } catch {
+    throw new Error('Stored capability grants are invalid.');
+  }
 }

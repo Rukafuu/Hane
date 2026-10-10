@@ -38,21 +38,22 @@ export class OpenAICompatibleProvider {
     this.onRetry = onRetry;
   }
 
-  async complete({ role, objective, instruction, priorOutputs, onRetry } = {}) {
+  async complete({ role, objective, instruction, priorOutputs, onRetry, signal = null } = {}) {
     const notify = onRetry ?? this.onRetry;
     const maxAttempts = this.retryAttempts;
     for (let attempt = 1; ; attempt += 1) {
-      const outcome = await this.#attempt({ role, objective, instruction, priorOutputs });
+      if (signal?.aborted) throw signal.reason ?? new Error('Mission cancelled.');
+      const outcome = await this.#attempt({ role, objective, instruction, priorOutputs, signal });
       if (outcome.ok) return outcome.content;
       const lastAttempt = attempt >= maxAttempts;
       if (lastAttempt || !outcome.retryable) throw outcome.error;
       const delayMs = this.#delayFor(outcome, attempt);
       notify?.({ attempt, maxAttempts, delayMs, reason: outcome.reason });
-      await this.sleep(delayMs);
+      await sleepWithSignal(this.sleep, delayMs, signal);
     }
   }
 
-  async #attempt({ role, objective, instruction, priorOutputs }) {
+  async #attempt({ role, objective, instruction, priorOutputs, signal }) {
     const messages = [
       { role: 'system', content: `You are the ${role} in a bounded multi-agent task. ${instruction}` },
       { role: 'user', content: JSON.stringify({ objective, priorOutputs }) },
@@ -68,7 +69,7 @@ export class OpenAICompatibleProvider {
           ...(this.maxTokens === null ? {} : { max_tokens: this.maxTokens }),
           messages,
         }),
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: signal ? AbortSignal.any([AbortSignal.timeout(this.timeoutMs), signal]) : AbortSignal.timeout(this.timeoutMs),
       });
       rawBody = await response.text();
     } catch (error) {
@@ -117,6 +118,15 @@ export class OpenAICompatibleProvider {
     const grown = Math.min(this.baseDelayMs * 2 ** (attempt - 1), this.maxDelayMs);
     return Math.round(grown * (0.5 + this.random() * 0.5));
   }
+}
+
+function sleepWithSignal(sleep, ms, signal) {
+  if (!signal) return sleep(ms);
+  if (signal.aborted) return Promise.reject(signal.reason ?? new Error('Mission cancelled.'));
+  return Promise.race([
+    sleep(ms),
+    new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason ?? new Error('Mission cancelled.')), { once: true })),
+  ]);
 }
 
 function parseRetryAfter(value, now) {

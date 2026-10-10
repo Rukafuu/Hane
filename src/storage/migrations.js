@@ -46,6 +46,13 @@ const MIGRATIONS = Object.freeze([
       'ALTER TABLE provider_configs ADD COLUMN max_tokens INTEGER;',
     ]),
   }),
+  Object.freeze({
+    id: 3,
+    name: 'mission_capability_grants',
+    statements: Object.freeze([
+      "ALTER TABLE task_runs ADD COLUMN capability_grants_json TEXT NOT NULL DEFAULT '[]';",
+    ]),
+  }),
 ]);
 
 export function latestMigrationId() {

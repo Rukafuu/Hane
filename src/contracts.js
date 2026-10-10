@@ -1,5 +1,5 @@
 /** @typedef {'planner' | 'executor' | 'reviewer'} AgentRole */
-/** @typedef {'draft' | 'planned' | 'executing' | 'reviewing' | 'completed' | 'awaiting_approval' | 'needs_attention' | 'failed'} TaskStatus */
+/** @typedef {'draft' | 'planned' | 'executing' | 'reviewing' | 'completed' | 'awaiting_approval' | 'needs_attention' | 'failed' | 'cancelled'} TaskStatus */
 
 export const TASK_STATUS = Object.freeze({
   DRAFT: 'draft',
@@ -10,6 +10,7 @@ export const TASK_STATUS = Object.freeze({
   AWAITING_APPROVAL: 'awaiting_approval',
   NEEDS_ATTENTION: 'needs_attention',
   FAILED: 'failed',
+  CANCELLED: 'cancelled',
 });
 
 export const ROLE_SEQUENCE = Object.freeze(['planner', 'executor', 'reviewer']);

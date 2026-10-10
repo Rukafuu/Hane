@@ -66,10 +66,16 @@ budget.
 - Immutable audit entries for every state transition and provider call.
 - Schema changes land as new numbered migrations; applied migrations are never
   edited, and an existing database is adopted by the baseline.
-- No shell, filesystem, network automation, publishing, or messaging tools in
-  the first slice.
-- A later tool must declare scope and require a human approval checkpoint for
-  any write, command, external request, or irreversible action.
+- Capabilities are attached to a mission only when the user explicitly grants
+  a known name plus a bounded scope. The initial registry is `workspace.read`,
+  `workspace.write`, `process.run`, and `network.request`; no capability is
+  implicit, and unknown or duplicate grants are rejected.
+- Grants are declarative in this slice: they are persisted and audited but do
+  not yet execute shell, filesystem, or network operations. A future sandbox
+  must enforce the exact stored scope rather than trust model output.
+- `workspace.write`, `process.run`, `network.request`, publishing, messaging,
+  or irreversible work require a human approval checkpoint at the action level,
+  even if a mission declares the capability.
 
 ## Definition of done for this slice
 

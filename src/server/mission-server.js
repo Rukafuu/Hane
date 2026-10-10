@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
+import { assertCapabilityGrants } from '../capabilities.js';
 import { TaskRun } from '../task-run.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
 import { resolveProviderConfig } from '../cli/run-mission.js';
@@ -21,7 +22,7 @@ const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
  */
 export function createMissionServer({ repository, providerConfigStore, credentialManager, createProvider, defaultProvider = null }) {
   const sseClients = new Set();
-  const running = new Set();
+  const running = new Map();
   const heartbeat = setInterval(() => {
     for (const response of sseClients) response.write(': ping\n\n');
   }, SSE_HEARTBEAT_MS);
@@ -67,8 +68,9 @@ async function handle(context) {
       : respondJson(response, 404, { error: `Unknown mission "${missionMatch[1]}".` });
   }
 
-  const actionMatch = pathname.match(/^\/api\/missions\/([\w-]+)\/(approve|retry)$/);
+  const actionMatch = pathname.match(/^\/api\/missions\/([\w-]+)\/(approve|retry|cancel)$/);
   if (actionMatch && request.method === 'POST') {
+    if (actionMatch[2] === 'cancel') return cancelMission({ ...context, id: actionMatch[1] });
     return resumeMission({ ...context, id: actionMatch[1], action: actionMatch[2] });
   }
 
@@ -103,9 +105,11 @@ async function startMission({ request, response, repository, providerConfigStore
   }
   let objective;
   let maxProviderCalls = 3;
+  let capabilityGrants;
   try {
     objective = assertObjective(body?.objective);
     if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
+    capabilityGrants = assertCapabilityGrants(body?.capabilities);
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid mission request.' });
   }
@@ -124,15 +128,16 @@ async function startMission({ request, response, repository, providerConfigStore
   const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
   const onEvent = (event) => broadcast({ ...event, missionId });
 
-  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls });
+  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, capabilityGrants });
 
-  running.add(missionId);
+  const controller = new AbortController();
+  running.set(missionId, controller);
   try {
-    await orchestrator.start({ objective, maxProviderCalls, providerLabel, onEvent });
+    await orchestrator.start({ objective, maxProviderCalls, providerLabel, capabilityGrants, signal: controller.signal, onEvent });
   } catch (error) {
     broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {
-    running.delete(missionId);
+    if (running.get(missionId) === controller) running.delete(missionId);
   }
 }
 
@@ -192,14 +197,25 @@ async function resumeMission({ request, response, repository, providerConfigStor
 
   respondJson(response, 202, { id, objective: mission.objective, status: 'resuming', maxProviderCalls: task.maxProviderCalls });
 
-  running.add(id);
+  const controller = new AbortController();
+  running.set(id, controller);
   try {
-    await orchestrator.resume(task, { onEvent });
+    await orchestrator.resume(task, { onEvent, signal: controller.signal });
   } catch (error) {
     broadcast({ type: 'server_error', missionId: id, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {
-    running.delete(id);
+    if (running.get(id) === controller) running.delete(id);
   }
+}
+
+function cancelMission({ response, repository, broadcast, running, id }) {
+  const mission = repository.findById(id);
+  if (!mission) return respondJson(response, 404, { error: `Unknown mission "${id}".` });
+  const controller = running.get(id);
+  if (!controller) return respondJson(response, 409, { error: `Mission "${id}" is ${mission.status}, not running.` });
+  controller.abort(new Error('user_requested'));
+  broadcast({ type: 'mission_cancellation_requested', missionId: id, task: mission });
+  return respondJson(response, 202, { id, status: 'cancelling' });
 }
 
 function readJsonBody(request) {
