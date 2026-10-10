@@ -1,3 +1,5 @@
+import { subscribeFrame } from "./HaneAvatar.jsx";
+import { springStep } from "./garden-controller.js";
 import { animate, stagger } from "animejs";
 
 export const reduceMotion = () =>
@@ -91,4 +93,79 @@ export function flash(el) {
 export function spinOnce(el) {
   if (!el || reduceMotion()) return null;
   return animate(el, { rotate: ["0turn", "1turn"], duration: 520, ease: "outQuart" });
+}
+
+// One shared frame subscriber drives DOM transforms; React only handles screen changes.
+export function driveGarden(root, controller, behaviour, reduced) {
+  if (!root) return () => {};
+  const orb = root.querySelector('.garden-orb'), ring = root.querySelector('.garden-orbit');
+  let bounds = root.getBoundingClientRect(), previous = performance.now(), elapsed = 0, lastPaint = 0;
+  let x = 257, y = 178, vx = 0, vy = 0, pointerId = null, moved = false, origin = null, dragTarget = null;
+  let visible = true, closed = false, interval = null;
+  const lowPower = navigator.hardwareConcurrency > 0 && navigator.hardwareConcurrency <= 4;
+  const measure = () => { bounds = root.getBoundingClientRect(); };
+  const coords = event => ({ x: Math.max(20,Math.min(300,(event.clientX-bounds.left)*320/bounds.width)), y: Math.max(20,Math.min(245,(event.clientY-bounds.top)*270/bounds.height)) });
+  const activity = () => controller.activity();
+  const move = event => {
+    activity();
+    if (pointerId === event.pointerId) {
+      const point = coords(event); dragTarget = point;
+      moved ||= Math.hypot(event.clientX-origin.x,event.clientY-origin.y) > 6;
+      controller.point((point.x-160)/30,(point.y-133)/30);
+    } else {
+      const dx = event.clientX-(bounds.left+bounds.width/2), dy=event.clientY-(bounds.top+bounds.height/2);
+      controller.point(Math.hypot(dx,dy)<bounds.width*1.2 ? Math.max(-5,Math.min(5,dx/40)) : null, Math.max(-3,Math.min(3,dy/45)));
+    }
+  };
+  const start = event => {
+    if (event.button !== 0 || pointerId != null) return;
+    measure(); origin={x:event.clientX,y:event.clientY}; moved=false;
+    pointerId=event.pointerId; dragTarget=coords(event); controller.drag(true);
+    orb.setPointerCapture(event.pointerId);
+  };
+  const end = event => {
+    if (event.pointerId !== pointerId) return;
+    if (event.type !== "pointerup") moved=false;
+    const id=pointerId; pointerId=null; dragTarget=null; controller.drag(false); controller.point(null);
+    if (orb.hasPointerCapture(id)) orb.releasePointerCapture(id);
+    if (reduced) paint(performance.now());
+  };
+  const click = event => { if (moved) {event.preventDefault();event.stopImmediatePropagation();moved=false;} };
+  const leave = () => { if(pointerId==null) controller.point(null); };
+  const paint = now => {
+    if (closed || document.hidden || !visible) {previous=now;return;}
+    if (!reduced && now-lastPaint < (lowPower?32:16)) return;
+    lastPaint=now;
+    const dt=Math.min((now-previous)/1000,1/30); previous=now;
+    if (!reduced) elapsed+=dt;
+    const view=controller.snapshot();
+    root.dataset.gardenState=view.state; root.dataset.feather=String(view.feather);
+    behaviour.current={state:view.state,gazeX:view.state==='focused'?-5:view.pointer?.x||0,gazeY:view.pointer?.y||0,blink:view.blink};
+    const phase=elapsed*0.24 + Math.sin(elapsed*0.19)*0.09;
+    const target=dragTarget || (reduced ? {x:257,y:178} : {x:160+Math.cos(phase+0.7)*125,y:133+Math.sin(phase+0.7)*65});
+    if(dragTarget || reduced){x=target.x;y=target.y;vx=0;vy=0;} else {
+      const sx=springStep(x,vx,target.x,dt), sy=springStep(y,vy,target.y,dt);x=sx.position;y=sy.position;vx=sx.velocity;vy=sy.velocity;
+    }
+    orb.style.transform='translate('+x+'px,'+y+'px) translate(-50%,-50%) scale('+(reduced?1:0.9+(y/270)*0.15+Math.sin(view.bump*Math.PI)*0.12)+')';
+    orb.style.zIndex=y<133?'1':'5';
+    ring.style.transform='rotate('+(dragTarget&&!reduced?(x-160)*0.025:0)+'deg)';
+  };
+  const visibility = () => {root.dataset.paused=String(document.hidden);previous=performance.now(); if(document.hidden){if(pointerId!=null)end({pointerId});}else{controller.activity();measure();paint(previous);} };
+  const resize = new ResizeObserver(measure); resize.observe(root);
+  const intersection = new IntersectionObserver(([entry])=>{visible=entry.isIntersecting;previous=performance.now();}); intersection.observe(root);
+  window.addEventListener('pointermove',move,{passive:true});
+  window.addEventListener('pointerdown',activity,{passive:true});
+  window.addEventListener('keydown',activity); window.addEventListener('scroll',measure,true);
+  document.addEventListener('visibilitychange',visibility); document.documentElement.addEventListener('pointerleave',leave);
+  orb.addEventListener('pointerdown',start);orb.addEventListener('pointerup',end);orb.addEventListener('pointercancel',end);orb.addEventListener('lostpointercapture',end);orb.addEventListener('click',click,true);
+  paint(previous);
+  const unsubscribe=reduced ? (()=>{interval=setInterval(()=>paint(performance.now()),250);return()=>clearInterval(interval);})() : subscribeFrame(paint);
+  return () => {
+    closed=true;unsubscribe();resize.disconnect();intersection.disconnect();
+    if(pointerId!=null && orb.hasPointerCapture(pointerId))orb.releasePointerCapture(pointerId);
+    window.removeEventListener('pointermove',move);window.removeEventListener('pointerdown',activity);window.removeEventListener('keydown',activity);window.removeEventListener('scroll',measure,true);
+    document.removeEventListener('visibilitychange',visibility);document.documentElement.removeEventListener('pointerleave',leave);
+    orb.removeEventListener('pointerdown',start);orb.removeEventListener('pointerup',end);orb.removeEventListener('pointercancel',end);orb.removeEventListener('lostpointercapture',end);orb.removeEventListener('click',click,true);
+    orb.style.removeProperty('transform');orb.style.removeProperty('z-index');ring.style.removeProperty('transform');
+  };
 }

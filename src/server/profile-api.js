@@ -114,7 +114,7 @@ export function createProfileApi({ store, allowedOrigins = ['http://localhost:51
         requireSession(); response.writeHead(200,{'content-type':'image/webp','cache-control':'no-store','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'"});response.end(bytes);return true;
       }
       if (pathname === '/api/profile/avatar' && request.method === 'POST') {
-        if (!['image/png','image/jpeg','image/webp'].includes(request.headers['content-type'])) throw new ProfileError(415,'Use PNG, JPEG ou WebP.');
+        if (!['image/png','image/jpeg','image/webp','image/gif'].includes(request.headers['content-type'])) throw new ProfileError(415,'Use PNG, JPEG, WebP ou GIF.');
         const reference = await saveAvatar(store.dataDirectory,await readBody(request,avatarLimits.maxBytes),avatarLimits);
         try { if (!auth.authenticated(request)) throw new ProfileError(401,'A sessão foi encerrada. Desbloqueie novamente.'); const old = store.get().avatarPath; store.setAvatar(reference); await removeAvatar(store.dataDirectory,old).catch(()=>{}); } catch(e) { await removeAvatar(store.dataDirectory,reference);throw e; }
         // New photo is committed first; old files are removed only after replacement.

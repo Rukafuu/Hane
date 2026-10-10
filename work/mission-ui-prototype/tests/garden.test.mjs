@@ -1,0 +1,12 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createGardenController,GARDEN_IDLE_MS,springStep} from '../src/garden-controller.js';
+function clock(){let time=0;return {now:()=>time,advance:ms=>time+=ms};}
+test('sleep expires on local activity and requests a wake blink',()=>{const t=clock(),c=createGardenController(t.now);assert.equal(c.snapshot().state,'idle');t.advance(GARDEN_IDLE_MS);assert.equal(c.snapshot().state,'sleeping');c.activity();assert.equal(c.snapshot().state,'idle');assert.equal(c.snapshot().blink,1);});
+test('pointer tracking releases to neutral',()=>{const c=createGardenController(()=>0);c.point(3,-2);assert.equal(c.snapshot().state,'tracking');c.point(null);assert.equal(c.snapshot().state,'idle');});
+test('five intentional activations reveal once per sequence, with expiry',()=>{const t=clock(),c=createGardenController(t.now);for(let i=0;i<4;i++)assert.equal(c.orbClick(),false);assert.equal(c.orbClick(),true);assert.equal(c.snapshot().feather,true);assert.equal(c.orbClick(),false);t.advance(1701);assert.equal(c.snapshot().feather,false);assert.equal(c.snapshot().state,'idle');assert.equal(c.orbClick(),false);});
+test('widely separated clicks do not accidentally unlock the egg',()=>{const t=clock(),c=createGardenController(t.now);for(let i=0;i<8;i++){assert.equal(c.orbClick(),false);t.advance(6001);}});
+test('drag interrupts celebration and releases without a stuck state',()=>{const t=clock(),c=createGardenController(t.now);for(let i=0;i<5;i++)c.orbClick();c.drag(true);assert.equal(c.snapshot().state,'tracking');c.drag(false);assert.equal(c.snapshot().state,'celebrating');t.advance(2000);assert.equal(c.snapshot().state,'idle');});
+test('welcome attention is interruptible and bounded',()=>{const t=clock(),c=createGardenController(t.now);c.event('explore');assert.equal(c.snapshot().state,'curious');c.drag(true);assert.equal(c.snapshot().state,'tracking');t.advance(900);c.drag(false);assert.equal(c.snapshot().state,'idle');});
+test('spring returns to its target with damping at low and high frame rates',()=>{for(const dt of [1/60,1/30]){let position=-80,velocity=0;for(let i=0;i<240;i++)({position,velocity}=springStep(position,velocity,200,dt));assert.ok(Math.abs(position-200)<.01);assert.ok(Math.abs(velocity)<.01);}});
+test('spring clamps long frames and does not jump after a hidden page',()=>{assert.deepEqual(springStep(0,0,100,5),springStep(0,0,100,1/30));});

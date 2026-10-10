@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useId } from "react";
 
 // A page-wide scheduler keeps ten avatars on one requestAnimationFrame rather
 // than mounting one loop per component.
@@ -9,7 +9,7 @@ function runSharedFrame(now) {
   for (const callback of frameSubscribers) callback(now);
   if (frameSubscribers.size > 0 && !document.hidden) sharedFrame = requestAnimationFrame(runSharedFrame);
 }
-function subscribeFrame(callback) {
+export function subscribeFrame(callback) {
   frameSubscribers.add(callback);
   if (!sharedFrame && !document.hidden) sharedFrame = requestAnimationFrame(runSharedFrame);
   return () => {
@@ -76,7 +76,8 @@ function contour(shape, squash, wobble) {
 }
 
 /** Lightweight SVG avatar. One rAF updates its own SVG nodes, avoiding React frame renders. */
-export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", image, state = "idle", size = 44, intensity = 1, reducedMotion = false, interactive = false, onClick, className = "" }) {
+export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", image, state = "idle", size = 44, intensity = 1, reducedMotion = false, interactive = false, onClick, className = "", behaviourRef, decorative = false, garden = false }) {
+  const gradientId = useId().replace(/:/g, "");
   const pathRef = useRef(null);
   const bodyRef = useRef(null);
   const eyesRef = useRef(null);
@@ -86,32 +87,45 @@ export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", 
   const behaviour = BEHAVIOURS[state] ?? BEHAVIOURS.idle;
 
   useEffect(() => {
-    if (reducedMotion) return undefined;
+    if (reducedMotion) {
+      bodyRef.current?.removeAttribute("transform"); eyesRef.current?.removeAttribute("transform"); blinkRef.current?.removeAttribute("transform");
+      pathRef.current?.setAttribute("d", contour(shape, 0, 0));
+      return undefined;
+    }
     const started = performance.now();
     let nextBlink = 1200 + Math.random() * 2600;
     let blinkStart = -1;
+    let blinkToken = 0, doubleBlink = false, gazeX = 0, gazeY = 0, previous = started, sleepLid = 1;
     const step = (now) => {
       if (!visibleRef.current) return;
       const seconds = (now - started) / 1000;
+      const external = behaviourRef?.current;
+      const sleeping = external?.state === "sleeping";
+      const mood = external?.state;
+      const damping = 1 - Math.exp(-Math.min(now - previous, 40) / 90); previous = now;
+      if (external) { gazeX += (external.gazeX - gazeX) * damping; gazeY += (external.gazeY - gazeY) * damping;
+        if (external.blink !== blinkToken) { blinkToken = external.blink; blinkStart = now; } }
       if (now - started > nextBlink && blinkStart < 0) blinkStart = now;
       let lid = 1;
       if (blinkStart >= 0) {
         const phase = (now - blinkStart) / 150;
         lid = phase < 0.5 ? 1 - phase * 1.9 : (phase - 0.5) * 1.9;
-        if (phase >= 1) { blinkStart = -1; nextBlink = now - started + 1800 + Math.random() * 3800; }
+        if (phase >= 1) { blinkStart = -1; nextBlink = now - started + (doubleBlink ? 120 : 1800 + Math.random() * 3800); doubleBlink = doubleBlink ? false : Math.random() < 0.18; }
       }
-      const pulse = Math.sin(seconds * (state === "working" ? 8 : 2.4)) * behaviour.breath * intensity;
-      const tiltBase = state === "thinking" ? -5 : state === "blocked" ? 4 : state === "error" ? -2 : 0;
+      sleepLid += ((sleeping ? 0.1 : 1) - sleepLid) * damping * 0.2;
+      lid = Math.min(lid, sleepLid);
+      const pulse = Math.sin(seconds * (sleeping ? 1 : state === "working" ? 8 : 2.4)) * behaviour.breath * intensity;
+      const tiltBase = mood === "focused" ? -7 : mood === "curious" ? 4 : mood === "happy" ? -3 : mood === "surprised" ? 3 : state === "thinking" ? -5 : state === "blocked" ? 4 : state === "error" ? -2 : 0;
       const tilt = tiltBase + Math.sin(seconds * 1.6) * behaviour.sway * intensity;
       const glance = Math.sin(seconds * (state === "thinking" ? 2.4 : 0.8)) * behaviour.gaze * 3 * intensity;
-      const pop = state === "done" ? Math.max(0, Math.sin(seconds * 7)) * 0.07 : 0;
+      const pop = mood === "happy" || mood === "celebrating" || state === "done" ? Math.max(0, Math.sin(seconds * 7)) * 0.07 : 0;
       if (pathRef.current) pathRef.current.setAttribute("d", contour(shape, pulse + pop, pulse * 1.25));
       if (bodyRef.current) bodyRef.current.setAttribute("transform", `translate(50 50) rotate(${tilt}) scale(${1 + pulse + pop} ${1 - pulse * 0.35}) translate(-50 -50)`);
-      if (eyesRef.current) eyesRef.current.setAttribute("transform", `translate(${glance.toFixed(2)} ${(Math.cos(seconds * 1.1) * behaviour.gaze).toFixed(2)}) rotate(${tilt * 0.16} 50 50)`);
+      if (eyesRef.current) eyesRef.current.setAttribute("transform", `translate(${(external ? gazeX : glance).toFixed(2)} ${(external ? gazeY : Math.cos(seconds * 1.1) * behaviour.gaze).toFixed(2)}) rotate(${tilt * 0.16} 50 50)`);
       if (blinkRef.current) blinkRef.current.setAttribute("transform", `translate(0 ${((1 - lid) * 4).toFixed(2)}) scale(1 ${Math.max(0.08, lid).toFixed(2)})`);
     };
     return subscribeFrame(step);
-  }, [behaviour, intensity, reducedMotion, shape, state]);
+  }, [behaviour, intensity, reducedMotion, shape, state, behaviourRef]);
 
   useEffect(() => {
     const element = shellRef.current;
@@ -122,11 +136,13 @@ export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", 
   }, []);
 
   const label = `${name ?? agentId}, ${state}`;
-  return <button ref={shellRef} type="button" className={`hane-avatar ${className}`} style={{ width: size, height: size, "--avatar-color": color }} aria-label={label} data-avatar-state={state} onClick={onClick} disabled={!interactive}>
+  const Shell = decorative ? "span" : "button";
+  return <Shell ref={shellRef} type={decorative ? undefined : "button"} className={`hane-avatar ${className}`} style={{ width: size, height: size, "--avatar-color": color }} aria-label={decorative ? undefined : label} aria-hidden={decorative || undefined} data-avatar-state={state} onClick={onClick} disabled={decorative ? undefined : !interactive}>
     {image ? <img className="hane-avatar__image" src={image} alt="" /> : null}
     <svg viewBox="0 0 100 100" role="img" aria-hidden="true" focusable="false">
-      <g ref={bodyRef}><path ref={pathRef} d={contour(shape, 0, 0)} fill={color} /><path d={contour(shape, -0.03, 0)} fill="none" stroke="white" strokeOpacity=".32" strokeWidth="1" /></g>
+      <defs><radialGradient id={gradientId} cx="35%" cy="25%" r="80%"><stop offset="0" stopColor="#fffdfd"/><stop offset=".65" stopColor={color}/><stop offset="1" stopColor="#edc8d9"/></radialGradient></defs>
+      <g ref={bodyRef}><path ref={pathRef} d={contour(shape, 0, 0)} fill={garden ? `url(#${gradientId})` : color} /><path d={contour(shape, -0.03, 0)} fill="none" stroke="white" strokeOpacity=".32" strokeWidth="1" /></g>
       <g ref={eyesRef}><g ref={blinkRef} className="hane-avatar__eyes"><ellipse cx="40" cy="49" rx="4.5" ry="6.5"/><ellipse cx="60" cy="49" rx="4.5" ry="6.5"/></g>{state === "blocked" && <path className="hane-avatar__signal" d="M72 22 L72 31 M67.5 26.5 L76.5 26.5" />}</g>
     </svg>
-  </button>;
+  </Shell>;
 }

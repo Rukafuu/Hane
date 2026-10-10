@@ -236,3 +236,21 @@ test('legacy password profiles require authenticated generation; migration does 
  assert.equal((await h.request('/api/profile/unlock',{method:'POST',body:{password}})).status,200);
  assert.equal((await h.request('/api/profile/recovery-code',{method:'POST',body:{currentPassword:password}})).status,200);
 });
+
+
+test('GIF avatars preserve animation, frame timing and crop while malformed uploads keep the saved photo',async t=>{
+ const h=await harness(t);await h.request('/api/profile',{method:'POST',body:fields});
+ const pixels=Buffer.concat([Buffer.alloc(80*40*3,60),Buffer.alloc(80*40*3,180)]);
+ const gif=await sharp(pixels,{raw:{width:80,height:80,channels:3,pageHeight:40}}).gif({delay:[180,320],loop:0}).toBuffer();
+ const uploaded=await h.request('/api/profile/avatar',{method:'POST',body:gif,raw:true,headers:{'content-type':'image/gif'}});
+ assert.equal(uploaded.status,200);const reference=uploaded.data.profile.avatarPath;
+ const image=await h.request('/api/profile/avatar');assert.equal(image.headers.get('content-type'),'image/webp');
+ const meta=await sharp(image.data,{animated:true}).metadata();
+ assert.equal(meta.pages,2);assert.equal(meta.width,256);assert.equal(meta.pageHeight,256);assert.deepEqual(meta.delay,[180,320]);assert.equal(meta.loop,0);assert.equal(meta.exif,undefined);assert.equal(meta.icc,undefined);
+ const raw=await sharp(image.data,{animated:true}).raw().toBuffer();assert.notDeepEqual(raw.subarray(0,256*256*3),raw.subarray(256*256*3));
+ for(const invalid of [Buffer.from('GIF89a'),Buffer.from('not an image')])assert.equal((await h.request('/api/profile/avatar',{method:'POST',body:invalid,raw:true,headers:{'content-type':'image/gif'}})).status,400);
+ assert.equal(h.store.get().avatarPath,reference);
+ await assert.rejects(processAvatar(gif,{maxBytes:5000000,maxPixels:16000000,maxDimension:8192,outputSize:256,maxFrames:1}),/imagem/);
+ await assert.rejects(processAvatar(gif,{maxBytes:5000000,maxPixels:5000,maxDimension:8192,outputSize:256,maxFrames:120}),/imagem/);
+ await h.request('/api/profile/avatar',{method:'DELETE'});assert.equal(h.store.get().avatarPath,null);
+});

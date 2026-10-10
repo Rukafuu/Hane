@@ -1,0 +1,30 @@
+/* Procedural transforms are owned by motion.js / the existing Avatar Engine. */
+.hane-garden{position:relative;width:320px;height:270px;max-width:100%;isolation:isolate;flex-shrink:0;align-self:center;color:#795366}
+.garden-halo{position:absolute;inset:18% 9%;border-radius:50%;background:radial-gradient(ellipse,#fffbfd99,transparent 68%);filter:blur(12px);pointer-events:none}
+.garden-mascot{position:absolute;left:35px;top:8px;z-index:2;filter:drop-shadow(0 20px 20px #a7617b18);pointer-events:none}
+.garden-mascot .hane-avatar__eyes{fill:#805668}
+.garden-mascot .hane-avatar__eyes ellipse{rx:2.5px;ry:4px}
+.garden-orbit{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;fill:none;stroke:#bd79994d;stroke-width:.8}
+.profile-stage .garden-orb{position:absolute;left:0;top:0;width:44px;height:44px;border:0!important;padding:0!important;border-radius:50%!important;background:transparent!important;touch-action:none;user-select:none;cursor:grab;color:inherit;z-index:5;will-change:transform;transform:translate(257px,178px) translate(-50%,-50%)}
+.garden-orb:active{cursor:grabbing}.garden-orb>span{display:block;width:36px;height:36px;margin:4px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#eba0bb,#cf6d93 75%);box-shadow:inset -4px -5px 0 #b4587d20,0 8px 18px #a95e8225}
+.garden-feather{position:absolute;width:58px;height:58px;top:60px;left:85px;z-index:7;opacity:0;pointer-events:none;fill:#fff9fc;stroke:#c87598;stroke-width:1.2}
+.garden-kanji{position:absolute;right:38px;top:34px;font-family:serif;font-size:28px;color:#a25276;opacity:0;pointer-events:none}
+.garden-petals{position:absolute;inset:0;pointer-events:none;z-index:6}.garden-petals i{position:absolute;width:7px;height:16px;border-radius:80% 20% 80% 20%;background:#fff9fc;left:calc(70px + var(--petal-index)*39px);top:92px;opacity:0}
+.garden-sleep{position:absolute;top:68px;right:73px;letter-spacing:5px;opacity:0;font-size:18px;transition:opacity .5s;pointer-events:none}.hane-garden[data-garden-state=sleeping] .garden-sleep{opacity:.65}
+.hane-garden[data-feather=true] .garden-feather{animation:garden-feather-flight 1.7s ease-in-out both}.hane-garden[data-feather=true] .garden-kanji{animation:garden-soft-reveal 1.7s ease both}
+.hane-garden[data-garden-state=celebrating] .garden-petals i{animation:garden-petal 1.5s ease-out both;animation-delay:calc(var(--petal-index)*70ms)}
+.hane-welcome-screen .profile-welcome-art{box-sizing:border-box;width:38%;max-width:520px;min-height:100%;padding:100px 40px 55px}.hane-welcome-screen .profile-welcome-art>p{font-size:clamp(25px,2.55vw,40px);margin-top:20px}.hane-welcome-screen .profile-welcome-content{padding:60px 7%}.welcome-introduction{max-width:540px}.welcome-introduction h1{font-size:clamp(36px,3.6vw,56px);font-weight:500;letter-spacing:-1.6px;line-height:1.12;margin:24px 0}.welcome-lead{font-size:17px;line-height:1.65;color:#77707e;max-width:400px}.welcome-values{margin:34px 0 38px;display:grid;gap:22px}.welcome-values p{display:flex;gap:16px;align-items:center;margin:0}.welcome-values svg{width:21px;height:21px;color:#ad5f7e;flex-shrink:0;stroke-width:1}.welcome-values span{display:grid;gap:5px}.welcome-values strong{font-size:14px;font-weight:600}.welcome-values small{font-size:12px;line-height:1.5;color:#77707e}.welcome-start{width:max-content;min-height:48px}.welcome-start svg{width:18px;height:18px}.welcome-footnote{display:block;font-size:11px;line-height:1.6;color:#77707e;margin-top:18px}
+@keyframes garden-feather-flight{0%{opacity:0;transform:translate(-65px,25px) rotate(-35deg)}25%{opacity:.9}75%{opacity:.8}100%{opacity:0;transform:translate(135px,-38px) rotate(25deg)}}
+@keyframes garden-soft-reveal{0%,100%{opacity:0}25%,65%{opacity:.8}}
+@keyframes garden-petal{0%{opacity:0;transform:translateY(15px) rotate(0)}25%{opacity:.8}100%{opacity:0;transform:translateY(-42px) rotate(75deg)}}
+@media(max-width:980px){.hane-welcome-screen .profile-welcome-art{width:36%;padding-inline:24px}.hane-garden{zoom:.8}.hane-welcome-screen .profile-welcome-content{padding:48px 5%}}
+@media(max-width:650px){.hane-welcome-screen .profile-welcome-art{width:100%;height:auto;min-height:250px;padding:50px 24px 20px;display:grid;grid-template-columns:1fr 170px;align-items:center}.hane-welcome-screen .profile-welcome-art>img{top:22px;left:24px;width:86px}.hane-welcome-screen .hane-garden{zoom:.55;grid-column:2;grid-row:1/3}.hane-welcome-screen .profile-welcome-art>p{grid-column:1;grid-row:1;margin:35px 0 8px;font-size:23px;letter-spacing:-.7px}.hane-welcome-screen .profile-welcome-art>small{display:block;grid-column:1;grid-row:2;font-size:11px;line-height:1.5}.hane-welcome-screen .profile-welcome-content{padding:32px 24px 40px}.welcome-introduction h1{font-size:36px}.welcome-lead{font-size:14px}.welcome-values{margin:26px 0;gap:18px}.welcome-start{width:100%}}
+@media(prefers-reduced-motion:reduce){.hane-garden *{animation:none!important;transition:none!important}.hane-garden[data-feather=true] .garden-feather,.hane-garden[data-feather=true] .garden-kanji{opacity:.8}}
+.hane-garden[data-reduced=true] *{animation:none!important;transition:none!important}.hane-garden[data-reduced=true][data-feather=true] .garden-feather,.hane-garden[data-reduced=true][data-feather=true] .garden-kanji{opacity:.8}
+
+.hane-garden[data-paused=true] *{animation-play-state:paused!important}
+.hane-garden[data-reduced=true][data-garden-state=sleeping] .hane-avatar__eyes ellipse{ry:1px}
+
+.profile-garden-screen .hane-garden{align-self:center}.profile-garden-screen .profile-welcome-art>p{margin-top:20px}
+@media(max-width:650px){.profile-garden-screen .profile-welcome-art{height:170px;display:grid;grid-template-columns:1fr 150px;padding:30px 24px 16px}.profile-garden-screen .profile-welcome-art>img{top:18px;left:24px;width:80px}.profile-garden-screen .hane-garden{zoom:.45;grid-column:2;grid-row:1}.profile-garden-screen .profile-welcome-art>p{margin:20px 0 0;grid-column:1;grid-row:1;font-size:16px}}
+@media(min-width:651px) and (max-width:980px){.profile-garden-screen .hane-garden{width:320px;max-width:none;zoom:.55}}

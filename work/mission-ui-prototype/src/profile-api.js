@@ -23,7 +23,8 @@ export async function inspectLocalImage(file,limits={maxBytes:5*1024*1024}) {
   if ([137,80,78,71,13,10,26,10].every((n,i)=>bytes[i]===n)) return 'image/png';
   if (bytes[0]===255 && bytes[1]===216 && bytes[2]===255) return 'image/jpeg';
   if (text(0,4)==='RIFF' && text(8,12)==='WEBP') return 'image/webp';
-  throw new Error('Use uma foto PNG, JPEG ou WebP. O conteúdo do arquivo precisa corresponder ao formato.');
+  if (['GIF87a','GIF89a'].includes(text(0,6))) return 'image/gif';
+  throw new Error('Use uma foto PNG, JPEG, WebP ou GIF. O conteúdo do arquivo precisa corresponder ao formato.');
 }
 
 export const recoverLocalPassword = body => send('/recover',body);
