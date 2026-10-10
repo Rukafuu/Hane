@@ -65,11 +65,11 @@ hane provider add --label <name> --base-url <url> --model <id> [--max-tokens N]
 hane provider list
 hane provider remove <label>
 hane provider set-secret <label>          # reads the secret from stdin, no echo
-hane run "<objective>" [--provider <label>] [--max-calls N] [--workspace <dir>] [--capability <name>=<scope>] [--db <path>] [--json]
+hane run "<objective>" [--provider <label>] [--max-calls N] [--max-tool-calls N] [--workspace <dir>] [--capability <name>=<scope>] [--db <path>] [--json]
 hane missions [--db <path>]
 hane mission <id> [--db <path>] [--json]
-hane retry <id> [--provider <label>] [--max-calls N] [--db <path>] [--json]
-hane approve <id> [--provider <label>] [--max-calls N] [--db <path>] [--json]
+hane retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
+hane approve <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
 hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>]
 ```
 
@@ -158,6 +158,22 @@ What stands between a grant and your disk:
 - Reads and refusals are audit entries (`tool_read`, `tool_listing`,
   `tool_denied`), bounded by a separate `maxToolCalls` budget so tool use can
   not be used to hide extra spend.
+- That budget is a per-mission counter that survives resumes: cumulative
+  across `retry` and `approve`, and independent of the provider-call budget. A
+  resume arriving with it already spent reads no workspace evidence at all,
+  and says so — the CLI warns `warning: tool budget is spent (N/N); this
+  resume reads no workspace evidence.`, hints `pass --max-tool-calls <higher>
+  to raise it`, and the audit records `tool_budget_exhausted`.
+
+That ceiling is settable at ingress, not only inside the runtime:
+`hane run --max-tool-calls N` — 24 by default, and the same flag on `retry`
+and `approve` — or the `maxToolCalls` field on `POST /api/missions`,
+`/api/missions/:id/approve` and `/api/missions/:id/retry`. Omitting it leaves
+the default; a non-positive or non-integer value is a usage error that exits 1
+before any provider call, or over HTTP a `400` reading `maxToolCalls must be a
+positive integer.` On a resume the field may only raise the budget — a value
+that does not exceed the current one is refused — and the raise is recorded as
+`tool_budget_extended`.
 
 File content is treated as untrusted data and is labelled that way in the
 provider request. Evidence is not stored with the mission: a resume re-reads

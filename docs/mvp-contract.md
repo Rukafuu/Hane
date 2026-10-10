@@ -96,10 +96,27 @@ budget.
   (`tool_read`, `tool_listing`, `tool_denied`, `tool_listing_denied`), and the
   separate `maxToolCalls` budget bounds them independently of
   `maxProviderCalls`.
+- The `maxToolCalls` ceiling is settable at both ingresses — `--max-tool-calls`
+  on `hane run`, `retry` and `approve`, and `maxToolCalls` on
+  `POST /api/missions` and its `approve`/`retry` routes — and it is a
+  per-mission counter that survives resumes: cumulative across `retry` and
+  `approve`, never reset by either. Over HTTP a resume value may only raise
+  it; a non-positive value is refused as `400` with `maxToolCalls must be a
+  positive integer.`, and on the CLI as a usage error that exits 1 before any
+  provider call. A resume arriving with no budget left is announced rather
+  than silent — the CLI warns that the budget is spent and reads no workspace
+  evidence, and the audit records `tool_budget_exhausted`; a raise is audited
+  as `tool_budget_extended`.
 - Grants for `workspace.write`, `process.run`, and `network.request` remain
   declarative: they are persisted and audited, but no tool executes them. They
   additionally require a human approval checkpoint at the action level, even
-  when a mission declares the capability.
+  when a mission declares the capability. `workspace.write` carries a path
+  scope, so it demands a workspace root at ingress even though nothing
+  executes the grant yet — a scope means nothing without a root to enforce it
+  against, and the runtime refuses to store a write grant that could not be
+  enforced, with the contract already in place for the day a real write
+  executor lands. `process.run` and `network.request` scopes stay free-form
+  prose and need no root.
 - File content handed to a model is evidence, never instruction. The provider
   request labels workspace evidence as untrusted data, and evidence is not
   persisted with the task — a resume re-reads from disk under the same checks.

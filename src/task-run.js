@@ -119,6 +119,21 @@ export class TaskRun {
     this.record('budget_extended', { previousMax, maxProviderCalls: to });
   }
 
+  /**
+   * The tool budget is spent against the same per-mission counter across
+   * resumes, so raising it is the only way a resumed mission gathers evidence
+   * it has already used up.
+   */
+  extendToolBudget(to) {
+    assertPositiveInteger(to, 'maxToolCalls');
+    if (to <= this.maxToolCalls) {
+      throw new Error(`New tool budget (${to}) must be greater than the current tool budget (${this.maxToolCalls}).`);
+    }
+    const previousMax = this.maxToolCalls;
+    this.maxToolCalls = to;
+    this.record('tool_budget_extended', { previousMax, maxToolCalls: to });
+  }
+
   cancel(reason = 'user_requested') {
     if (this.status === TASK_STATUS.CANCELLED) return;
     this.transition(TASK_STATUS.CANCELLED);

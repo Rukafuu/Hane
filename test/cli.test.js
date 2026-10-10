@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, realpathSync } from 'node:fs';
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -30,7 +30,7 @@ class RecordingProvider {
   }
 }
 
-function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved' } = {}) {
+function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved', plannerOutput = null } = {}) {
   const database = openHaneDatabase(':memory:');
   const credentialManager = new FakeCredentialManager();
   const createdProviders = [];
@@ -40,6 +40,7 @@ function createHarness({ reviewerOutput = 'reviewer output\nverdict: approved' }
   const LifecycleProvider = class extends RecordingProvider {
     async complete(request) {
       await super.complete(request);
+      if (request.role === 'planner') return plannerOutput ?? 'planner output';
       if (request.role !== 'reviewer') return `${request.role} output`;
       reviewerCalls += 1;
       return typeof reviewerOutput === 'function' ? reviewerOutput(reviewerCalls) : reviewerOutput;
@@ -441,6 +442,58 @@ test('a malformed capability flag is rejected before any provider call', async (
 
   assert.equal(await harness.run(['run', 'Read some files.', '--workspace', realpathSync(tmpdir()), '--capability', 'delete.everything=/']), 1);
   assert.match(harness.errors(), /Unknown capability/);
+});
+
+test('--max-tool-calls bounds the mission and an omitted flag leaves the default alone', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-')));
+
+  assert.equal(await harness.run(['run', 'Inspect the workspace.', '--workspace', root, '--capability', 'workspace.read=.', '--max-tool-calls', '3']), 0);
+  assert.match(harness.output(), /tool budget: 3 calls/);
+  assert.equal(harness.database.prepare('SELECT max_tool_calls AS m FROM task_runs').get().m, 3);
+
+  assert.equal(await harness.run(['run', 'Inspect the workspace.', '--workspace', root, '--capability', 'workspace.read=.']), 0);
+  assert.match(harness.output(), /tool budget: 24 calls/);
+  assert.equal(harness.database.prepare('SELECT max_tool_calls AS m FROM task_runs ORDER BY rowid DESC LIMIT 1').get().m, 24);
+});
+
+test('a non-positive tool budget is a usage error before anything is recorded', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-')));
+
+  const argv = ['run', 'Inspect the workspace.', '--workspace', root, '--capability', 'workspace.read=.'];
+  for (const flag of ['--max-tool-calls=zero', '--max-tool-calls=0', '--max-tool-calls=-2', '--max-tool-calls=1.5']) {
+    assert.equal(await harness.run([...argv, flag]), 1);
+    assert.match(harness.errors(), /max-tool-calls must be a positive integer/);
+  }
+  assert.equal(harness.database.prepare('SELECT COUNT(*) AS count FROM task_runs').get().count, 0);
+});
+
+test('a spent tool budget is announced, and --max-tool-calls reopens it on the next resume', async () => {
+  const harness = createHarness({ plannerOutput: 'open notes.md then todo.md', reviewerOutput: 'reviewer output\nverdict: revise' });
+  await configureProvider(harness);
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-')));
+  writeFileSync(path.join(root, 'notes.md'), 'the first note\n');
+
+  assert.equal(await harness.run(['run', 'Read the notes.', '--workspace', root, '--capability', 'workspace.read=.', '--max-tool-calls', '1']), 2);
+  const id = harness.latestMissionId();
+  assert.equal(harness.database.prepare('SELECT tool_calls AS t FROM task_runs').get().t, 1);
+
+  // approve re-runs the executor, which is where the reads happen, so the
+  // budget that the first run exhausted is what this resume has to work with.
+  assert.equal(await harness.run(['approve', id]), 2);
+  assert.match(harness.output(), /warning: tool budget is spent \(1\/1\)/);
+  assert.equal(harness.database.prepare('SELECT tool_calls AS t FROM task_runs').get().t, 1);
+
+  assert.equal(await harness.run(['approve', id, '--max-tool-calls', '4']), 2);
+  assert.doesNotMatch(harness.output(), /warning: tool budget is spent/);
+  const resumed = harness.database.prepare('SELECT max_tool_calls AS m, tool_calls AS t FROM task_runs').get();
+  assert.equal(resumed.m, 4);
+  assert.equal(resumed.t, 3);
+  const audit = harness.database.prepare('SELECT type FROM task_audit_entries WHERE task_id = ? ORDER BY ordinal').all(id).map((row) => row.type);
+  assert.ok(audit.includes('tool_budget_extended'), `audit: ${audit.join(', ')}`);
 });
 
 async function printedAddress(stdoutLines) {

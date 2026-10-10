@@ -514,3 +514,77 @@ test('POST /cancel aborts a running provider call and preserves an auditable can
   assert.deepEqual(mission.outputs, {});
   assert.ok(mission.audit.some((entry) => entry.type === 'mission_cancelled'));
 });
+test('POST /api/missions carries an explicit tool budget and refuses a non-positive one', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-')));
+  const grant = { workspaceRoot: root, capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: '.' }] };
+
+  const queued = await fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ objective: 'Read the workspace under a tight budget.', maxToolCalls: 5, ...grant }),
+  });
+  assert.equal(queued.status, 202);
+  assert.equal((await queued.json()).maxToolCalls, 5);
+
+  const id = await startMission(baseUrl, 'Read the workspace with the default budget.', grant);
+  assert.ok(await waitFor(async () => (await getMission(baseUrl, id)).status === 'completed'));
+  assert.equal((await getMission(baseUrl, id)).maxToolCalls, 24);
+  assert.equal((await getMission(baseUrl, id)).toolCalls, 0);
+
+  for (const maxToolCalls of [0, -1, 2.5, 'many']) {
+    const refused = await fetch(`${baseUrl}/api/missions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ objective: 'Bound the reads absurdly.', maxToolCalls, ...grant }),
+    });
+    assert.equal(refused.status, 400);
+    assert.match((await refused.json()).error, /maxToolCalls must be a positive integer/);
+  }
+  assert.equal((await getMission(baseUrl, id)).maxToolCalls, 24);
+});
+
+test('approve with maxToolCalls reopens a spent tool budget and the reads resume', async (t) => {
+  class BudgetProvider {
+    async complete({ role }) {
+      if (role === 'planner') return 'open notes.md then todo.md';
+      if (role === 'reviewer') return 'reviewer output\nverdict: revise';
+      return 'executor output';
+    }
+  }
+  const harness = createHarness({ providerConstructor: BudgetProvider });
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-')));
+  fs.writeFileSync(path.join(root, 'notes.md'), 'the first note\n');
+
+  const id = await startMission(baseUrl, 'Read the two files the plan names.', {
+    workspaceRoot: root,
+    capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: '.' }],
+    maxToolCalls: 1,
+  });
+  assert.ok(await waitFor(async () => (await getMission(baseUrl, id)).status === 'awaiting_approval'));
+  const spent = await getMission(baseUrl, id);
+  assert.equal(spent.toolCalls, 1);
+  assert.ok(spent.audit.some((entry) => entry.type === 'tool_read' && entry.detail.path === 'notes.md'));
+  assert.ok(spent.audit.some((entry) => entry.type === 'tool_budget_exhausted'));
+
+  const approved = await fetch(`${baseUrl}/api/missions/${id}/approve`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ maxToolCalls: 4 }),
+  });
+  assert.equal(approved.status, 202);
+  assert.equal((await approved.json()).maxToolCalls, 4);
+
+  assert.ok(await waitFor(async () => (await getMission(baseUrl, id)).toolCalls >= 3));
+  const reopened = await getMission(baseUrl, id);
+  assert.equal(reopened.maxToolCalls, 4);
+  assert.equal(reopened.toolCalls, 3);
+  assert.ok(reopened.audit.some((entry) => entry.type === 'tool_budget_extended'));
+  assert.ok(reopened.audit.some((entry) => entry.type === 'tool_denied' && entry.detail.path === 'todo.md'));
+});

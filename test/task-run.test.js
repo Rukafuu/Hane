@@ -149,3 +149,20 @@ test('restores the tool counter from a snapshot without re-recording events', ()
   assert.deepEqual(restored.snapshot(), snapshot);
   assert.throws(() => TaskRun.fromSnapshot({ ...snapshot, toolCalls: -1 }), TypeError);
 });
+
+test('extendToolBudget only grows the tool budget and never touches provider calls', () => {
+  const task = new TaskRun({ id: 't-tools-extend', objective: 'Read files.', maxProviderCalls: 4, maxToolCalls: 2 });
+  task.reserveToolCall('executor');
+  task.reserveToolCall('executor');
+  assert.equal(task.reserveToolCall('executor'), false);
+
+  task.extendToolBudget(6);
+  assert.equal(task.maxToolCalls, 6);
+  assert.equal(task.maxProviderCalls, 4);
+  assert.deepEqual(task.audit.at(-1).detail, { previousMax: 2, maxToolCalls: 6 });
+  assert.equal(task.reserveToolCall('executor'), true);
+
+  assert.throws(() => task.extendToolBudget(6), /must be greater/);
+  assert.throws(() => task.extendToolBudget(0), TypeError);
+  assert.throws(() => task.extendToolBudget('six'), TypeError);
+});

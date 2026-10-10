@@ -115,11 +115,13 @@ async function startMission({ request, response, repository, providerConfigStore
   }
   let objective;
   let maxProviderCalls = 3;
+  let maxToolCalls;
   let capabilityGrants;
   let workspaceRoot = null;
   try {
     objective = assertObjective(body?.objective);
     if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
+    if (body?.maxToolCalls !== undefined) maxToolCalls = assertPositiveInteger(body.maxToolCalls, 'maxToolCalls');
     capabilityGrants = assertCapabilityGrants(body?.capabilities);
     const requestedRoot = typeof body?.workspaceRoot === 'string' && body.workspaceRoot.trim() !== '' ? body.workspaceRoot.trim() : null;
     // The browser has no way to name a directory on this machine — its folder
@@ -151,12 +153,12 @@ async function startMission({ request, response, repository, providerConfigStore
   const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
   const onEvent = (event) => broadcast({ ...event, missionId });
 
-  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, capabilityGrants, workspaceRoot });
+  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, maxToolCalls, capabilityGrants, workspaceRoot });
 
   const controller = new AbortController();
   running.set(missionId, controller);
   try {
-    await orchestrator.start({ objective, maxProviderCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
+    await orchestrator.start({ objective, maxProviderCalls, maxToolCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
   } catch (error) {
     broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {
@@ -202,6 +204,9 @@ async function resumeMission({ request, response, repository, providerConfigStor
       }
       if (body?.maxProviderCalls !== undefined) task.extendBudget(assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls'));
     }
+    if (body?.maxToolCalls !== undefined) {
+      task.extendToolBudget(assertPositiveInteger(body.maxToolCalls, 'maxToolCalls'));
+    }
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid mission action.' });
   }
@@ -218,7 +223,7 @@ async function resumeMission({ request, response, repository, providerConfigStor
   const orchestrator = new Orchestrator({ provider, repository });
   const onEvent = (event) => broadcast({ ...event, missionId: id });
 
-  respondJson(response, 202, { id, objective: mission.objective, status: 'resuming', maxProviderCalls: task.maxProviderCalls });
+  respondJson(response, 202, { id, objective: mission.objective, status: 'resuming', maxProviderCalls: task.maxProviderCalls, maxToolCalls: task.maxToolCalls });
 
   const controller = new AbortController();
   running.set(id, controller);

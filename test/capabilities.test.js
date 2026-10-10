@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CAPABILITY, assertCapabilityGrants, hasCapability } from '../src/capabilities.js';
+import { CAPABILITY, assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../src/capabilities.js';
 import { TaskRun } from '../src/task-run.js';
 
 test('capability grants are explicit, frozen, and carry into the task audit', () => {
   const grants = assertCapabilityGrants([{ name: CAPABILITY.WORKSPACE_READ, scope: 'work/project' }]);
   assert.equal(Object.isFrozen(grants), true);
-  assert.equal(hasCapability(grants, CAPABILITY.WORKSPACE_READ, 'work/project'), true);
+  assert.deepEqual(grants, [{ name: CAPABILITY.WORKSPACE_READ, scope: 'work/project' }]);
+  assert.equal(Object.isFrozen(grants[0]), true);
   const task = new TaskRun({ id: 'capability-run', objective: 'Inspect a local project.', capabilityGrants: grants });
   assert.deepEqual(task.snapshot().capabilityGrants, grants);
   assert.deepEqual(task.audit[0].detail.capabilityGrants, grants);
@@ -36,4 +37,14 @@ test('non-path capabilities keep free-form scopes', () => {
     { name: CAPABILITY.NETWORK_REQUEST, scope: 'https://example.com' },
   ]);
   assert.deepEqual(grants.map((grant) => grant.scope), ['npm test', 'https://example.com']);
+});
+
+test('workspace.write is declarative but still demands a root; process/network grants do not', () => {
+  const writeGrants = assertCapabilityGrants([{ name: CAPABILITY.WORKSPACE_WRITE, scope: 'src' }]);
+  assert.equal(grantsNeedWorkspaceRoot(writeGrants), true);
+  const otherGrants = assertCapabilityGrants([
+    { name: CAPABILITY.PROCESS_RUN, scope: 'npm test' },
+    { name: CAPABILITY.NETWORK_REQUEST, scope: 'https://example.com' },
+  ]);
+  assert.equal(grantsNeedWorkspaceRoot(otherGrants), false);
 });

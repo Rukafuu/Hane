@@ -65,13 +65,10 @@ export function assertCapabilityGrants(candidate) {
   return Object.freeze(grants);
 }
 
-export function hasCapability(grants, name, scope) {
-  return grants.some((grant) => grant.name === name && grant.scope === scope);
-}
-
 /**
- * Workspace scopes are relative paths, so they mean nothing without a root.
- * Rejected at ingress instead of silently authorizing nothing later.
+ * A path scope authorizes nothing without a root, so a stored write grant
+ * would lie about its reach; refusing at ingress keeps that honest and
+ * pre-loads the contract for the day workspace.write grows an executor.
  */
 export function grantsNeedWorkspaceRoot(grants = []) {
   return grants.some((grant) => grant.name === CAPABILITY.WORKSPACE_READ || grant.name === CAPABILITY.WORKSPACE_WRITE);

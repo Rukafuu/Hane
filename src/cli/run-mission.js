@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { Orchestrator } from '../orchestrator.js';
+import { DEFAULT_MAX_TOOL_CALLS } from '../task-run.js';
 import { TASK_STATUS, assertPositiveInteger } from '../contracts.js';
 import { assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
@@ -14,6 +15,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     options: {
       provider: { type: 'string' },
       'max-calls': { type: 'string', default: '3' },
+      'max-tool-calls': { type: 'string' },
       db: { type: 'string' },
       json: { type: 'boolean', default: false },
       workspace: { type: 'string' },
@@ -23,6 +25,10 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
   });
   const objective = positionals.join(' ').trim();
   const maxProviderCalls = assertPositiveInteger(Number(values['max-calls']), 'max-calls');
+  // An omitted flag leaves the default where it is defined: TaskRun.
+  const maxToolCalls = values['max-tool-calls'] === undefined
+    ? undefined
+    : assertPositiveInteger(Number(values['max-tool-calls']), 'max-tool-calls');
   const capabilityGrants = parseCapabilityFlags(values.capability);
   let workspaceRoot = values.workspace?.trim() || null;
   if (grantsNeedWorkspaceRoot(capabilityGrants) && workspaceRoot === null) {
@@ -61,6 +67,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     if (capabilityGrants.length > 0) {
       stdout.write(`grants: ${capabilityGrants.map((grant) => `${grant.name}(${grant.scope})`).join(', ')}\n`);
       stdout.write(`workspace: ${workspaceRoot}\n`);
+      stdout.write(`tool budget: ${maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS} calls\n`);
     }
     stdout.write('\n');
   }
@@ -71,6 +78,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     providerLabel: config.label,
     capabilityGrants,
     workspaceRoot,
+    maxToolCalls,
     onEvent,
   });
 
