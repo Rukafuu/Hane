@@ -65,7 +65,7 @@ export class SqliteTaskRepository {
 
   list() {
     return this.database.prepare(`
-      SELECT r.id, r.objective, r.status,
+      SELECT r.id, r.objective, r.status, r.team_id AS teamId,
              r.max_provider_calls AS maxProviderCalls,
              r.provider_calls AS providerCalls,
              COALESCE(MAX(a.at), '') AS updatedAt
@@ -73,7 +73,7 @@ export class SqliteTaskRepository {
       LEFT JOIN task_audit_entries a ON a.task_id = r.id
       GROUP BY r.id
       ORDER BY updatedAt DESC, r.id DESC
-    `).all();
+    `).all().map(row => { if (row.teamId === null) delete row.teamId; return row; });
   }
 
   findById(id) {

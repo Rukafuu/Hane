@@ -160,6 +160,33 @@ const MIGRATIONS = Object.freeze([
   Object.freeze({ id: 12, name: 'library_import_receipts', statements: Object.freeze([
     'CREATE TABLE library_imports (id TEXT PRIMARY KEY, digest TEXT NOT NULL, result_json TEXT NOT NULL, created_at TEXT NOT NULL) STRICT;',
   ]) }),
+  Object.freeze({ id: 13, name: 'agent_identity_and_capabilities', statements: Object.freeze([
+    "ALTER TABLE agents ADD COLUMN visual_json TEXT NOT NULL DEFAULT '{}';",
+    "ALTER TABLE agents ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]';",
+    'ALTER TABLE agents ADD COLUMN is_initial INTEGER NOT NULL DEFAULT 0 CHECK(is_initial IN (0,1));',
+    'CREATE UNIQUE INDEX agents_initial ON agents(is_initial) WHERE is_initial=1;',
+  ]) }),
+  Object.freeze({ id: 14, name: 'agent_conversations', statements: Object.freeze([
+    `CREATE TABLE conversations (id TEXT PRIMARY KEY, agent_id TEXT REFERENCES agents(id) ON DELETE RESTRICT,
+      team_id TEXT REFERENCES teams(id) ON DELETE RESTRICT, title TEXT NOT NULL, created_at TEXT NOT NULL,
+      CHECK((agent_id IS NULL) != (team_id IS NULL))) STRICT;`,
+    `CREATE TABLE conversation_turns (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      recipient_id TEXT REFERENCES agents(id) ON DELETE RESTRICT, status TEXT NOT NULL, error TEXT,
+      provider_calls INTEGER NOT NULL DEFAULT 0, tool_calls INTEGER NOT NULL DEFAULT 0,
+      max_provider_calls INTEGER NOT NULL, max_tool_calls INTEGER NOT NULL,
+      audit_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL) STRICT;`,
+    `CREATE UNIQUE INDEX conversation_active_turn ON conversation_turns(conversation_id) WHERE status='running';`,
+    `CREATE TABLE conversation_messages (ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      turn_id TEXT NOT NULL REFERENCES conversation_turns(id) ON DELETE CASCADE,
+      agent_id TEXT REFERENCES agents(id) ON DELETE RESTRICT, author_name TEXT NOT NULL,
+      content TEXT NOT NULL, created_at TEXT NOT NULL) STRICT;`,
+  ]) }),
+  Object.freeze({ id: 15, name: 'agent_instruction_documents', statements: Object.freeze([
+    "ALTER TABLE agents ADD COLUMN instruction_files_json TEXT NOT NULL DEFAULT '[]';",
+  ]) }),
+  // Id 16 is reserved for the per-execution backend choice (mission sandbox
+  // selection). Take a later id, or claim 16 explicitly, instead of colliding.
 ]);
 
 export function latestMigrationId() {

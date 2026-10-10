@@ -147,9 +147,9 @@ chamada destruiria a property que dá crédito ao produto: orçamento e auditori
 
 ## Decisão
 
-- O fluxo atual vira **um preset** (`three-role`) de uma interface de estratégia, e continua
-  sendo o default. Missões antigas (`team_id NULL`) rodam pelo preset com exatamente o
-  comportamento de hoje.
+- O fluxo atual vira **um preset legado** (`three-role`) de uma interface de estratégia.
+  Não é o default das novas conversas individuais (ver ADR-0009). Execuções antigas
+  preservam o comportamento e os registros de hoje.
 - Delegação é **estrutura persistida**, não conversa: um agente só pode delegar para um
   membro do próprio time, com profundidade máxima, herança do orçamento restante e um evento
   de auditoria (`delegation` / `delegation_refused`) por decisão.
@@ -461,3 +461,113 @@ em VM limpa, medido aqui.
 - A imagem construída no CI é um artefato, não um release publicado: enquanto não houver URL
   assinada/oficial no repo, `hane machine install` continua PARTIAL no
   `docs/runtime-honesty-audit.md` — o portão existe, o que instalar ainda não chega sozinho.
+
+
+# ADR-0009 — Identidade de agente, conversa e capacidade são contratos distintos
+
+Status: aceito por Lucas em 2026-10-10; implementação da conversa direta e coordenação pendente.
+Esta decisão substitui o default universal de três papéis da ADR-0003 para novas conversas.
+
+## Decisão
+
+- Hane é o único agente criado automaticamente no onboarding, uma vez por instalação,
+  com ID e configurações persistentes. Demais agentes são criados explicitamente pelo usuário.
+- Configurações de agente separam Identidade (nome, avatar/GIF, biografia e aparência),
+  Comportamento (instruções, especialização e referências) e Capacidades (ferramentas,
+  sandbox e permissões). Identidade e histórico são associados por ID estável, nunca por nome.
+- Conversas individuais falam diretamente com o agente escolhido, usando suas instruções
+  e histórico próprio, sem exigir uma equipe ou pipeline de execução.
+- Grupos têm no máximo **8 agentes**, com validação na interface e no backend em criação
+  e alteração. Uma chamada direta à API também deve recusar o nono participante sem alterar
+  o grupo existente. O limite de 10 no texto de referência não é adotado.
+- Mensagens de grupo sem um agente destinatário são dirigidas a todos os participantes:
+  todos respondem com suas próprias identidades e administram a mensagem entre si.
+  Direcionar uma mensagem a um agente específico seleciona o destinatário dessa mensagem.
+- Liderança é opcional e explícita. Sem líder, os participantes coordenam a interação entre si,
+  respeitando orçamento, permissões e auditoria; não significa execução livre pelo modelo.
+- Planejamento e revisão são etapas internas acionadas quando necessárias. Não criam agentes
+  independentes, não são identidades obrigatórias da interface e não substituem o agente escolhido.
+- O backend verifica permissões em cada operação. Instruções manuais ou importadas nunca
+  concedem acesso a terminal, rede, arquivos ou sandbox. Capacidades do agente limitam o que
+  pode ser solicitado; a execução também precisa da autorização correspondente.
+- Históricos individuais e de grupo permanecem separados. Participar de um grupo não altera
+  permanentemente as instruções ou permissões de um agente.
+
+## Critérios de aceitação
+
+- Conversas individuais usam identidade, instruções e histórico do agente escolhido, sem
+  exigir uma equipe. Não há regra especial de execução para cumprimentos.
+- Em grupos, uma mensagem sem destinatário explícito produz respostas reais de todos os
+  participantes, identificadas por agente; a coordenação e o histórico pertencem ao grupo.
+- Testar os caminhos individual, de grupo sem destinatário e de grupo com destinatário explícito
+  pela API e pela interface, verificando contexto, autoria, persistência e permissões.
+- Criação e alteração com oito membros funcionam; nove membros falham na UI e na API,
+  preservando os dados anteriores. O limite é por grupo, não pelo catálogo inteiro de agentes.
+- Preservar históricos, onboarding concluído, autorização, cancelamento, orçamento e auditoria
+  de execuções existentes. Não apagar agentes com base apenas nos nomes dos papéis internos.
+
+## Estado atual
+
+O limite de oito já existe no validador da biblioteca da UI e em `assertTeam`, chamado pelo
+store SQLite. O runtime ainda usa `ROLE_FLOW`; cadastro de agentes/equipes não prova conversa
+direta, aplicação de instruções na inferência ou coordenação dinâmica. Essas partes continuam
+pendentes até a implementação e verificação do fluxo completo.
+
+
+# ADR-0010 — Conversa e Missão são dois modos, com orçamento de execução no backend
+
+Status: aceito por Lucas em 2026-10-10; implementação pendente. Complementa a ADR-0009 sem
+revoke-la: a conversa continua sendo o caminho direto com o agente, e a execução estruturada
+deixa de ser a única interface do produto.
+
+## Decisão
+
+- O Hane tem **dois modos complementares**, ambos com entrada própria e alcançável na interface:
+  - **Conversa** — interação individual ou em grupo com o agente escolhido, sem obrigatoriedade
+    de execução estruturada. Regras da ADR-0009.
+  - **Missão** — execução de tarefa com planejamento quando necessário, delegação, ferramentas,
+    sandbox, progresso e evidências auditáveis.
+- Os dois modos **reutilizam** o mesmo catálogo de agentes, o mesmo sistema de permissões e a
+  mesma infraestrutura de orquestração. Nenhum modo cria agentes próprios, duplica capacidades
+  ou abre um segundo caminho de execução.
+- A entrada de Missão não pode ficar condicionada a ter ou não um agente de conversa aberto:
+  seleção de conversa e criação de execução são estados independentes. Grupo continua sendo
+  vínculo de execução (`teamId`) além de ser elenco de conversa.
+- Grupos seguem com no máximo **8 agentes**, líder opcional e coordenação dinâmica quando não
+  há líder (ADR-0009).
+- São conceitos distintos e **não devem ser confundidos por coincidência numérica**:
+  - limite estrutural de agentes por grupo (8) — regra de produto, validada nas duas pontas;
+  - orçamento de chamadas de ferramentas — parâmetro de execução, configurável e sujeito a
+    teto de segurança.
+- **O orçamento de execução pertence ao backend.** A rota declara default e teto; quem recebe o
+  pedido valida antes de executar. O frontend apenas apresenta e edita valores dentro do que a
+  API permite, e omite o campo quando o usuário não escolheu nada — o default do servidor então
+  se aplica. O frontend não pode fixar default próprio nem permitir entrada acima do teto da
+  rota sem que a rota o aceite.
+- Preferências globais de execução valem para os dois modos, ou a interface diz explicitamente
+  que o orçamento é por envio. Não existe terceira fonte de verdade.
+
+## Critérios de aceitação
+
+- Com um agente de conversa aberto, ainda é possível criar uma Missão; com um grupo selecionado,
+  ainda é possível criar uma execução vinculada ao grupo e consultar suas evidências.
+- Nenhum valor de orçamento é decidido no navegador: remover o default hardcoded da camada de
+  UI não altera o comportamento observado, porque o servidor o fornece.
+- O mesmo valor de orçamento é aceito ou recusado da mesma forma em conversa e em missão; se os
+  tetos diferirem por motivo real, a diferença é documentada e a UI mostra o teto vigente.
+- Oito permanece o limite de integrantes de grupo, sem qualquer relação com chamadas de
+  ferramentas ou chamadas de modelo.
+- Conversa e Missão usam o mesmo agente, as mesmas capacidades e a mesma trilha de auditoria.
+
+## Estado atual
+
+A backend dos dois modos existe: `/api/conversations` (conversa) e `/api/missions` com vínculo de
+equipe (missão). A UI perdeu a entrada de Missão quando a conversa passou a substituir a seção
+de execução — correção pendente na interface.
+
+Os orçamentos hoje divergem em três pontos: a rota de conversa aplica default 8 e teto 24 para
+`maxToolCalls` (`src/server/conversations-api.js`, função `bound`); a rota de missão aceita
+qualquer inteiro positivo; e as preferências da UI prometem "de 1 a 100 por execução". O
+componente de conversa ainda envia `maxToolCalls: 8` fixo, ignorando a preferência do usuário.
+Nenhum desses números tem relação com o limite de 8 agentes por grupo — são regras de naturezas
+diferentes que coincidem em valor.

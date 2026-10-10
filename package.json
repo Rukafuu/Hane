@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "argon2": "^0.45.1",
+    "fflate": "^0.8.3",
+    "pdfjs-dist": "^6.4.299",
     "sharp": "^0.35.5"
   }
 }

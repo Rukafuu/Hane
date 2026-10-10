@@ -1,8 +1,10 @@
+import { handleInstructionFile } from './instruction-files-api.js';
+import { createConversationsApi } from './conversations-api.js';
 import { DEFAULT_UI_ORIGINS } from './ui-origins.js';
 import { createTeamsApi } from './teams-api.js';
 import { SqliteAgentStore } from '../storage/sqlite-agent-store.js';
 import { SqliteTeamStore } from '../storage/sqlite-team-store.js';
-import { assertId } from '../teams/domain.js';
+import { assertId, TeamError } from '../teams/domain.js';
 import { createProfileApi } from "./profile-api.js";
 import { createServer } from 'node:http';
 import { Orchestrator } from '../orchestrator.js';
@@ -18,6 +20,16 @@ import { createRequestGuard, isLoopbackHost, RequestGuardError } from './request
 const MAX_BODY_BYTES = 64 * 1024;
 const SSE_HEARTBEAT_MS = 25_000;
 const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
+// The execution budget belongs to the backend: the route declares the ceiling and
+// a client may only choose a value inside it. These are call budgets, unrelated to
+// the eight-member group rule.
+const BUDGET_CEILINGS = Object.freeze({ maxProviderCalls: 64, maxToolCalls: 24 });
+
+function assertBudget(value, name) {
+  const calls = assertPositiveInteger(value, name);
+  if (calls > BUDGET_CEILINGS[name]) throw new TypeError(`${name} must not exceed ${BUDGET_CEILINGS[name]}.`);
+  return calls;
+}
 /** A server built without a probe says so, rather than implying an empty box. */
 const NOT_DETECTED_MACHINE = Object.freeze({
   backend: 'wsl',
@@ -55,6 +67,7 @@ const NOT_DETECTED_MACHINE = Object.freeze({
 export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, agentStore = null, teamStore = null, allowedOrigins = DEFAULT_UI_ORIGINS, avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
   agentStore ??= repository.database ? new SqliteAgentStore({database:repository.database}) : null;
   teamStore ??= repository.database ? new SqliteTeamStore({database:repository.database}) : null;
+  const conversationsApi = createConversationsApi({database:repository.database,agentStore,teamStore,providerConfigStore,credentialManager,createProvider,defaultProvider,defaultWorkspaceRoot,readJsonBody,respondJson});
   const teamsApi = createTeamsApi({agentStore,teamStore,readJsonBody,respondJson});
   const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopbackHost(bindHost), requireExplicitRequest: Boolean(profileStore) });
   const sseClients = new Set();
@@ -74,6 +87,9 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
   const profileApi = profileStore ? createProfileApi({ store: profileStore, allowedOrigins, requestGuard: guard, avatarLimits, closeStreams: () => { for (const client of sseClients) client.end(); sseClients.clear(); } }) : null;
   const streamRequests = new WeakMap();
   const running = new Map();
+  // Hane is created once per serve process, at the first authorized request that
+  // finds a profile. Serving every later request used to re-read that row.
+  let initialAgentEnsured = false;
   const pendingGitHubAuthorizations = new Map();
   const heartbeat = setInterval(() => {
     for (const response of sseClients) { if (profileApi && !profileApi.authenticated(streamRequests.get(response))) { response.end(); sseClients.delete(response); } else response.write(': ping\n\n'); }
@@ -92,18 +108,25 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
       guard(request);
       if (profileApi && await profileApi.handle(request, response)) return;
       const isAuthorized = () => !profileApi || profileApi.authenticated(request);
+      if (!initialAgentEnsured && profileStore?.get() && isAuthorized() && agentStore) { agentStore.ensureInitial(); initialAgentEnsured = true; }
+      if (await handleInstructionFile({request,response,isAuthorized,readJsonBody,respondJson})) return;
+      if (await conversationsApi.handle({request,response,isAuthorized})) return;
       if (await teamsApi({request,response,isAuthorized})) return;
       return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, teamStore, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
     })
       .catch((error) => {
         if (!response.headersSent) {
-          respondJson(response, error instanceof RequestGuardError ? error.status : 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
+          // A refusal the server named keeps its status and its own text; an
+          // unexpected fault keeps neither, because its message can carry SQL,
+          // paths or a username.
+          const named = error instanceof RequestGuardError || error instanceof TeamError;
+          respondJson(response, named ? error.status : 500, { error: named ? error.message : 'Internal server error.' });
         } else {
           response.end();
         }
       });
   });
-  server.on('close', () => clearInterval(heartbeat));
+  server.on('close', () => { clearInterval(heartbeat); conversationsApi.close(); });
   return server;
 }
 
@@ -237,8 +260,8 @@ async function startMission({ request, response, repository, teamStore, provider
       if (!teamStore) throw new TypeError('Teams storage is unavailable.');
       teamStore.requireActive(teamId);
     }
-    if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
-    if (body?.maxToolCalls !== undefined) maxToolCalls = assertPositiveInteger(body.maxToolCalls, 'maxToolCalls');
+    if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertBudget(body.maxProviderCalls, 'maxProviderCalls');
+    if (body?.maxToolCalls !== undefined) maxToolCalls = assertBudget(body.maxToolCalls, 'maxToolCalls');
     capabilityGrants = assertEnforceableScopes(assertCapabilityGrants(body?.capabilities));
     const requestedRoot = typeof body?.workspaceRoot === 'string' && body.workspaceRoot.trim() !== '' ? body.workspaceRoot.trim() : null;
     // The browser has no way to name a directory on this machine — its folder
@@ -318,17 +341,17 @@ async function resumeMission({ request, response, repository, providerConfigStor
       }
       for (const role of REVISION_ROLES) delete task.outputs[role];
       const wantedMax = body?.maxProviderCalls !== undefined
-        ? assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls')
-        : task.providerCalls + REVISION_ROLES.length;
+        ? assertBudget(body.maxProviderCalls, 'maxProviderCalls')
+        : Math.min(task.providerCalls + REVISION_ROLES.length, BUDGET_CEILINGS.maxProviderCalls);
       if (wantedMax > task.maxProviderCalls) task.extendBudget(wantedMax);
     } else {
       if (mission.status !== TASK_STATUS.NEEDS_ATTENTION && mission.status !== TASK_STATUS.FAILED) {
         return respondJson(response, 409, { error: `Mission "${id}" is ${mission.status}; only needs_attention or failed missions can be retried.` });
       }
-      if (body?.maxProviderCalls !== undefined) task.extendBudget(assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls'));
+      if (body?.maxProviderCalls !== undefined) task.extendBudget(assertBudget(body.maxProviderCalls, 'maxProviderCalls'));
     }
     if (body?.maxToolCalls !== undefined) {
-      task.extendToolBudget(assertPositiveInteger(body.maxToolCalls, 'maxToolCalls'));
+      task.extendToolBudget(assertBudget(body.maxToolCalls, 'maxToolCalls'));
     }
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid mission action.' });
@@ -370,14 +393,14 @@ function cancelMission({ response, repository, broadcast, running, id }) {
   return respondJson(response, 202, { id, status: 'cancelling' });
 }
 
-function readJsonBody(request) {
+function readJsonBody(request, maxBytes = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     request.on('data', (chunk) => {
       size += chunk.length;
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('Request body exceeds 64 KB.'));
+      if (size > maxBytes) {
+        reject(new Error('Request body exceeds '+maxBytes+' bytes.'));
         request.destroy();
         return;
       }
