@@ -91,6 +91,39 @@ const MIGRATIONS = Object.freeze([
       ) STRICT;`,
     ]),
   }),
+  Object.freeze({
+    id: 7,
+    name: 'local_personal_profile',
+    statements: Object.freeze([
+      `CREATE TABLE local_profiles (
+        id TEXT PRIMARY KEY,
+        installation_slot INTEGER NOT NULL UNIQUE CHECK (installation_slot = 1),
+        display_name TEXT NOT NULL,
+        email TEXT,
+        avatar_path TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        onboarding_step INTEGER NOT NULL DEFAULT 1 CHECK (onboarding_step BETWEEN 1 AND 3),
+        onboarding_completed INTEGER NOT NULL DEFAULT 0 CHECK (onboarding_completed IN (0, 1))
+      ) STRICT;`,
+      `CREATE TABLE local_profile_secrets (
+        profile_id TEXT PRIMARY KEY REFERENCES local_profiles(id) ON DELETE CASCADE,
+        password_verifier TEXT NOT NULL,
+        failed_attempts INTEGER NOT NULL DEFAULT 0,
+        blocked_until INTEGER NOT NULL DEFAULT 0
+      ) STRICT;`,
+    ]),
+  }),
+  Object.freeze({
+    id: 8,
+    name: "local_profile_recovery",
+    statements: Object.freeze([`CREATE TABLE local_profile_recovery (
+      profile_id TEXT PRIMARY KEY REFERENCES local_profile_secrets(profile_id) ON DELETE CASCADE,
+      code_verifier TEXT NOT NULL,
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      blocked_until INTEGER NOT NULL DEFAULT 0
+    ) STRICT;`]),
+  }),
 ]);
 
 export function latestMigrationId() {

@@ -1,6 +1,6 @@
 # Hane — local agent orchestrator
 
-Hane (`local-agent-orchestrator`) is a zero-dependency, local-first core that
+Hane (`local-agent-orchestrator`) is a local-first core that
 runs a user objective through three accountable roles — **planner**, **executor**
 and **reviewer** — under a hard call budget, and records everything it did in an
 append-only audit trail. Inference comes from a provider the user configures;
@@ -48,6 +48,7 @@ node bin/hane.js retry <id> --max-calls 5
 node bin/hane.js approve <id>
 
 # 5. Serve the mission API and the UI on loopback.
+npm ci --include=optional
 node bin/hane.js serve --port 7788
 # Optional: enables GitHub's desktop device authorization flow in onboarding.
 node bin/hane.js serve --port 7788 --github-client-id <github-oauth-app-client-id>
@@ -56,7 +57,7 @@ node bin/hane.js serve --port 7788 --github-client-id <github-oauth-app-client-i
 ## Commands
 
 ```powershell
-npm test        # node:test suite, no dependencies
+npm test        # node:test suite
 npm run check   # node --check over every source, bin and test file
 npm run verify  # check + test
 ```
@@ -75,7 +76,7 @@ hane missions [--db <path>]
 hane mission <id> [--db <path>] [--json]
 hane retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
 hane approve <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
-hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>] [--github-client-id <id>]
+hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>] [--github-client-id <id>] [--ui-origin <loopback-http-origin>]
 ```
 
 The default database is `outputs/hane.sqlite`, resolved from the package root so
@@ -260,3 +261,9 @@ still ahead of it. Every tool declares the scope it needs before it runs, and
 anything that writes, executes, requests out, or is irreversible still requires an
 explicit human approval for that action — `workspace.read` is the only capability
 with a working implementation today, and it stays inside the root you granted.
+
+### Local personal profile
+
+The desktop UI starts with a three-step local onboarding: a personal profile, an optional provider, and an optional first group. The profile is stored in the same SQLite database without replacing existing executions, providers, or agents. Optional password protection uses Argon2id, backend sessions and a single-use offline recovery code; photos are decoded and stored as processed WebP files beside the database. Install root dependencies with `npm ci --include=optional` before serving.
+
+Locking protects HTTP APIs and the interface, but does not encrypt local files or restrict the CLI under the operating-system account. See [profile implementation and security decisions](docs/profile-onboarding.md) for storage, limits, origins, and validation.

@@ -1,3 +1,4 @@
+import { createProfileApi } from "./profile-api.js";
 import { createServer } from 'node:http';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
@@ -23,22 +24,28 @@ const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
  *           defaultWorkspaceRoot?: string | null }} dependencies
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, profileStore = null, allowedOrigins, avatarLimits, githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
   const sseClients = new Set();
+  const profileApi = profileStore ? createProfileApi({ store: profileStore, allowedOrigins, avatarLimits, closeStreams: () => { for (const client of sseClients) client.end(); sseClients.clear(); } }) : null;
+  const streamRequests = new WeakMap();
   const running = new Map();
   const pendingGitHubAuthorizations = new Map();
   const heartbeat = setInterval(() => {
-    for (const response of sseClients) response.write(': ping\n\n');
+    for (const response of sseClients) { if (profileApi && !profileApi.authenticated(streamRequests.get(response))) { response.end(); sseClients.delete(response); } else response.write(': ping\n\n'); }
   }, SSE_HEARTBEAT_MS);
   heartbeat.unref?.();
 
   const broadcast = (event) => {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const response of sseClients) response.write(payload);
+    for (const response of sseClients) { if (profileApi && !profileApi.authenticated(streamRequests.get(response))) { response.end(); sseClients.delete(response); } else response.write(payload); }
   };
 
   const server = createServer((request, response) => {
-    handle({ request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running })
+    streamRequests.set(response, request);
+    Promise.resolve().then(async () => {
+      if (profileApi && await profileApi.handle(request, response)) return;
+      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
+    })
       .catch((error) => {
         if (!response.headersSent) {
           respondJson(response, 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
@@ -153,10 +160,11 @@ async function pollGitHubAuthorization({ response, authorizationId, githubClient
   }
 }
 
-async function startMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running }) {
+async function startMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running, isAuthorized = () => true }) {
   let body;
   try {
     body = await readJsonBody(request);
+    if (!isAuthorized()) return respondJson(response,401,{error:"Seu Hane está bloqueado."});
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid JSON body.' });
   }
@@ -196,6 +204,7 @@ async function startMission({ request, response, repository, providerConfigStore
     throw error;
   }
 
+  if (!isAuthorized()) return respondJson(response,401,{error:"Seu Hane está bloqueado."});
   const missionId = crypto.randomUUID();
   const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
   const onEvent = (event) => broadcast({ ...event, missionId });
@@ -223,10 +232,11 @@ async function resolveProvider({ providerConfigStore, credentialManager, createP
   return { provider: await createProvider({ config, credentialManager }), label: config.label };
 }
 
-async function resumeMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, broadcast, running, id, action }) {
+async function resumeMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, broadcast, running, id, action, isAuthorized = () => true }) {
   let body = {};
   try {
     body = await readJsonBody(request);
+    if (!isAuthorized()) return respondJson(response,401,{error:"Seu Hane está bloqueado."});
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid JSON body.' });
   }
@@ -267,6 +277,7 @@ async function resumeMission({ request, response, repository, providerConfigStor
     throw error;
   }
 
+  if (!isAuthorized()) return respondJson(response,401,{error:"Seu Hane está bloqueado."});
   const orchestrator = new Orchestrator({ provider, repository });
   const onEvent = (event) => broadcast({ ...event, missionId: id });
 

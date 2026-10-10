@@ -14,6 +14,7 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
       db: { type: 'string' },
       provider: { type: 'string' },
       workspace: { type: 'string' },
+      'ui-origin': { type: 'string', multiple: true },
       'github-client-id': { type: 'string' },
     },
     allowPositionals: true,
@@ -38,6 +39,11 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
     }
   }
 
+  const allowedOrigins = ['http://localhost:5173','http://127.0.0.1:5173', ...(values['ui-origin'] ?? [])];
+  for (const origin of allowedOrigins) {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' || !['localhost','127.0.0.1','[::1]'].includes(url.hostname) || url.origin !== origin) throw new Error('--ui-origin must be an exact loopback HTTP origin.');
+  }
   const dbPath = values.db ?? defaultDatabasePath();
   if (values.db) mkdirSync(path.dirname(values.db), { recursive: true });
 
@@ -49,7 +55,10 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
     saveGitHub: () => { throw new Error('GitHub onboarding storage is unavailable.'); },
   };
   const skillStore = dependencies.createSkillStore?.(database) ?? null;
+  const profileStore = dependencies.createProfileStore?.(database, path.join(path.dirname(path.resolve(dbPath)), path.basename(dbPath) + '.profiles'), path.resolve(dbPath)) ?? null;
   const server = createMissionServer({
+    profileStore,
+    allowedOrigins,
     repository,
     providerConfigStore,
     onboardingStore,

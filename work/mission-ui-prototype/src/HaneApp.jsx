@@ -1,3 +1,4 @@
+import { ProfileMenu, ProfileSettings, PersonalAvatar } from "./PersonalProfile.jsx";
 import SettingsCenter, { SettingsSection } from "./SettingsCenter.jsx";
 import { readPreference, writePreference, normalizeAppearance, normalizeGeneral, validateLibrary, appearanceStyle } from "./preferences.js";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -222,7 +223,7 @@ function GitHubConnector({ connector, github, device, available, busy, onConnect
   </div>;
 }
 
-export function HaneApp() {
+export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,profileLimits,onRecoveryCode}) {
   const [missions, setMissions] = useState(null);
   const [providers, setProviders] = useState([]);
   const [offline, setOffline] = useState(false);
@@ -296,7 +297,7 @@ export function HaneApp() {
   const loaded = missions !== null && !offline;
   const noProviders = providers.length === 0;
   const noMissions = (missions ?? []).length === 0;
-  const showOnboarding = loaded && noMissions && !activeGroup && !onboardingDismissed;
+  const showOnboarding = !personalProfile && loaded && noMissions && !activeGroup && !onboardingDismissed;
   const observedRole = currentRole ?? outputs.at(-1) ?? "planner";
   const sessionEvents = mission?.audit?.slice(-4).map((entry) => `${clock(entry.at)}  ${auditSummary(entry)}`) ?? [];
   const evidence = useMemo(() => evidenceRows(mission), [mission]);
@@ -688,7 +689,7 @@ export function HaneApp() {
   function backToWorkspace() { window.location.hash = "workspace"; setShowSettings(false); requestAnimationFrame(() => gearRef.current?.focus()); }
   function openSection(section) { window.location.hash = "settings/" + section; setShowSettings(true); }
   function openGroup(id) { setActiveGroupId(id); setSelectedId(null); setOnboardingDismissed(true); backToWorkspace(); }
-  if (showSettings) return <SettingsCenter appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} library={library} onLibraryChange={setLibrary} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveGroupId(null); setSelectedId(id); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id !== "mcp").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
+  if (showSettings) return <SettingsCenter renderProfile={() => <ProfileSettings profile={personalProfile} onProfileChange={onPersonalProfileChange} onLock={onLockProfile} limits={profileLimits} onRecoveryCode={onRecoveryCode}/>} appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} library={library} onLibraryChange={setLibrary} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveGroupId(null); setSelectedId(id); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id !== "mcp").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
 
 
   return <main className={`app-shell ${panelOpen ? "" : "panel-collapsed"}`} ref={rootRef} {...appearanceProps}>
@@ -737,20 +738,20 @@ export function HaneApp() {
 
       <footer className="sidebar-footer"><button onClick={() => openSection("agents")} aria-label="Biblioteca de agentes"><UsersThree/><span><strong>Biblioteca de agentes</strong><small>{library.agents.length} perfis locais</small></span></button><button onClick={() => openSection("monitor")} aria-label="Monitor de execução"><Clock/><span><strong>Monitor de execução</strong><small>Histórico real do runtime</small></span></button>
         <button aria-label={`Provedores: ${providers.length} configurado${providers.length === 1 ? "" : "s"}${chosenProvider ? `, ${chosenProvider} ativo` : ""}`} onClick={() => setPopover("providers")}><Clock /><span><strong>Provedores</strong><small>{providers.length} configurado{providers.length === 1 ? "" : "s"}{chosenProvider ? ` · ${chosenProvider} ativo` : ""}</small></span><CaretRight /></button>
-      </footer>
+      {personalProfile && <ProfileMenu profile={personalProfile} onSection={openSection} onLock={onLockProfile}/>}</footer>
     </aside>
 
     <section className="conversation-view">
       <header className="conversation-header">{showOnboarding ? <Avatar person={onboardingAgent} size="sm" state="thinking" /> : <Stack mission={mission} currentRole={currentRole} />}<span className="conversation-title"><strong>{activeGroup?.name ?? mission?.objective ?? (showOnboarding ? "Hane" : missions?.length ? "Selecione uma execução" : "Descreva uma execução abaixo")}</strong><small><i /> {mission ? `${selectedLabel} · ${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : showOnboarding ? "guia para configurar e usar o Hane" : "equipe: planejador, executor, revisor"}</small></span>{mission && <Status kind={selectedChip}>{selectedLabel}</Status>}{activeGroup && <button className="icon-button" aria-label="Configurar grupo" onClick={() => openSection("agents")}><GearSix/></button>}</header>
       <div className="messages" ref={messagesRef}>{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && <div className="group-context"><strong>{activeGroup.description || "Grupo local"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder desejado":""}</span>)}</div><small>Execução atual: planejador → executor → revisor. Perfis e liderança personalizados ainda não são executados pelo runtime.</small></div>}
-        {loaded && !mission && !selectedId && !showOnboarding && <EmptyStage Icon={Sparkle} title={activeGroup ? activeGroup.name : "Seu espaço para colaborar"} action={{ label: activeGroup ? "Escrever objetivo" : "Criar grupo", onClick: activeGroup ? focusComposer : () => openSection("agents") }}>Organize agentes em grupos, configure um provedor e descreva o próximo objetivo. Você decide quando começar.</EmptyStage>}
+        {loaded && !mission && !selectedId && !showOnboarding && <EmptyStage Icon={Sparkle} title={activeGroup ? activeGroup.name : personalProfile ? `Bem-vindo, ${personalProfile.displayName}.` : "Seu espaço para colaborar"} action={{ label: activeGroup ? "Escrever objetivo" : "Criar grupo", onClick: activeGroup ? focusComposer : () => openSection("agents") }}>Organize agentes em grupos, configure um provedor e descreva o próximo objetivo. Você decide quando começar.</EmptyStage>}
         {missions === null && <EmptyStage Icon={CircleNotch} title="Consultando o Hane…">Lendo o arquivo de execuções local para montar a trilha.</EmptyStage>}
         {offline && <EmptyStage Icon={Plugs} title="API do Hane indisponível" commands={["hane serve --port 7788"]} action={{ label: "Tentar de novo", onClick: reload }} onCopy={copyNotice}>
           A interface fala apenas com o servidor local. Inicie o <code>hane serve</code> e reconecte para ver as execuções reais.
         </EmptyStage>}
         {loaded && mission && <>
           <div className="day-divider"><span>Hoje</span></div>
-          <RiseIn className="user-message" key={`objective-${mission.id}`}><small>Você · {clock(mission.audit?.at(-1)?.at)}{mission.providerLabel ? ` · agente ${mission.providerLabel}` : ""}</small><p>{mission.objective}</p></RiseIn>
+          <RiseIn className="user-message" key={`objective-${mission.id}`}><small>{personalProfile && <PersonalAvatar profile={personalProfile}/>} {personalProfile?.displayName || "Você"} · {clock(mission.audit?.at(-1)?.at)}{mission.providerLabel ? ` · agente ${mission.providerLabel}` : ""}</small><p>{mission.objective}</p></RiseIn>
           {ROLE_ORDER.map((role) => {
             const person = roles[role];
             const output = mission.outputs?.[role];

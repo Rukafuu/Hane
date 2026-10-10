@@ -9,6 +9,7 @@ export class ApiError extends Error {
 
 async function json(response) {
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") window.dispatchEvent(new Event("hane-session-expired"));
     let detail = "";
     try {
       detail = (await response.json()).error;
@@ -42,9 +43,9 @@ export async function fetchWorkspace() {
 
 export const fetchOnboarding = () => fetch("/api/onboarding").then(json);
 
-export const startGitHubAuthorization = () => fetch("/api/onboarding/github/device", { method: "POST" }).then(json);
+export const startGitHubAuthorization = () => fetch("/api/onboarding/github/device", { method: "POST", headers: { "x-hane-request": "1" } }).then(json);
 
-export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/device/${encodeURIComponent(id)}/poll`, { method: "POST" }).then(async (response) => {
+export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/device/${encodeURIComponent(id)}/poll`, { method: "POST", headers: { "x-hane-request": "1" } }).then(async (response) => {
   if (response.status === 202) return { status: "pending" };
   return json(response);
 });
@@ -56,13 +57,13 @@ export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/dev
  */
 export const createMission = (objective, provider, capabilities = [], limits = {}) => fetch("/api/missions", {
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: { "content-type": "application/json", "x-hane-request": "1" },
   body: JSON.stringify({ objective, ...(limits.maxProviderCalls ? { maxProviderCalls: limits.maxProviderCalls } : {}), ...(limits.maxToolCalls ? { maxToolCalls: limits.maxToolCalls } : {}), ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
 }).then(json);
 
 const missionAction = (id, action, body = {}) => fetch(`/api/missions/${encodeURIComponent(id)}/${action}`, {
   method: "POST",
-  headers: { "content-type": "application/json" },
+  headers: { "content-type": "application/json", "x-hane-request": "1" },
   body: JSON.stringify(body),
 }).then(json);
 

@@ -1,3 +1,4 @@
+import { SqliteProfileStore } from "../storage/sqlite-profile-store.js";
 import { runMissionCommand } from './run-mission.js';
 import { missionsCommand, missionCommand, retryCommand, approveCommand } from './mission-lifecycle.js';
 import { serveMissionCommand } from './serve-mission.js';
@@ -17,6 +18,7 @@ export function createDefaultDependencies() {
     createTaskRepository: (database) => new SqliteTaskRepository({ database }),
     createProviderConfigStore: (database) => new SqliteProviderConfigStore({ database }),
     createOnboardingStore: (database) => new SqliteOnboardingStore({ database }),
+    createProfileStore: (database, dataDirectory, databasePath) => new SqliteProfileStore({ database, dataDirectory, databasePath }),
     createSkillStore: (database) => new SqliteSkillStore({ database }),
     credentialManager: new WindowsCredentialManager(),
     createProvider: createProviderFromConfig,

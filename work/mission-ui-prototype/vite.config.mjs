@@ -12,7 +12,7 @@ export default defineConfig({
     host: "0.0.0.0",
     allowedHosts: ["terminal.local"],
     proxy: {
-      "/api": { target: "http://127.0.0.1:7788", changeOrigin: true },
+      "/api": { target: process.env.HANE_API_TARGET || "http://127.0.0.1:7788", changeOrigin: true },
     },
     watch: {
       ignored: ["**/work/chrome-qa/**"],
