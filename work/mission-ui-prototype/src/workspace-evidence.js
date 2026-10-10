@@ -30,7 +30,7 @@ export const WORKSPACE_DISABLED_HINT = "Leitura e escrita só ficam disponíveis
 
 export const WORKSPACE_ROW_HINT = "Indisponível · inicie com hane serve --workspace <pasta>";
 
-/** Machine reasons emitted by src/workspace-scope.js and src/tools/workspace-read.js. */
+/** Machine reasons emitted by src/workspace-scope.js, src/tools/workspace-read.js and src/sandbox/interface.js. */
 export const DENIAL_REASON_LABELS = Object.freeze({
   absolute_path_rejected: "caminho absoluto recusado",
   escapes_workspace_root: "fora da raiz da missão",
@@ -43,6 +43,7 @@ export const DENIAL_REASON_LABELS = Object.freeze({
   invalid_path: "caminho inválido",
   read_failed: "falha ao ler",
   list_failed: "falha ao listar",
+  capability_not_available: "sem executor nesta máquina",
 });
 
 /** An unknown reason is shown verbatim rather than translated into a guess. */

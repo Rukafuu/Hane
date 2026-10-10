@@ -129,6 +129,13 @@ budget.
 - File content handed to a model is evidence, never instruction. The provider
   request labels workspace evidence as untrusted data, and evidence is not
   persisted with the task — a resume re-reads from disk under the same checks.
+- Capability execution goes through one seam. `src/sandbox/interface.js` names
+  the six verbs a mission may ask of a machine and the tokens a refusal may
+  carry; `src/sandbox/workspace-dir.js` is the only backend and implements
+  `read` and `list` over the containment resolver the tools used directly. The
+  rest answer `{ ok: false, reason: 'capability_not_available' }` — a value the
+  caller can audit and print, never a throw and never a silent success. A
+  refusal is data because a model asking past its grant is expected traffic.
 
 ## Definition of done for this slice
 

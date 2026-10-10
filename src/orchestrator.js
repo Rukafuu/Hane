@@ -1,6 +1,7 @@
 import { TASK_STATUS } from './contracts.js';
-import { createScopeResolver, grantsForWorkspaceRead, resolveWorkspaceRoot } from './workspace-scope.js';
-import { listWorkspaceDir, parseRequestedPaths, readWorkspaceFile } from './tools/workspace-read.js';
+import { grantsForWorkspaceRead, resolveWorkspaceRoot } from './workspace-scope.js';
+import { createWorkspaceDirSandbox } from './sandbox/workspace-dir.js';
+import { parseRequestedPaths } from './tools/workspace-read.js';
 import { TaskRun } from './task-run.js';
 import { parseVerdict } from './verdict.js';
 
@@ -120,11 +121,11 @@ export class Orchestrator {
     const grants = grantsForWorkspaceRead(task.capabilityGrants);
     if (grants.length === 0 || task.workspaceRoot === null) return null;
 
-    let resolver;
+    let sandbox;
     let root;
     try {
       root = resolveWorkspaceRoot(task.workspaceRoot);
-      resolver = createScopeResolver({ root, grants });
+      sandbox = createWorkspaceDirSandbox({ root, grants });
     } catch (error) {
       task.record('workspace_unavailable', { message: error instanceof Error ? error.message : String(error) });
       this.#persist(task);
@@ -139,8 +140,8 @@ export class Orchestrator {
       const wantsDirectory = candidate.endsWith('/') || candidate.endsWith('\\');
       const relPath = wantsDirectory ? candidate.replace(/[\\/]+$/, '') || '.' : candidate;
       const outcome = wantsDirectory
-        ? await listWorkspaceDir({ resolver, relPath })
-        : await readWorkspaceFile({ resolver, relPath });
+        ? await sandbox.list({ path: relPath })
+        : await sandbox.read({ path: relPath });
       if (!outcome.ok) {
         denied.push({ path: outcome.relPath ?? relPath, reason: outcome.reason });
         task.record(wantsDirectory ? 'tool_listing_denied' : 'tool_denied', { path: outcome.relPath ?? relPath, reason: outcome.reason });
