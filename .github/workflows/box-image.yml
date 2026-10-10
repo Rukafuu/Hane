@@ -1,0 +1,48 @@
+name: Box image
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Debian suite to bootstrap
+        default: trixie
+      version:
+        description: Image version (defaults to package.json)
+        default: ""
+  pull_request:
+    paths:
+      - scripts/box-image/**
+      - .github/workflows/box-image.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # amd64 only: the runner is amd64, so this proves the x86_64 image. An
+    # arm64 build needs an arm64 runner and is not claimed here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the builder
+        run: sudo apt-get update && sudo apt-get install -y debootstrap
+
+      - name: Resolve the version
+        id: version
+        run: echo "value=${{ github.event.inputs.version || '0.0.0-dev' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the box image
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          SUITE="${{ github.event.inputs.suite || 'trixie' }}"
+          sudo env "PATH=$PATH" SUITE="$SUITE" ARCH=amd64 VERSION="$VERSION" \
+            OUTPUT="$GITHUB_WORKSPACE/hane-box-$VERSION.wsl" \
+            bash scripts/box-image/build-debian-rootfs.sh
+
+      - name: Upload the image
+        uses: actions/upload-artifact@v4
+        with:
+          name: hane-box
+          path: hane-box-*.wsl
+          if-no-files-found: error

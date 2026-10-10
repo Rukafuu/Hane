@@ -396,3 +396,66 @@ WSL ≥ 2.4.4.
   dá US$ 100 de crédito com 1 h contínuo de teto e o self-host é Enterprise. A camada de seam
   existe exatamente para isso poder virar backend depois sem reescrever orquestrador, auditoria
   nem UI.
+
+# ADR-0008 — A caixa é compartilhada: o Lucas opera o mesmo Linux dos agentes
+
+Status: aceito (Lucas, 2026-10-10: "escrita e comando permitidos dentro, o usuario usar a VM tanto
+quanto os agentes, assim como pode ensinar tarefas a eles").
+
+## Contexto
+
+A ADR-0007 deixou em aberto **quem mais** usa a caixa. A resposta dele fecha a decisão que eu tinha
+adotado como default ("a caixa é a fronteira") e acrescenta um requisito: o painel não pode ser um
+cofre onde os agentes mexem sem ele ver — ele entra na mesma máquina.
+
+Medido ao instalar a distro nesta máquina (2026-10-10, 18:40): o firmware já tinha virtualização
+ligada (`Win32_Processor.VirtualizationFirmwareEnabled: True`, `VMMonitorModeExtensions: True` no
+Ryzen 5 5600), `VirtualMachinePlatform` foi habilitado com elevação e respondeu
+`RestartNeeded=False`, ainda assim `HypervisorPresent: False` e `wsl --install -d Debian` falhou com
+`Wsl/InstallDistro/Service/RegisterDistro/CreateVm/HCS/HCS_E_HYPERV_NOT_INSTALLED`, sem deixar
+distro registrada (`wsl -l -v`: "não tem distribuições instaladas"). Ou seja: **habilitar o recurso
+não basta no mesmo boot** — o hypervisor aparece no próximo. É o degrau que a ADR-0007 mandou medir
+em VM limpa, medido aqui.
+
+## Decisão
+
+- **Aprovação humana em exceções, não por ação** (ratificada): dentro da caixa, escrita e comando
+  correm sem clique. Clique em (a) trazer artefato para o disco do Windows, (b) egress fora da
+  allowlist concedida à missão, (c) qualquer coisa mirando o Windows. A frase de
+  `docs/mvp-contract.md` ("human approval checkpoint at the action level" para
+  `workspace.write`/`process.run`/`network.request`) será reescrita junto com o executor real, não
+  antes: enquanto não existir executor, a frase atual não mente.
+- **Duas identidades dentro da imagem, e é isso que torna os dois usos simultâneos.** `haneagent`
+  (uid 1001, sem sudo, sem grupo privilegiado) é a conta com que o runtime entra —
+  `wsl -d hane -u haneagent`, sempre argv array. A conta humana criada pelo OOBE (uid 1000) tem
+  sudo `NOPASSWD` **dentro da caixa** e é o usuário padrão de `wsl -d hane`. O `/etc/wsl.conf`
+  assado na imagem **não** fixa `[user] default`: fixar em `haneagent` transformaria a máquina dele
+  num terminal dos agentes, que é justamente o que ele recusou. (Isso corrige um detalhe da
+  ADR-0007, que previa `[user] default=haneagent`.)
+- **A allowlist de egress é por uid, não global.** A regra `nftables` com `meta skuid 1001` (S5d)
+  prende o agente ao que a missão concedeu e deixa o shell dele livre. Sem isso, "usuário usa a VM
+  tanto quanto os agentes" e "egress com allowlist" se contradizem na mesma caixa.
+- **Ensinar tarefas é skill, e hoje skill não ensina nada.** `hane skills install|list` persiste
+  manifestos `skill.json` no SQLite, mas nada injeta o conteúdo deles no prompt de
+  planner/executor/reviewer (medido: `src/orchestrator.js` não referencia skills). A fatia
+  "ensinar" é ligar o catálogo existente ao contexto dos papéis, com o texto marcando origem
+  não-confiável e a escolha da skill auditada na missão.
+- **Builder da imagem: GitHub Actions, runner ubuntu, amd64** (escolha dele). `scripts/box-image/`
+  traz o overlay versionado (`etc/wsl.conf`, `etc/wsl-distribution.conf`, `etc/hane-oobe.sh`) e o
+  `build-debian-rootfs.sh` que os assa no rootfs, cria `haneagent`, remove `/etc/resolv.conf` e
+  empacota `tar --numeric-owner` + gzip renomeado `.wsl`; o workflow publica
+  `hane-box-<versão>.wsl` como artefato. `test/box-image.test.js` falha se alguém afrouxar a
+  fronteira no overlay.
+
+## Consequências
+
+- O painel "Computador ao vivo" passa a ter duas metades: o que os agentes fizeram (auditoria) e um
+  terminal dele na mesma caixa (S5f). Os dois usam o mesmo caminho de spawn, mudando só a
+  identidade.
+- O fluxo honesto de instalação tem um degrau não clicável: `hane machine status` diz o que falta →
+  habilitar a plataforma (UAC) → **reiniciar** → `hane machine install <imagem>`. A UI não pode
+  prometer "um clique e a caixa existe".
+- `arm64` não é prometido: o runner é amd64, então a imagem construída é a de x86_64.
+- A imagem construída no CI é um artefato, não um release publicado: enquanto não houver URL
+  assinada/oficial no repo, `hane machine install` continua PARTIAL no
+  `docs/runtime-honesty-audit.md` — o portão existe, o que instalar ainda não chega sozinho.
