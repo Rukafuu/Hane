@@ -423,6 +423,15 @@ test('workspace capabilities without a root are a usage error, not a silent no-o
   assert.match(harness.errors(), /--workspace <dir>/);
 });
 
+test('a workspace root that does not exist is refused before the first provider call', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+
+  assert.equal(await harness.run(['run', 'Read some files.', '--workspace', path.join(tmpdir(), 'no-such-hane-root'), '--capability', 'workspace.read=src']), 1);
+  assert.match(harness.errors(), /does not exist/);
+  assert.equal(harness.database.prepare('SELECT COUNT(*) AS count FROM task_runs').get().count, 0);
+});
+
 test('a malformed capability flag is rejected before any provider call', async () => {
   const harness = createHarness();
   await configureProvider(harness);
@@ -432,4 +441,118 @@ test('a malformed capability flag is rejected before any provider call', async (
 
   assert.equal(await harness.run(['run', 'Read some files.', '--workspace', realpathSync(tmpdir()), '--capability', 'delete.everything=/']), 1);
   assert.match(harness.errors(), /Unknown capability/);
+});
+
+async function printedAddress(stdoutLines) {
+  return await new Promise((resolve) => {
+    const deadline = Date.now() + 3000;
+    const timer = setInterval(() => {
+      const joined = stdoutLines.join('');
+      if (joined.includes('http://127.0.0.1:')) { clearInterval(timer); resolve(joined); }
+      else if (Date.now() > deadline) { clearInterval(timer); resolve(null); }
+    }, 10);
+  });
+}
+
+function serveDependencies({ database, credentialManager, signals }) {
+  return {
+    openDatabase: () => database,
+    createTaskRepository: (db) => new SqliteTaskRepository({ database: db }),
+    createProviderConfigStore: (db) => new SqliteProviderConfigStore({ database: db }),
+    credentialManager,
+    createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor: RecordingProvider }),
+    addSignalListener: (name, handler) => { signals.set(name, handler); },
+  };
+}
+
+test('serve --workspace registers the option and offers the root as the mission default', async () => {
+  const database = openHaneDatabase(':memory:');
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-')));
+  const credentialManager = new FakeCredentialManager();
+  const providerConfigStore = new SqliteProviderConfigStore({ database });
+  providerConfigStore.upsert({ label: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'm', credentialReference: 'local-agent-orchestrator/openrouter' });
+  await credentialManager.set('local-agent-orchestrator/openrouter', 'sk-serve-value');
+  const stdoutLines = [];
+  const stderrLines = [];
+  const signals = new Map();
+  let exitCode;
+  const running = runCli({
+    argv: ['serve', '--port', '0', '--workspace', root],
+    stdout: { write: (text) => { stdoutLines.push(text); return true; } },
+    stderr: { write: (text) => { stderrLines.push(text); return true; } },
+    dependencies: serveDependencies({ database, credentialManager, signals }),
+  }).then((code) => { exitCode = code; });
+
+  const printed = await printedAddress(stdoutLines);
+  assert.ok(printed !== null, `serve never printed its address; stdout: ${stdoutLines.join('')}stderr: ${stderrLines.join('')}`);
+  assert.match(printed, new RegExp(`workspace: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  const { port } = printed.match(/127\.0\.0\.1:(?<port>\d+)/).groups;
+
+  const workspace = await (await fetch(`http://127.0.0.1:${port}/api/workspace`)).json();
+  assert.deepEqual(workspace, { available: true, root });
+
+  const created = await fetch(`http://127.0.0.1:${port}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ objective: 'Serve a mission on the server root.', capabilities: [{ name: 'workspace.read', scope: 'src' }] }),
+  });
+  assert.equal(created.status, 202);
+  assert.equal((await created.json()).workspaceRoot, root);
+
+  signals.get('SIGINT')();
+  await running;
+  assert.equal(exitCode, 0);
+  database.close();
+});
+
+test('serve --workspace with a missing directory exits 1 before binding', async () => {
+  const database = openHaneDatabase(':memory:');
+  const credentialManager = new FakeCredentialManager();
+  const providerConfigStore = new SqliteProviderConfigStore({ database });
+  providerConfigStore.upsert({ label: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'm', credentialReference: 'local-agent-orchestrator/openrouter' });
+  await credentialManager.set('local-agent-orchestrator/openrouter', 'sk-serve-value');
+  const stdoutLines = [];
+  const stderrLines = [];
+  const signals = new Map();
+  const missing = path.join(realpathSync(mkdtempSync(path.join(tmpdir(), 'hane-cli-'))), 'never-created');
+
+  const code = await runCli({
+    argv: ['serve', '--port', '0', '--workspace', missing],
+    stdout: { write: (text) => { stdoutLines.push(text); return true; } },
+    stderr: { write: (text) => { stderrLines.push(text); return true; } },
+    dependencies: serveDependencies({ database, credentialManager, signals }),
+  });
+
+  assert.equal(code, 1);
+  assert.match(stderrLines.join(''), new RegExp(`Workspace root "${missing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" does not exist\\.`));
+  assert.match(stderrLines.join(''), /hint: hane serve --workspace <dir>/);
+  assert.equal(stdoutLines.join('').includes('http://127.0.0.1'), false);
+  assert.equal(signals.size, 0);
+  database.close();
+});
+
+test('serve --workspace rejects a file root and a blank value', async () => {
+  const database = openHaneDatabase(':memory:');
+  const run = async (value) => {
+    const stdoutLines = [];
+    const stderrLines = [];
+    const code = await runCli({
+      argv: ['serve', '--port', '0', '--workspace', value],
+      stdout: { write: (text) => { stdoutLines.push(text); return true; } },
+      stderr: { write: (text) => { stderrLines.push(text); return true; } },
+      dependencies: serveDependencies({ database, credentialManager: new FakeCredentialManager(), signals: new Map() }),
+    });
+    return { code, errors: stderrLines.join(''), printed: stdoutLines.join('').includes('http://127.0.0.1') };
+  };
+
+  const file = await run(import.meta.filename);
+  assert.equal(file.code, 1);
+  assert.match(file.errors, /is not a directory/);
+  assert.equal(file.printed, false);
+
+  const blank = await run('');
+  assert.equal(blank.code, 1);
+  assert.match(blank.errors, /non-empty path/);
+  assert.equal(blank.printed, false);
+  database.close();
 });

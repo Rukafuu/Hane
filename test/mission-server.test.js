@@ -30,7 +30,7 @@ class RecordingProvider {
   }
 }
 
-function createHarness({ providerConstructor = RecordingProvider } = {}) {
+function createHarness({ providerConstructor = RecordingProvider, defaultWorkspaceRoot = null } = {}) {
   const database = openHaneDatabase(':memory:');
   const repository = new SqliteTaskRepository({ database });
   const providerConfigStore = new SqliteProviderConfigStore({ database });
@@ -40,6 +40,7 @@ function createHarness({ providerConstructor = RecordingProvider } = {}) {
     providerConfigStore,
     credentialManager,
     createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor }),
+    defaultWorkspaceRoot,
   });
   const baseUrlPromise = new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -226,6 +227,145 @@ test('workspace grants are refused when the root is missing or does not exist', 
 
   const noGrants = await post({ workspaceRoot: fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-'))) });
   assert.equal(noGrants.status, 202);
+});
+
+test('a workspace grant with no root falls back to the server default workspace root', async (t) => {
+  const defaultWorkspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-default-')));
+  const harness = createHarness({ defaultWorkspaceRoot });
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+
+  const capabilities = [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }];
+  const response = await fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ objective: 'Read the workspace the server owns.', capabilities }),
+  });
+  assert.equal(response.status, 202);
+  const queued = await response.json();
+  assert.equal(queued.workspaceRoot, defaultWorkspaceRoot);
+  assert.deepEqual(queued.capabilityGrants, capabilities);
+
+  assert.ok(await waitFor(async () => (await getMission(baseUrl, queued.id)).status === 'completed'));
+  const stored = await getMission(baseUrl, queued.id);
+  assert.equal(stored.workspaceRoot, defaultWorkspaceRoot);
+});
+
+test('an explicit workspaceRoot still wins over the server default', async (t) => {
+  const defaultWorkspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-default-')));
+  const explicitRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-explicit-')));
+  const harness = createHarness({ defaultWorkspaceRoot });
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+
+  const response = await fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      objective: 'Read the workspace this request names.',
+      capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }],
+      workspaceRoot: explicitRoot,
+    }),
+  });
+  assert.equal(response.status, 202);
+  assert.equal((await response.json()).workspaceRoot, explicitRoot);
+});
+
+test('a workspace grant with no root and no default names hane serve --workspace', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+
+  const response = await fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      objective: 'Read the workspace without any root.',
+      capabilities: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }],
+    }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal(
+    (await response.json()).error,
+    'workspace capabilities require a workspaceRoot, or a server default from hane serve --workspace <dir>.',
+  );
+});
+
+test('globs and out-of-root paths are refused as scopes, free-form scopes survive', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+  const workspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-')));
+  const post = (capabilities) => fetch(`${baseUrl}/api/missions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ objective: 'Grant a scope of awkward shape.', capabilities, workspaceRoot }),
+  });
+
+  for (const name of [CAPABILITY.WORKSPACE_READ, CAPABILITY.WORKSPACE_WRITE]) {
+    const globbed = await post([{ name, scope: 'workspace/**' }]);
+    assert.equal(globbed.status, 400);
+    assert.equal(
+      (await globbed.json()).error,
+      `capability "${name}" scope must be a plain relative path, not a glob.`,
+    );
+
+    const wildcard = await post([{ name, scope: '*' }]);
+    assert.equal(wildcard.status, 400);
+
+    // A scope the root cannot cover is a hole, not a grant, so the browser hears
+    // about it at ingress instead of getting a mission that reads nothing.
+    for (const scope of ['../secrets', 'src/../src', 'A:/Hane', 'C:\\Users\\amari', '/etc/passwd']) {
+      const escaped = await post([{ name, scope }]);
+      assert.equal(escaped.status, 400, `${name}(${scope})`);
+      assert.equal(
+        (await escaped.json()).error,
+        `capability "${name}" scope must be a relative path inside the workspace root.`,
+        `${name}(${scope})`,
+      );
+    }
+  }
+
+  // process.run and network.request scopes stay declarative prose the UI owns.
+  const freeForm = await post([
+    { name: CAPABILITY.PROCESS_RUN, scope: 'approved commands only' },
+    { name: CAPABILITY.NETWORK_REQUEST, scope: 'approved origins only' },
+  ]);
+  assert.equal(freeForm.status, 202);
+  assert.deepEqual((await freeForm.json()).capabilityGrants, [
+    { name: CAPABILITY.PROCESS_RUN, scope: 'approved commands only' },
+    { name: CAPABILITY.NETWORK_REQUEST, scope: 'approved origins only' },
+  ]);
+});
+
+test('GET /api/workspace reports whether the server owns a default root', async (t) => {
+  const plain = createHarness();
+  t.after(() => plain.close());
+  await configureProvider(plain);
+  const plainUrl = await plain.baseUrl();
+
+  const unavailable = await fetch(`${plainUrl}/api/workspace`);
+  assert.equal(unavailable.status, 200);
+  assert.deepEqual(await unavailable.json(), { available: false, root: null });
+
+  const defaultWorkspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hane-api-workspace-')));
+  const harness = createHarness({ defaultWorkspaceRoot });
+  t.after(() => harness.close());
+  await configureProvider(harness);
+  const baseUrl = await harness.baseUrl();
+
+  const response = await fetch(`${baseUrl}/api/workspace`);
+  assert.equal(response.status, 200);
+  const body = await response.text();
+  assert.deepEqual(JSON.parse(body), { available: true, root: defaultWorkspaceRoot });
+  assert.equal(body.includes('sk-test-value'), false);
+  assert.equal(body.includes('credential'), false);
+
+  assert.equal((await fetch(`${baseUrl}/api/workspace`, { method: 'POST' })).status, 404);
 });
 
 test('provider resolution errors map to 404 and 409 with hints', async (t) => {

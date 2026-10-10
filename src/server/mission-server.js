@@ -18,10 +18,11 @@ const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
  * through the credential manager at mission start.
  * @param {{ repository: object, providerConfigStore: object,
  *           credentialManager: object, createProvider: Function,
- *           defaultProvider?: string | null }} dependencies
+ *           defaultProvider?: string | null,
+ *           defaultWorkspaceRoot?: string | null }} dependencies
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, credentialManager, createProvider, defaultProvider = null }) {
+export function createMissionServer({ repository, providerConfigStore, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null }) {
   const sseClients = new Set();
   const running = new Map();
   const heartbeat = setInterval(() => {
@@ -35,7 +36,7 @@ export function createMissionServer({ repository, providerConfigStore, credentia
   };
 
   const server = createServer((request, response) => {
-    handle({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, sseClients, broadcast, running })
+    handle({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, sseClients, broadcast, running })
       .catch((error) => {
         if (!response.headersSent) {
           respondJson(response, 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
@@ -91,13 +92,21 @@ async function handle(context) {
     return respondJson(response, 200, { providers: context.providerConfigStore.list() });
   }
 
+  // The browser cannot name a path, so it asks whether this server already
+  // owns a workspace root instead of inventing one. Metadata only: no
+  // provider config, no credential reference, no secret.
+  if (pathname === '/api/workspace' && request.method === 'GET') {
+    const root = context.defaultWorkspaceRoot ?? null;
+    return respondJson(response, 200, { available: root !== null, root });
+  }
+
   if (pathname.startsWith('/api/')) {
     return respondJson(response, 404, { error: `No route for ${request.method} ${pathname}.` });
   }
   return respondJson(response, 404, { error: 'Not found.' });
 }
 
-async function startMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, broadcast, running }) {
+async function startMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running }) {
   let body;
   try {
     body = await readJsonBody(request);
@@ -112,13 +121,18 @@ async function startMission({ request, response, repository, providerConfigStore
     objective = assertObjective(body?.objective);
     if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
     capabilityGrants = assertCapabilityGrants(body?.capabilities);
-    workspaceRoot = typeof body?.workspaceRoot === 'string' && body.workspaceRoot.trim() !== '' ? body.workspaceRoot.trim() : null;
+    const requestedRoot = typeof body?.workspaceRoot === 'string' && body.workspaceRoot.trim() !== '' ? body.workspaceRoot.trim() : null;
+    // The browser has no way to name a directory on this machine — its folder
+    // picker only yields a display name — so the root the server was started
+    // with stands in whenever the request omits one.
+    workspaceRoot = requestedRoot ?? defaultWorkspaceRoot ?? null;
     if (grantsNeedWorkspaceRoot(capabilityGrants) && workspaceRoot === null) {
-      throw new TypeError('workspace capabilities require a workspaceRoot.');
+      throw new TypeError('workspace capabilities require a workspaceRoot, or a server default from hane serve --workspace <dir>.');
     }
     // The path arrives from a browser, so it is validated here instead of
-    // failing later inside the run.
-    if (workspaceRoot !== null) resolveWorkspaceRoot(workspaceRoot);
+    // failing later inside the run, and the mission keeps the resolved root it
+    // will actually be enforced against.
+    if (workspaceRoot !== null) workspaceRoot = resolveWorkspaceRoot(workspaceRoot);
   } catch (error) {
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid mission request.' });
   }
