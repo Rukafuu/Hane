@@ -633,3 +633,6 @@ html[data-hane-theme="paper"],body[data-hane-theme="paper"],#root[data-hane-them
 @media print{body *{visibility:hidden!important}.recovery-dialog,.recovery-dialog *{visibility:visible!important}.recovery-dialog{position:absolute;inset:0;max-width:none;margin:0;padding:30px;background:white;box-shadow:none;border:0;color:black}.recovery-dialog button,.recovery-dialog .profile-inline-choice{display:none!important}.recovery-backdrop{position:absolute;inset:0;background:white}.recovery-code{color:black;background:white}}
 
 .recovery-backdrop{align-items:flex-start}
+
+/* Profile forms may grow beyond the viewport when password fields open. */
+.profile-experience{height:100dvh;overflow-y:auto}.profile-experience .profile-stage{height:auto;min-height:100%;overflow-y:visible;align-items:stretch}.profile-welcome-art{align-self:stretch}

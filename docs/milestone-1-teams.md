@@ -1,3 +1,5 @@
+> Implementação da base de persistência realizada em 2026-10-10. Contrato atual: [teams-api.md](teams-api.md). A integração da UI, o roteamento por agente e a chamada externa continuam pendentes. O plano abaixo preserva a decomposição original; o contrato publicado descreve os módulos e as regras efetivamente entregues.
+
 # Milestone 1 — base do Hane Teams (P0-T)
 
 Escopo: **entidades persistentes e contrato**. Este milestone não altera o fluxo
@@ -8,8 +10,8 @@ Dependência de entrada: **P0-S resolvido** (fronteira do browser incondicional,
 `docs/decisions.md` ADR-0002). Se as rotas novas nascerem atrás do guard acoplado ao perfil,
 a dívida se replica.
 
-Números de migração: **8, 9, 10**. O id 7 já foi tomado pelo trabalho de perfil na árvore
-(`local_personal_profile`); a numeração é append-only e nunca se reusa número aplicado.
+Números de migração: **9, 10, 11**. Os ids 7 e 8 já pertencem ao perfil e à recuperação
+(`local_personal_profile`, `local_profile_recovery`); a numeração é append-only e nunca se reusa número aplicado.
 
 ## Deliberações de escopo
 
@@ -58,7 +60,7 @@ Números de migração: **8, 9, 10**. O id 7 já foi tomado pelo trabalho de per
   inválidos. Teste de paridade com `validateLibrary` de `preferences.js` documenta os limites
   idênticos.
 
-## Tarefa 3 — Migrações 8, 9 e 10
+## Tarefa 3 — Migrações 9, 10 e 11
 
 - **Objetivo:** schema aditivo, sem tocar em tabelas existentes.
 - **Arquivos:** `src/storage/migrations.js`, `test/migrations.test.js`.
@@ -68,7 +70,7 @@ Números de migração: **8, 9, 10**. O id 7 já foi tomado pelo trabalho de per
   exclusividade) e `task_runs.team_id` NULL, com `REFERENCES teams(id)`. `DELETE FROM teams`
   com execução referenciando falha por FK — histórico não se perde por apagar equipe; por
   isso `teams.archived_at` existe (nullable) como forma não destrutiva de remover da lista.
-  Banco antigo (só ids 1-6) migra sem perda; `latestMigrationId()` passa a 10.
+  Banco antigo (só ids 1-6) migra sem perda; `latestMigrationId()` passa a 11.
 - **Testes:** migração sobre banco vazio e sobre banco no estado do `main`; FK bloqueia
   exclusão de equipe com execução; índice único bloqueia segundo time para agente exclusivo;
   `PRAGMA foreign_keys = ON` continua ativo no `openHaneDatabase`.

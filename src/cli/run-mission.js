@@ -1,3 +1,5 @@
+import { SqliteTeamStore } from '../storage/sqlite-team-store.js';
+import { assertId } from '../teams/domain.js';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -14,6 +16,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     args,
     options: {
       provider: { type: 'string' },
+      team: { type: 'string' },
       'max-calls': { type: 'string' },
       'max-tool-calls': { type: 'string' },
       db: { type: 'string' },
@@ -47,9 +50,13 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
   const database = dependencies.openDatabase(dbPath);
   const repository = dependencies.createTaskRepository(database);
   const providerConfigStore = dependencies.createProviderConfigStore(database);
+  const teamId = values.team == null ? null : assertId(values.team,'teamId');
+  const teamStore = teamId ? new SqliteTeamStore({database}) : null;
+  if (teamId) teamStore.requireActive(teamId);
   const config = resolveProviderConfig(providerConfigStore, values.provider);
   const provider = await dependencies.createProvider({ config, credentialManager: dependencies.credentialManager });
 
+  if (teamId) teamStore.requireActive(teamId);
   const missionId = crypto.randomUUID();
   const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
 
@@ -78,6 +85,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
 
   const task = await orchestrator.start({
     objective,
+    teamId,
     maxProviderCalls,
     providerLabel: config.label,
     capabilityGrants,

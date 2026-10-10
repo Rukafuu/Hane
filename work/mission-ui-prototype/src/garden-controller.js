@@ -3,6 +3,7 @@ export const GARDEN_IDLE_MS = 45000;
 export function createGardenController(now = () => performance.now()) {
   let lastActivity = now(), pulseUntil = 0, pointer = null, clicks = 0, lastClick = -Infinity, eggUntil = 0;
   let dragging = false, blink = 0, wasSleeping = false;
+  let mascotClicks = 0, mascotLastClick = -Infinity, familyUntil = 0;
   return {
     activity() { if (wasSleeping) { blink++; wasSleeping=false; } lastActivity = now(); },
     point(x, y) { pointer = x == null ? null : { x, y }; },
@@ -15,11 +16,20 @@ export function createGardenController(now = () => performance.now()) {
       if (clicks < 5) return false;
       clicks = 0; eggUntil = now() + 1700; blink++; return true;
     },
+    mascotClick() {
+      this.activity();
+      const separated = now() - mascotLastClick > 6000;
+      mascotLastClick = now(); blink++;
+      if (now() < familyUntil) { mascotClicks = 0; return false; }
+      mascotClicks = separated ? 1 : mascotClicks + 1;
+      if (mascotClicks < 5) return false;
+      mascotClicks = 0; familyUntil = now() + 12000; return true;
+    },
     snapshot() {
       wasSleeping = now() - lastActivity >= GARDEN_IDLE_MS;
       // Direct manipulation takes priority. Every transient state expires naturally.
-      const state = dragging ? 'tracking' : now() < eggUntil ? 'celebrating' : now() < pulseUntil ? 'curious' : wasSleeping ? 'sleeping' : pointer ? 'tracking' : 'idle';
-      return { state, pointer, dragging, feather: now() < eggUntil, bump: Math.max(0, 1 - (now() - lastClick) / 320), blink };
+      const state = dragging ? 'tracking' : now() < eggUntil || now() < familyUntil ? 'celebrating' : now() < pulseUntil ? 'curious' : wasSleeping ? 'sleeping' : pointer ? 'tracking' : 'idle';
+      return { state, pointer, dragging, family: now() < familyUntil, jump: Math.min(1, (now() - mascotLastClick) / 650), feather: now() < eggUntil, bump: Math.max(0, 1 - (now() - lastClick) / 320), blink };
     },
   };
 }

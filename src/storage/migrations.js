@@ -124,6 +124,39 @@ const MIGRATIONS = Object.freeze([
       blocked_until INTEGER NOT NULL DEFAULT 0
     ) STRICT;`]),
   }),
+  Object.freeze({ id: 9, name: 'persistent_agents', statements: Object.freeze([
+    `CREATE TABLE agents (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
+      instructions TEXT NOT NULL, provider_label TEXT REFERENCES provider_configs(label) ON DELETE RESTRICT,
+      exclusive INTEGER NOT NULL DEFAULT 0 CHECK(exclusive IN (0,1)),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    ) STRICT;`,
+  ]) }),
+  Object.freeze({ id: 10, name: 'persistent_teams', statements: Object.freeze([
+    `CREATE TABLE teams (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
+      leader_agent_id TEXT REFERENCES agents(id) ON DELETE RESTRICT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
+    ) STRICT;`,
+    `CREATE TABLE team_members (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+      position INTEGER NOT NULL CHECK(position BETWEEN 0 AND 7),
+      exclusive INTEGER NOT NULL CHECK(exclusive IN (0,1)),
+      PRIMARY KEY(team_id,agent_id), UNIQUE(team_id,position)
+    ) STRICT;`,
+    `CREATE UNIQUE INDEX team_member_exclusive ON team_members(agent_id) WHERE exclusive = 1;`,
+    `CREATE TRIGGER team_member_boundary BEFORE INSERT ON team_members BEGIN
+      SELECT CASE WHEN NEW.exclusive != (SELECT exclusive FROM agents WHERE id=NEW.agent_id)
+        THEN RAISE(ABORT,'Member exclusivity must match the agent') END;
+      SELECT CASE WHEN EXISTS(SELECT 1 FROM team_members WHERE agent_id=NEW.agent_id AND team_id!=NEW.team_id AND (exclusive=1 OR NEW.exclusive=1))
+        THEN RAISE(ABORT,'Exclusive agent belongs to another team') END;
+    END;`,
+  ]) }),
+  Object.freeze({ id: 11, name: 'execution_team_link', statements: Object.freeze([
+    'ALTER TABLE task_runs ADD COLUMN team_id TEXT REFERENCES teams(id) ON DELETE RESTRICT;',
+    'CREATE INDEX task_runs_team ON task_runs(team_id);',
+  ]) }),
 ]);
 
 export function latestMigrationId() {

@@ -1,3 +1,4 @@
+import { DEFAULT_UI_ORIGINS } from './ui-origins.js';
 import { LocalProfileAuth, ProfileError, validatePassword } from '../profile/local-auth.js';
 import { AVATAR_LIMITS, loadAvatar, removeAvatar, saveAvatar } from '../profile/avatar.js';
 import { validateProfileFields } from '../storage/sqlite-profile-store.js';
@@ -22,7 +23,7 @@ async function readJson(request) {
   try { const value = JSON.parse((await readBody(request)).toString('utf8')); if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error(); return value; }
   catch (e) { if (e instanceof ProfileError) throw e; throw new ProfileError(400, 'Formulário inválido.'); }
 }
-export function createProfileApi({ store, allowedOrigins = ['http://localhost:5173','http://127.0.0.1:5173'], now, sessionMs, closeStreams = () => {}, avatarLimits = AVATAR_LIMITS }) {
+export function createProfileApi({ store, allowedOrigins = DEFAULT_UI_ORIGINS, now, sessionMs, closeStreams = () => {}, avatarLimits = AVATAR_LIMITS }) {
   const auth = new LocalProfileAuth({store,now,sessionMs});
   const origins = new Set(allowedOrigins);
   function publicProfile(profile) { return { ...profile, avatarUrl:profile.avatarPath ? `/api/profile/avatar?v=${encodeURIComponent(profile.avatarPath)}` : null }; }

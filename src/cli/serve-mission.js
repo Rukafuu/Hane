@@ -1,3 +1,4 @@
+import { DEFAULT_UI_ORIGINS } from '../server/ui-origins.js';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -40,7 +41,7 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
     }
   }
 
-  const allowedOrigins = ['http://localhost:5173','http://127.0.0.1:5173', ...(values['ui-origin'] ?? [])];
+  const allowedOrigins = [...DEFAULT_UI_ORIGINS, ...(values['ui-origin'] ?? [])];
   for (const origin of allowedOrigins) {
     const url = new URL(origin);
     if (url.protocol !== 'http:' || !['localhost','127.0.0.1','[::1]'].includes(url.hostname) || url.origin !== origin) throw new Error('--ui-origin must be an exact loopback HTTP origin.');

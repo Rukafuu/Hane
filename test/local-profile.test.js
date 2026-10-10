@@ -254,3 +254,14 @@ test('GIF avatars preserve animation, frame timing and crop while malformed uplo
  await assert.rejects(processAvatar(gif,{maxBytes:5000000,maxPixels:5000,maxDimension:8192,outputSize:256,maxFrames:120}),/imagem/);
  await h.request('/api/profile/avatar',{method:'DELETE'});assert.equal(h.store.get().avatarPath,null);
 });
+
+
+test('development and preview origins can create a local profile while other origins remain denied',async t=>{
+ for(const origin of ['http://localhost:5173','http://127.0.0.1:5173','http://localhost:4173','http://127.0.0.1:4173']){
+  const h=await harness(t);const response=await h.request('/api/profile',{method:'POST',body:fields,headers:{origin,'sec-fetch-site':'same-origin'}});assert.equal(response.status,201,origin);
+ }
+ const h=await harness(t);
+ for(const origin of ['https://evil.example','http://localhost:4174','http://localhost:4173.evil.example']){
+  const refused=await h.request('/api/profile',{method:'POST',body:fields,headers:{origin,'sec-fetch-site':'same-origin'}});assert.equal(refused.status,403,origin);assert.equal(h.store.get(),null);
+ }
+});

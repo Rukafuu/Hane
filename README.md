@@ -326,3 +326,9 @@ Two things are not covered by that license:
 license makes no claim about it — see [Frontend/README.md](Frontend/README.md).
 
 A full breakdown of what sits under which license is in [docs/licensing.md](docs/licensing.md).
+
+## Persistent teams
+
+Agents and teams of 1–8 members can now be registered through `hane agent`, `hane team`, `/api/agents` and `/api/teams`. `hane run "Objective" --team <uuid>` (or `teamId` in `POST /api/missions`) persists the execution link. Team membership, ordering, optional leadership, exclusivity and archive rules are enforced by the backend. See [Teams API](docs/teams-api.md) for payloads, commands and errors.
+
+This is the persistence foundation: the UI still holds its own browser library, and executions still use the fixed planner/executor/reviewer preset with one provider. Registering an agent does not yet make its instructions, provider or leadership operational.

@@ -1,3 +1,8 @@
+import { DEFAULT_UI_ORIGINS } from './ui-origins.js';
+import { createTeamsApi } from './teams-api.js';
+import { SqliteAgentStore } from '../storage/sqlite-agent-store.js';
+import { SqliteTeamStore } from '../storage/sqlite-team-store.js';
+import { assertId } from '../teams/domain.js';
 import { createProfileApi } from "./profile-api.js";
 import { createServer } from 'node:http';
 import { Orchestrator } from '../orchestrator.js';
@@ -47,7 +52,10 @@ const NOT_DETECTED_MACHINE = Object.freeze({
  *           clients. A server that was never told assumes `127.0.0.1`.
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173'], avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, agentStore = null, teamStore = null, allowedOrigins = DEFAULT_UI_ORIGINS, avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+  agentStore ??= repository.database ? new SqliteAgentStore({database:repository.database}) : null;
+  teamStore ??= repository.database ? new SqliteTeamStore({database:repository.database}) : null;
+  const teamsApi = createTeamsApi({agentStore,teamStore,readJsonBody,respondJson});
   const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopbackHost(bindHost) });
   const sseClients = new Set();
   // The probes spawn wsl.exe, so they are not taken at bind time and never
@@ -86,7 +94,9 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
       // and a page with an opaque origin may read but never mutate here.
       if (profileApi && await profileApi.handle(request, response)) return;
       guard(request);
-      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
+      const isAuthorized = () => !profileApi || profileApi.authenticated(request);
+      if (await teamsApi({request,response,isAuthorized})) return;
+      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, teamStore, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
     })
       .catch((error) => {
         if (!response.headersSent) {
@@ -209,7 +219,7 @@ async function pollGitHubAuthorization({ response, authorizationId, githubClient
   }
 }
 
-async function startMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running, isAuthorized = () => true }) {
+async function startMission({ request, response, repository, teamStore, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running, isAuthorized = () => true }) {
   let body;
   try {
     body = await readJsonBody(request);
@@ -218,12 +228,18 @@ async function startMission({ request, response, repository, providerConfigStore
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid JSON body.' });
   }
   let objective;
+  let teamId = null;
   let maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS;
   let maxToolCalls;
   let capabilityGrants;
   let workspaceRoot = null;
   try {
     objective = assertObjective(body?.objective);
+    if (body?.teamId != null) {
+      teamId = assertId(body.teamId,'teamId');
+      if (!teamStore) throw new TypeError('Teams storage is unavailable.');
+      teamStore.requireActive(teamId);
+    }
     if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
     if (body?.maxToolCalls !== undefined) maxToolCalls = assertPositiveInteger(body.maxToolCalls, 'maxToolCalls');
     capabilityGrants = assertEnforceableScopes(assertCapabilityGrants(body?.capabilities));
@@ -254,16 +270,20 @@ async function startMission({ request, response, repository, providerConfigStore
   }
 
   if (!isAuthorized()) return respondJson(response,401,{error:"Seu Hane está bloqueado."});
+  if (teamId) {
+    try { teamStore.requireActive(teamId); }
+    catch (error) { return respondJson(response,400,{error:error.message}); }
+  }
   const missionId = crypto.randomUUID();
   const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
   const onEvent = (event) => broadcast({ ...event, missionId });
 
-  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, maxToolCalls, capabilityGrants, workspaceRoot });
+  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, maxToolCalls, capabilityGrants, workspaceRoot, ...(teamId ? {teamId} : {}) });
 
   const controller = new AbortController();
   running.set(missionId, controller);
   try {
-    await orchestrator.start({ objective, maxProviderCalls, maxToolCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
+    await orchestrator.start({ objective, teamId, maxProviderCalls, maxToolCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
   } catch (error) {
     broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {

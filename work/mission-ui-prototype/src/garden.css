@@ -1,7 +1,7 @@
 /* Procedural transforms are owned by motion.js / the existing Avatar Engine. */
 .hane-garden{position:relative;width:320px;height:270px;max-width:100%;isolation:isolate;flex-shrink:0;align-self:center;color:#795366}
 .garden-halo{position:absolute;inset:18% 9%;border-radius:50%;background:radial-gradient(ellipse,#fffbfd99,transparent 68%);filter:blur(12px);pointer-events:none}
-.garden-mascot{position:absolute;left:35px;top:8px;z-index:2;filter:drop-shadow(0 20px 20px #a7617b18);pointer-events:none}
+.profile-stage .garden-mascot{position:absolute;left:70px;top:43px;width:180px;height:180px;padding:0!important;border:0!important;border-radius:50%!important;background:transparent!important;z-index:2;filter:drop-shadow(0 20px 20px #a7617b18);touch-action:none;user-select:none;cursor:grab;transform-origin:90px 90px}.garden-mascot:active{cursor:grabbing}.garden-mascot>.hane-avatar{position:absolute;left:-35px;top:-35px;pointer-events:none}
 .garden-mascot .hane-avatar__eyes{fill:#805668}
 .garden-mascot .hane-avatar__eyes ellipse{rx:2.5px;ry:4px}
 .garden-orbit{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;fill:none;stroke:#bd79994d;stroke-width:.8}
@@ -28,3 +28,5 @@
 .profile-garden-screen .hane-garden{align-self:center}.profile-garden-screen .profile-welcome-art>p{margin-top:20px}
 @media(max-width:650px){.profile-garden-screen .profile-welcome-art{height:170px;display:grid;grid-template-columns:1fr 150px;padding:30px 24px 16px}.profile-garden-screen .profile-welcome-art>img{top:18px;left:24px;width:80px}.profile-garden-screen .hane-garden{zoom:.45;grid-column:2;grid-row:1}.profile-garden-screen .profile-welcome-art>p{margin:20px 0 0;grid-column:1;grid-row:1;font-size:16px}}
 @media(min-width:651px) and (max-width:980px){.profile-garden-screen .hane-garden{width:320px;max-width:none;zoom:.55}}
+
+.garden-family{position:absolute;inset:0;pointer-events:none;z-index:4}.garden-family-member{position:absolute;left:0;top:0;opacity:0;pointer-events:none}.garden-family-member .hane-avatar__eyes{fill:#6c5867}.garden-family-caption{position:absolute;left:-12px;right:-12px;bottom:-4px;min-height:16px;margin:0;font-size:11px;line-height:1.4;text-align:center;font-weight:500;color:#795366;opacity:0;transition:opacity .35s;pointer-events:none}.hane-garden[data-family=true] .garden-family-caption{opacity:1}.garden-mascot:focus-visible{outline:2px solid #af567a;outline-offset:4px}

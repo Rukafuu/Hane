@@ -52,9 +52,10 @@ export class Orchestrator {
    *           signal?: AbortSignal|null,
    *           onEvent?: ((event: OrchestratorEvent) => void) | null }} request
    */
-  async start({ objective, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = undefined, signal = null, onEvent = null }) {
+  async start({ objective, teamId = null, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = undefined, signal = null, onEvent = null }) {
     const task = new TaskRun({
       id: this.idFactory(),
+      teamId,
       objective,
       maxProviderCalls,
       providerLabel,

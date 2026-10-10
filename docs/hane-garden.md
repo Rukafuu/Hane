@@ -12,10 +12,10 @@ A abertura usa o logo oficial, Hane Sans, os tons rosa e as duas colunas. Não h
 - garden-controller.js concentra estados interruptíveis: idle, tracking, curious, sleeping e celebrating. Arraste tem prioridade; atenção e celebração expiram. O controlador recebe apenas coordenadas e eventos locais, nunca conteúdo de campos, fotos ou segredos.
 - O HaneAvatar existente renderiza a silhueta, respiração, inclinação, olhos e piscadas variáveis, incluindo duplas ocasionais. O Garden fornece um behaviourRef; o workspace conserva seu comportamento atual.
 - motion.js conduz a órbita irregular, olhar amortecido e spring de retorno, reutilizando o scheduler compartilhado do Avatar Engine. Não há renderização React por frame nem novas dependências. Cálculos são limitados e aparelhos com até quatro threads usam cerca de 30 fps no palco.
-- Pointer Events, captura, pointercancel e lostpointercapture cuidam do arraste. Um deslocamento superior a seis pixels não conta como clique. Cinco ativações próximas revelam uma pena e 羽; novas ativações durante a sequência não reiniciam a animação.
+- Pointer Events, captura, pointercancel e lostpointercapture cuidam do arraste. Um deslocamento superior a seis pixels não conta como clique. Cinco ativações próximas da esfera orbital revelam uma pena e 羽; novas ativações durante a sequência não reiniciam a animação.
 - Após 45 segundos sem atividade local, o personagem fecha os olhos gradualmente e respira devagar. Ao retornar, pisca. Nenhuma telemetria é enviada.
 - O loop compartilhado pausa em páginas invisíveis; o palco também verifica IntersectionObserver. ResizeObserver mantém coordenadas corretas em responsividade. Listeners, observadores, captura e assinatura de frames são limpos no unmount, inclusive no replay do StrictMode.
-- prefers-reduced-motion e a preferência existente de movimento do Hane desativam respiração, órbita e efeitos contínuos. Arraste continua direto e a pena vira uma revelação estática breve. A esfera é um botão acessível por Enter/Espaço; o mascote é decorativo e não rouba foco do fluxo.
+- prefers-reduced-motion e a preferência existente de movimento do Hane desativam respiração, órbita e efeitos contínuos. Arraste continua direto e a pena vira uma revelação estática breve. A esfera e o mascote são botões acessíveis por Enter/Espaço, com descrições de interação e foco visível. Os sete companheiros são decorativos.
 
 ## Referências pesquisadas
 
@@ -29,3 +29,13 @@ Build aprovado; 24 testes do frontend e 15 testes de perfil aprovados. A animaç
 
 Fotos pessoais aceitam GIF de até 5 MB e 120 quadros, com até 16 megapixels somados. O servidor reencoda todos os quadros em WebP animado, preservando tempos e loop. O nome do arquivo e metadados originais não são publicados. O arquivo processado mantém a sessão protegida e o recorte central de 256 × 256 por quadro.
 Antes da publicação, npm run verify passou com 288 testes e a checagem de sintaxe de 66 arquivos.
+
+Correção de cadastro: desenvolvimento (5173) e prévia (4173), em localhost e 127.0.0.1, compartilham uma lista explícita de origens autorizadas. O proxy /api também está configurado para vite preview; portas diferentes continuam exigindo --ui-origin. A experiência de perfil mantém sua própria rolagem enquanto as colunas usam a altura natural do conteúdo, cobrindo o formulário expandido. Verificação no navegador em 4173: conteúdo e coluna rosa com 962 px de altura, incluindo senha aberta; POST com formulário vazio retorna validação 400 em vez de recusa 403, sem criar perfil.
+
+## Família de oito — interação aprovada
+
+Nas duas telas, um clique no mascote principal produz um salto de 650 ms com aterrissagem suave. Arrastar desloca o mascote dentro do palco; soltar devolve ao centro com spring amortecida. Movimento superior a seis pixels não conta como clique.
+
+Cinco ativações do mascote, sem intervalo maior que seis segundos entre elas, revelam sete companheiros em cores pastel durante 12 segundos. A legenda “Até oito Hanes. Muitas possibilidades.” anuncia a família também para leitores de tela. Cliques durante a revelação não prorrogam nem acumulam uma nova sequência. A referência discreta a Clannad usa a arte original do Hane e lembra o limite de oito integrantes; não cria agentes, grupos ou registros. A pena continua exclusiva da esfera orbital.
+
+Os companheiros reutilizam o Avatar Engine sem loops individuais de movimento; o scheduler compartilhado conduz a formação e a saída. Movimento reduzido mantém arraste direto e revelação estática, sem salto ou balanço. QA confirmou teclado, formação nas duas telas, retorno depois do arraste, modo reduzido sob StrictMode e largura de 390 px sem overflow horizontal. Doze testes determinísticos cobrem o controlador, incluindo independência entre os dois easter eggs, expiração e ausência de acúmulo durante a revelação.

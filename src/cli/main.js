@@ -1,3 +1,4 @@
+import { manageTeamsCommand } from './manage-teams.js';
 import { SqliteProfileStore } from "../storage/sqlite-profile-store.js";
 import { runMissionCommand } from './run-mission.js';
 import { missionsCommand, missionCommand, retryCommand, approveCommand } from './mission-lifecycle.js';
@@ -29,13 +30,19 @@ export function createDefaultDependencies() {
 const USAGE = `usage: hane <command> [options]
 
 commands:
+  agent add --name <name> [--provider <label>] [--exclusive] [--db <path>]
+  agent list|show|remove [id] [--db <path>] [--json]
+  team add --name <name> --member <agent-id> [--member <agent-id>] [--db <path>]
+  team list|show|archive|remove [id] [--db <path>] [--json]
+  team member add|remove <team-id> <agent-id> [--db <path>]
+  team leader set <team-id> <agent-id|none> [--db <path>]
   provider add --label <name> --base-url <url> --model <id> [--max-tokens N]
   provider list
   provider remove <label>
   provider set-secret <label>
   skills install <directory> [--db <path>]
   skills list [--db <path>]
-  run "<objective>" [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--workspace <dir>] [--capability <name>=<scope>] [--json]
+  run "<objective>" [--team <uuid>] [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--workspace <dir>] [--capability <name>=<scope>] [--json]
   missions [--db <path>]
   mission <id> [--db <path>] [--json]
   retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]
@@ -55,6 +62,7 @@ commands:
 export async function runCli({ argv = [], stdout = process.stdout, stderr = process.stderr, stdin = process.stdin, dependencies = createDefaultDependencies() } = {}) {
   const [command, subcommand, ...rest] = argv;
   try {
+    if (command === 'agent' || command === 'team') return await manageTeamsCommand({kind:command,args:argv.slice(1),stdout,dependencies});
     if (command === 'provider') {
       switch (subcommand) {
         case 'add': return await providerAddCommand({ args: rest, stdout, stderr, dependencies });
