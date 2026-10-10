@@ -4,7 +4,7 @@ import { parseArgs } from 'node:util';
 import { Orchestrator } from '../orchestrator.js';
 import { DEFAULT_MAX_TOOL_CALLS } from '../task-run.js';
 import { TASK_STATUS, assertPositiveInteger } from '../contracts.js';
-import { assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../capabilities.js';
+import { assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
 import { defaultDatabasePath } from '../storage/sqlite-database.js';
 import { ProviderConfigError } from '../providers/provider-factory.js';
@@ -93,11 +93,11 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
 
 /** `--capability workspace.read=src` becomes one declarative grant. */
 function parseCapabilityFlags(flags) {
-  return assertCapabilityGrants(flags.map((flag) => {
+  return assertEnforceableScopes(assertCapabilityGrants(flags.map((flag) => {
     const separator = flag.indexOf('=');
     if (separator === -1) throw new TypeError(`--capability expects name=scope, got "${flag}".`);
     return { name: flag.slice(0, separator).trim(), scope: flag.slice(separator + 1) };
-  }));
+  })));
 }
 
 export function exitCodeForStatus(status) {

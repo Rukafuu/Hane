@@ -1,7 +1,8 @@
 /**
  * Capability grants are user-authored constraints, not instructions from a
- * model. Keeping them declarative lets the future sandbox enforce exactly the
- * same contract shown in the UI and audit trail.
+ * model. The shape and path rules are checked wherever a grant is carried; the
+ * scope grammar below is checked wherever a grant is authored, because a scope
+ * the executor cannot parse is a promise the executor cannot keep.
  */
 export const CAPABILITY = Object.freeze({
   WORKSPACE_READ: 'workspace.read',
@@ -24,6 +25,13 @@ const PATH_SCOPE_CAPABILITIES = Object.freeze(new Set([
   CAPABILITY.WORKSPACE_READ,
   CAPABILITY.WORKSPACE_WRITE,
 ]));
+
+const MAX_COMMAND_RULES = 8;
+const MAX_NETWORK_HOSTS = 16;
+const COMMAND_BASENAME = /^[a-z0-9][a-z0-9._+-]{0,63}$/i;
+const HOST_LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+/** Anything a shell would treat as syntax. Commands reach the sandbox as argv arrays. */
+const SHELL_METACHARACTERS = /[;|&$`<>(){}'"\\]/;
 
 /**
  * A path scope is read as a location inside the mission's workspace root, so an
@@ -72,4 +80,113 @@ export function assertCapabilityGrants(candidate) {
  */
 export function grantsNeedWorkspaceRoot(grants = []) {
   return grants.some((grant) => grant.name === CAPABILITY.WORKSPACE_READ || grant.name === CAPABILITY.WORKSPACE_WRITE);
+}
+
+/**
+ * The scope grammar an executor can check. Prose is not a looser policy but no
+ * policy at all: `approved commands only` cannot be matched against an argv
+ * array or a request host, so authoring it is refused instead of stored.
+ *
+ * The shape and path rules above are validated wherever a grant travels,
+ * because a mission that is already running has to keep running. This grammar
+ * is validated only where a grant is authored: stored missions keep the prose
+ * they were granted with, and a resume that finds it enforces nothing wider
+ * than the run it is sitting in.
+ *
+ * @returns {{ ok: true, parsed: readonly object[] } | { ok: false, reason: string }}
+ */
+export function parseGrantScope(name, scope) {
+  if (name === CAPABILITY.PROCESS_RUN) return parseCommandScope(scope);
+  if (name === CAPABILITY.NETWORK_REQUEST) return parseHostScope(scope);
+  return { ok: true, parsed: Object.freeze([{ path: scope }]) };
+}
+
+/**
+ * Matching semantics, so the executor that lands later cannot invent its own:
+ * a rule with no argument allows that program with any arguments; a rule with
+ * arguments allows exactly that argv prefix, and further arguments only when the
+ * rule ends with `*`. No rule ever hands a string to a shell — commands reach
+ * the sandbox as an argv array — which is why shell syntax is refused here
+ * rather than escaped.
+ */
+export function parseCommandScope(scope) {
+  const rules = scope.split(',').map((rule) => rule.trim()).filter((rule) => rule !== '');
+  if (rules.length === 0) {
+    return { ok: false, reason: 'must list command prefixes, like "python3, git status, npm run *".' };
+  }
+  if (rules.length > MAX_COMMAND_RULES) {
+    return { ok: false, reason: `must list at most ${MAX_COMMAND_RULES} command prefixes.` };
+  }
+
+  const parsed = [];
+  for (const rule of rules) {
+    if (SHELL_METACHARACTERS.test(rule)) {
+      return { ok: false, reason: `"${rule}" contains shell syntax. Commands reach the sandbox as arguments, never through a shell.` };
+    }
+    const tokens = rule.split(/\s+/);
+    if (!COMMAND_BASENAME.test(tokens[0])) {
+      return { ok: false, reason: `"${tokens[0]}" is not a bare program name. Write the executable alone, like "python3", not a path.` };
+    }
+    for (const token of tokens.slice(1, -1)) {
+      if (token.includes('*')) {
+        return { ok: false, reason: `"${rule}" may only wildcard its final argument, like "npm run *".` };
+      }
+    }
+    const last = tokens.at(-1);
+    const prefix = last === '*';
+    parsed.push(Object.freeze({
+      program: tokens[0],
+      arguments: Object.freeze(tokens.slice(1, prefix ? -1 : undefined)),
+      prefix,
+    }));
+  }
+  return { ok: true, parsed: Object.freeze(parsed) };
+}
+
+export function parseHostScope(scope) {
+  const entries = scope.split(',').map((entry) => entry.trim().toLowerCase()).filter((entry) => entry !== '');
+  if (entries.length === 0) {
+    return { ok: false, reason: 'must list hosts, like "docs.example.com, *.registry.npmjs.org".' };
+  }
+  if (entries.length > MAX_NETWORK_HOSTS) {
+    return { ok: false, reason: `must list at most ${MAX_NETWORK_HOSTS} hosts.` };
+  }
+
+  const parsed = [];
+  for (const entry of entries) {
+    if (entry.includes('://')) {
+      return { ok: false, reason: `"${entry}" carries a scheme. Grant hosts, not URLs — requests leave over https.` };
+    }
+    if (entry.includes(':') || entry.includes('/') || entry.includes('@')) {
+      return { ok: false, reason: `"${entry}" is not a bare host. Ports, paths and credentials do not belong in a host grant.` };
+    }
+    // A leading wildcard is the whole label: `*.` matches one label only, so
+    // `*.example.com` never reaches `ev1.example.com.attacker.test`.
+    const wildcard = entry.startsWith('*.');
+    const hostname = wildcard ? entry.slice(2) : entry;
+    if (hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal')) {
+      return { ok: false, reason: `"${entry}" names a machine-local target. The box must not be able to reach the host that runs it.` };
+    }
+    const labels = hostname.split('.');
+    if (labels.length < 2 || labels.some((label) => !HOST_LABEL.test(label))) {
+      return { ok: false, reason: `"${entry}" is not a resolvable hostname. Use at least two labels of letters, digits and hyphens.` };
+    }
+    if (/^\d+$/.test(labels.at(-1))) {
+      return { ok: false, reason: `"${entry}" looks like an IP address. Grant the hostname, so the check can pin the name it matched.` };
+    }
+    parsed.push(Object.freeze({ host: hostname, wildcard }));
+  }
+  return { ok: true, parsed: Object.freeze(parsed) };
+}
+
+/**
+ * Refuses a grant whose scope no executor could enforce. Keeps the thrown
+ * message a usage error the ingress can print verbatim.
+ */
+export function assertEnforceableScopes(grants = []) {
+  for (const grant of grants) {
+    const outcome = parseGrantScope(grant.name, grant.scope);
+    if (!outcome.ok) throw new TypeError(`capability "${grant.name}" scope ${outcome.reason}`);
+  }
+  return grants;
 }

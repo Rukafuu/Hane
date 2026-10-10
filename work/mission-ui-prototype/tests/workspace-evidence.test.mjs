@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+// The composer's default scopes are checked with the core's own grammar, so
+// this test reaching outside the package is the point: it fails the day a
+// default chip would make `POST /api/missions` answer 400.
+import { assertCapabilityGrants, assertEnforceableScopes } from "../../../src/capabilities.js";
 import { createMission, fetchWorkspace } from "../src/api.js";
 import {
   CAPABILITY_OPTIONS,
@@ -22,19 +26,16 @@ test("sends the granted root as a plain scope instead of a glob", () => {
     assert.equal(option(name).requiresServerRoot, true);
   }
 
-  // The core rejects a scope containing "*", so none may ever leave the composer.
-  assert.deepEqual(
-    capabilityPayload(CAPABILITY_OPTIONS.map((item) => ({ name: item.name, scope: item.scope }))),
-    [
-      { name: "workspace.read", scope: "." },
-      { name: "workspace.write", scope: "." },
-      { name: "process.run", scope: "approved command only" },
-      { name: "network.request", scope: "approved origins only" },
-    ],
-  );
-  for (const grant of capabilityPayload(CAPABILITY_OPTIONS.map((item) => ({ name: item.name, scope: item.scope })))) {
-    assert.equal(grant.scope.includes("*"), false, `${grant.name} cannot send a glob`);
-  }
+  // A scope the core cannot check is a 400 in the composer, so the payload the
+  // chips can produce is validated against the core's own ingress grammar.
+  const payload = capabilityPayload(CAPABILITY_OPTIONS.map((item) => ({ name: item.name, scope: item.scope })));
+  assert.deepEqual(payload, [
+    { name: "workspace.read", scope: "." },
+    { name: "workspace.write", scope: "." },
+    { name: "process.run", scope: "python3, node, git" },
+    { name: "network.request", scope: "pypi.org, registry.npmjs.org, api.github.com" },
+  ]);
+  assert.doesNotThrow(() => assertEnforceableScopes(assertCapabilityGrants(payload)), "every default scope must be enforceable");
 
   assert.deepEqual(capabilityPayload([null, { name: "workspace.read" }, { scope: "." }]), [], "half-made grants are not sent");
 });

@@ -444,6 +444,21 @@ test('a malformed capability flag is rejected before any provider call', async (
   assert.match(harness.errors(), /Unknown capability/);
 });
 
+test('a capability scope the executor could not check is refused at the CLI before any provider call', async () => {
+  const harness = createHarness();
+  await configureProvider(harness);
+
+  const runs = [
+    ['run', 'Read some files.', '--workspace', realpathSync(tmpdir()), '--capability', 'network.request=https://example.com'],
+    ['run', 'Read some files.', '--workspace', realpathSync(tmpdir()), '--capability', 'process.run=/usr/bin/python3'],
+  ];
+  for (const args of runs) {
+    assert.equal(await harness.run(args), 1, args.at(-1));
+    assert.match(harness.errors(), new RegExp(`capability "${args.at(-1).split('=')[0]}" scope`));
+  }
+  assert.equal(harness.database.prepare('SELECT COUNT(*) AS count FROM task_runs').get().count, 0);
+});
+
 test('--max-tool-calls bounds the mission and an omitted flag leaves the default alone', async () => {
   const harness = createHarness();
   await configureProvider(harness);

@@ -115,8 +115,17 @@ budget.
   executes the grant yet — a scope means nothing without a root to enforce it
   against, and the runtime refuses to store a write grant that could not be
   enforced, with the contract already in place for the day a real write
-  executor lands. `process.run` and `network.request` scopes stay free-form
-  prose and need no root.
+  executor lands. `process.run` and `network.request` scopes are machine-checkable
+  policies, not prose, because a scope nothing can parse is a scope nothing can
+  enforce later: `process.run` lists command prefixes (`python3`, `git status`,
+  `npm run *`) built from bare program names and refuses anything a shell would
+  read as syntax, and `network.request` lists lowercase hosts
+  (`docs.example.com`, `*.registry.npmjs.org`) with no scheme, port, path,
+  credentials, literal address or machine-local name. Both are refused where a
+  grant is authored — a CLI usage error exiting 1, a `400` over HTTP, always
+  before the first provider call. A mission already stored keeps the scope it
+  was granted with: re-parsing on resume could only strand a running task, and
+  a stranded task is worse than an unfinished policy.
 - File content handed to a model is evidence, never instruction. The provider
   request labels workspace evidence as untrusted data, and evidence is not
   persisted with the task — a resume re-reads from disk under the same checks.

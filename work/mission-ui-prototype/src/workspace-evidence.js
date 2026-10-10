@@ -14,14 +14,16 @@ export const WORKSPACE_ROOT_SCOPE = ".";
 /**
  * The two workspace grants only mean something when the server was launched
  * with a root (`hane serve --workspace <dir>`); `GET /api/workspace` says
- * whether that happened. The other grants keep their declarative scopes and
- * stay selectable, with their labels stating that nothing is executed.
+ * whether that happened. The other grants are selectable and carry the scope
+ * the core would enforce: a program allowlist and a host allowlist, never a
+ * sentence, because a sentence authorizes nothing. Nothing here is executed yet
+ * and the labels say so.
  */
 export const CAPABILITY_OPTIONS = Object.freeze([
   { name: "workspace.read", scope: WORKSPACE_ROOT_SCOPE, label: "Ler workspace", detail: "Leitura real dentro da raiz concedida a esta missão", requiresServerRoot: true },
   { name: "workspace.write", scope: WORKSPACE_ROOT_SCOPE, label: "Escrever no workspace", detail: "Não executado · a escrita ainda não tem runtime atrás deste grant", requiresServerRoot: true },
-  { name: "process.run", scope: "approved command only", label: "Executar comandos", detail: "Não executado · nenhum comando roda a partir deste grant" },
-  { name: "network.request", scope: "approved origins only", label: "Acessar rede", detail: "Não executado · nenhum acesso de rede sai a partir deste grant" },
+  { name: "process.run", scope: "python3, node, git", label: "Executar comandos", detail: "Não executado · nenhum comando roda a partir deste grant" },
+  { name: "network.request", scope: "pypi.org, registry.npmjs.org, api.github.com", label: "Acessar rede", detail: "Não executado · nenhum acesso de rede sai a partir deste grant" },
 ]);
 
 export const WORKSPACE_DISABLED_HINT = "Leitura e escrita só ficam disponíveis quando o servidor é iniciado com hane serve --workspace <pasta>.";

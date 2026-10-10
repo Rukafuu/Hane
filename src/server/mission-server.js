@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
-import { assertCapabilityGrants, grantsNeedWorkspaceRoot } from '../capabilities.js';
+import { assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
 import { TaskRun } from '../task-run.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
@@ -169,7 +169,7 @@ async function startMission({ request, response, repository, providerConfigStore
     objective = assertObjective(body?.objective);
     if (body?.maxProviderCalls !== undefined) maxProviderCalls = assertPositiveInteger(body.maxProviderCalls, 'maxProviderCalls');
     if (body?.maxToolCalls !== undefined) maxToolCalls = assertPositiveInteger(body.maxToolCalls, 'maxToolCalls');
-    capabilityGrants = assertCapabilityGrants(body?.capabilities);
+    capabilityGrants = assertEnforceableScopes(assertCapabilityGrants(body?.capabilities));
     const requestedRoot = typeof body?.workspaceRoot === 'string' && body.workspaceRoot.trim() !== '' ? body.workspaceRoot.trim() : null;
     // The browser has no way to name a directory on this machine — its folder
     // picker only yields a display name — so the root the server was started

@@ -151,6 +151,20 @@ is rejected at the door, because a grant names one place the root covers — nev
 a pattern that widens under the resolver, and never a hole punched past the
 ceiling.
 
+The two capabilities that do not name a path still have to name something an
+executor could check. `process.run` lists command prefixes — `python3` allows
+that program with any arguments, `git status` allows exactly that argv prefix,
+`npm run *` allows that prefix and anything after it — and refuses anything a
+shell would read as syntax, because commands reach the sandbox as an argument
+list and never through a shell. `network.request` lists hosts, lowercased:
+`docs.example.com` for one, `*.registry.npmjs.org` for its subdomains, with no
+scheme, port, path, credentials, literal IP or machine-local name
+(`localhost`, `.local`, `.internal`) — the last because a box that can reach the
+machine running it is not a box. A scope outside these grammars is a usage error
+on the CLI and a `400` over HTTP, before the first provider call. Nothing
+executes either grant yet; the grammar exists so the day one runs, the policy you
+wrote is the policy enforced.
+
 What stands between a grant and your disk:
 
 - Every path is required to be relative to the root. Absolute paths, drive
