@@ -9,12 +9,24 @@ const { show: showToast } = useToast();
 const email = ref('');
 const error = ref('');
 const joined = ref(false);
+const overlay = ref<HTMLElement | null>(null);
+let lastFocused: HTMLElement | null = null;
 
-watch(open, (isOpen) => {
+function focusables() {
+  if (!overlay.value) return [];
+  return [...overlay.value.querySelectorAll<HTMLElement>('button, input, [href], select, textarea')].filter((el) => !el.hasAttribute('disabled'));
+}
+
+watch(open, async (isOpen) => {
   if (isOpen) {
     email.value = '';
     error.value = '';
     joined.value = false;
+    lastFocused = document.activeElement as HTMLElement | null;
+    await nextTick();
+    overlay.value?.focus();
+  } else {
+    lastFocused?.focus();
   }
 });
 
@@ -33,7 +45,23 @@ function submit() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') hide();
+  if (event.key === 'Escape') {
+    hide();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const items = focusables();
+  if (!items.length) return;
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === overlay.value)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 </script>
 
@@ -42,6 +70,7 @@ function onKeydown(event: KeyboardEvent) {
     <Transition name="modal">
       <div
         v-if="open"
+        ref="overlay"
         class="modal-overlay"
         role="dialog"
         aria-modal="true"
@@ -123,7 +152,7 @@ function onKeydown(event: KeyboardEvent) {
   border-radius: 10px;
   color: var(--ink-3);
 }
-.modal-close:hover { color: var(--pink-deep); background: rgba(255, 255, 255, .6); }
+.modal-close:hover { color: var(--pink-text); background: rgba(255, 255, 255, .6); }
 .modal-icon {
   width: 56px;
   height: 56px;
@@ -132,7 +161,7 @@ function onKeydown(event: KeyboardEvent) {
   margin: 0 auto 16px;
   border-radius: 16px;
   background: var(--pink-soft);
-  color: var(--pink-deep);
+  color: var(--pink-text);
 }
 .modal-card h3 {
   margin: 0 0 10px;

@@ -82,3 +82,13 @@ export function growBar(el, width = "67%") {
   if (!el || reduceMotion()) return null;
   return animate(el, { width: ["0%", width], duration: 900, delay: 350, ease: "outQuart" });
 }
+
+export function flash(el) {
+  if (!el || reduceMotion()) return null;
+  return animate(el, { opacity: [0.25, 1], translateY: [-8, 0], duration: 520, ease: "outQuad" });
+}
+
+export function spinOnce(el) {
+  if (!el || reduceMotion()) return null;
+  return animate(el, { rotate: ["0turn", "1turn"], duration: 520, ease: "outQuart" });
+}

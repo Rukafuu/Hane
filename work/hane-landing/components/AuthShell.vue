@@ -104,7 +104,7 @@ const points = [
   border-radius: 11px;
   background: var(--raise);
   box-shadow: var(--shadow-sm);
-  color: var(--pink-deep);
+  color: var(--pink-text);
 }
 .point-icon svg { width: 17px; height: 17px; }
 .auth-aside-foot {

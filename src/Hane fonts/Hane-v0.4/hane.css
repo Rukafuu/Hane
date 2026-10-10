@@ -1,0 +1,36 @@
+/* Hane Sans 0.4 — corte de texto robusto. Três pesos; Segoe apenas como fallback. */
+@font-face {
+  font-family: 'Hane Sans';
+  src: url('./HaneSans-Regular-v04.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hane Sans';
+  src: url('./HaneSans-Medium-v04.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hane Sans';
+  src: url('./HaneSans-SemiBold-v04.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+/* Aplicação:
+body {
+  font-family: 'Hane Sans', 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.6;
+  font-synthesis: none;
+}
+button, input, select, textarea { font: inherit; }
+
+font-synthesis: none é obrigatório: sem o SemiBold declarado, o navegador
+falsifica um 600 engordando o Regular e fecha as contraformas em 12 px.
+Abaixo de 10 px prefira Medium; 450 resolve para Medium e 650 para SemiBold.
+*/

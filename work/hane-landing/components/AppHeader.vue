@@ -47,7 +47,7 @@ function onLogout() {
         </template>
         <template v-else>
           <NuxtLink to="/entrar" class="btn btn-quiet">Entrar</NuxtLink>
-          <button class="btn btn-primary" @click="showDownload">
+          <button class="btn btn-primary" aria-label="Baixar o app" @click="showDownload">
             <Download />
             <span class="hide-sm">Baixar o app</span>
           </button>
@@ -55,7 +55,7 @@ function onLogout() {
         <button
           class="nav-toggle"
           :aria-expanded="navOpen"
-          aria-label="Abrir menu"
+          :aria-label="navOpen ? 'Fechar menu' : 'Abrir menu'"
           @click="navOpen = !navOpen"
         >
           <List size="22" />

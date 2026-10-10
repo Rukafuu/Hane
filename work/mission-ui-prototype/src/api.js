@@ -17,10 +17,10 @@ export const fetchMission = (id) => fetch(`/api/missions/${encodeURIComponent(id
 
 export const fetchProviders = () => fetch("/api/providers").then(json);
 
-export const createMission = (objective) => fetch("/api/missions", {
+export const createMission = (objective, provider, capabilities = []) => fetch("/api/missions", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ objective }),
+  body: JSON.stringify({ objective, ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
 }).then(json);
 
 const missionAction = (id, action, body = {}) => fetch(`/api/missions/${encodeURIComponent(id)}/${action}`, {
@@ -32,6 +32,8 @@ const missionAction = (id, action, body = {}) => fetch(`/api/missions/${encodeUR
 export const approveMission = (id) => missionAction(id, "approve");
 
 export const retryMission = (id, options) => missionAction(id, "retry", options);
+
+export const cancelMission = (id) => missionAction(id, "cancel");
 
 export function openMissionEvents(onEvent) {
   // ?noevents lets headless screenshot tooling settle the page; SSE never closes on its own.

@@ -1,0 +1,10 @@
+{
+  "description": "Facilitate seamless collaboration among AI agents in a visually appealing workspace, enabling efficient communication and task management for teams.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

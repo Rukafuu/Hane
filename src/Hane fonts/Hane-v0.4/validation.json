@@ -1,0 +1,198 @@
+[
+  {
+    "style": "Regular",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "us_weight_class": 400,
+    "version": "Version 0.400",
+    "bounds": [
+      -242,
+      1023
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "rendered": true,
+    "ink_coverage": 0.0558,
+    "ink_coverage_v0_2": 0.034,
+    "ink_coverage_v0_3": 0.0546,
+    "advance_divergences_vs_v0_2": [],
+    "stroke_balance": {
+      "drawn_stems": [
+        80,
+        80,
+        80,
+        80,
+        80,
+        80,
+        95,
+        95,
+        95,
+        95,
+        95,
+        105,
+        125
+      ],
+      "generated_stems": [
+        70,
+        75,
+        80,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        160
+      ],
+      "drawn_median": 95,
+      "generated_median": 90,
+      "stem_ratio": 1.06,
+      "drawn_within": 0.76,
+      "generated_within": 0.89
+    },
+    "woff2_roundtrip": "OK"
+  },
+  {
+    "style": "Medium",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "us_weight_class": 500,
+    "version": "Version 0.400",
+    "bounds": [
+      -248,
+      1034
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "rendered": true,
+    "ink_coverage": 0.0644,
+    "ink_coverage_v0_2": 0.0434,
+    "ink_coverage_v0_3": 0.0623,
+    "advance_divergences_vs_v0_2": [],
+    "stroke_balance": {
+      "drawn_stems": [
+        90,
+        90,
+        90,
+        90,
+        90,
+        90,
+        100,
+        100,
+        100,
+        105,
+        105,
+        115,
+        150
+      ],
+      "generated_stems": [
+        80,
+        90,
+        95,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100,
+        190
+      ],
+      "drawn_median": 100,
+      "generated_median": 100,
+      "stem_ratio": 1.0,
+      "drawn_within": 0.67,
+      "generated_within": 0.95
+    },
+    "woff2_roundtrip": "OK"
+  },
+  {
+    "style": "SemiBold",
+    "glyphs": 289,
+    "characters": 288,
+    "kerning_pairs": 31,
+    "us_weight_class": 600,
+    "version": "Version 0.400",
+    "bounds": [
+      -254,
+      1046
+    ],
+    "render_sizes": [
+      16,
+      24,
+      48,
+      160,
+      360
+    ],
+    "rendered": true,
+    "ink_coverage": 0.0738,
+    "ink_coverage_v0_2": null,
+    "ink_coverage_v0_3": 0.0726,
+    "advance_divergences_vs_v0_2": null,
+    "stroke_balance": {
+      "drawn_stems": [
+        100,
+        100,
+        100,
+        100,
+        105,
+        105,
+        115,
+        115,
+        115,
+        115,
+        115,
+        130,
+        175,
+        175
+      ],
+      "generated_stems": [
+        95,
+        105,
+        105,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        115,
+        220
+      ],
+      "drawn_median": 115,
+      "generated_median": 115,
+      "stem_ratio": 1.0,
+      "drawn_within": 0.66,
+      "generated_within": 0.91
+    },
+    "woff2_roundtrip": "OK"
+  }
+]

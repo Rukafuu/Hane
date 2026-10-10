@@ -18,7 +18,7 @@ const { show: showDownload } = useDownloadModal();
           </p>
         </div>
         <div class="footer-col">
-          <h4>Produto</h4>
+          <h2>Produto</h2>
           <ul>
             <li><NuxtLink to="/#o-que-e">O que é o Hane</NuxtLink></li>
             <li><NuxtLink to="/#diferenciais">Diferenciais</NuxtLink></li>
@@ -27,14 +27,14 @@ const { show: showDownload } = useDownloadModal();
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Conta</h4>
+          <h2>Conta</h2>
           <ul>
             <li><NuxtLink to="/entrar">Entrar</NuxtLink></li>
             <li><NuxtLink to="/cadastro">Criar conta</NuxtLink></li>
           </ul>
         </div>
         <div class="footer-col">
-          <h4>Origem</h4>
+          <h2>Origem</h2>
           <ul>
             <li><span class="footer-static">Núcleo CLI open source</span></li>
             <li><span class="footer-static">SQLite + Credential Manager</span></li>

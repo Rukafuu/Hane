@@ -1,5 +1,31 @@
 # Design QA
 
+## 2026-10-09 — Clean desktop messenger pass
+
+### Comparison target
+
+- User-provided Grokbot reference: `C:\Users\amari\AppData\Local\Temp\codex-clipboard-db47b67e-ba40-48f3-9842-9738ce63e29a.png`.
+- User-provided OpenAI Dots reference: `C:\Users\amari\AppData\Local\Temp\codex-clipboard-4b154256-583b-4885-97cf-61fb44192210.png`.
+- Implementation: local Hane preview at `http://127.0.0.1:4173/`, inspected in the in-app browser after the clean-surface pass.
+
+### What was intentionally carried forward
+
+- Three calm reading columns: navigation, conversation, and an inspectable work/session panel.
+- White and near-white planes, neutral hairline dividers, compact selected rows, a low-ornament composer, and a bounded dark preview for the virtual workstation.
+- Hane ownership remains visible through Hane Sans, the official logo, Portuguese orchestration content, operational status colors, and pink as the action/review accent.
+
+### What was intentionally not copied
+
+- No third-party name, mascot, iconography, sample content, browser chrome, or pink/purple product palette was reused.
+- The computer view remains an auditable execution preview. It does not claim live machine control or hide the capability and action-approval boundary.
+
+### Results
+
+- No layout overflow, overlap, unreadable persistent copy, or console error observed in the local desktop preview.
+- The prior fog-gray/neumorphic treatment was removed from the active messenger surface; the column hierarchy is now carried by dividers, selected-row fill, and the dark workstation stage.
+
+final result: passed
+
 ## Comparison target
 
 - Source visual truth: `reference-hane.webp`, the current Figma Make thumbnail for file `38Ec7AheHrZceisZcyp1qy`.
@@ -13,7 +39,7 @@
 
 ## Full-view comparison evidence
 
-The source and implementation were placed in the same 1600 × 900 comparison image and inspected together. The implementation preserves the defining composition: conversation rail, flexible central collaboration thread, live context rail, fixed composer, compact agent/status language, and pink review action. Following direct user feedback, the final implementation intentionally uses wider side rails, larger type, a darker fog-gray workspace base, and lighter elevated cards instead of reproducing the source's low-contrast near-white canvas.
+The source and implementation were placed in the same 1600 × 900 comparison image and inspected together. The implementation preserves the defining composition: conversation rail, flexible central collaboration thread, live context rail, fixed composer, compact agent/status language, and pink review action. The later clean-messenger pass supersedes the former fog-gray treatment: the desktop workspace now uses white/near-white planes, neutral dividers, selected-row fills, and a bounded dark workstation stage.
 
 The official Hane horizontal logo intentionally replaces the source's text-only wordmark. Following direct readability review, Segoe UI Variable intentionally replaces the source's generic UI font and the thinner Hane Sans trial while preserving the compact hierarchy.
 
@@ -39,7 +65,7 @@ No actionable P0/P1/P2 issue remains for the selected desktop state.
 
 - **Fonts and typography:** Segoe UI Variable is the primary interface family, with Segoe UI and system-ui fallbacks; Cascadia Code/Cascadia Mono serve execution output. Body copy uses 450, metadata 500, and titles/actions 600–650. Body copy remains 12.5px and persistent metadata at least 9px at normal scaling, with explicit line heights and tabular numerals for operational data.
 - **Spacing and layout rhythm:** Three desktop columns, 70px headers, central reading width, 11–16px radii, readable task rows, pinned composer, and right-panel section rhythm preserve the source composition without its micro-density.
-- **Colors and visual tokens:** A medium fog-gray workspace base, visibly lighter elevated surfaces, charcoal text, restrained Hane pink, and separate blue/green/amber operational states are present. Pink is reserved for brand and review actions.
+- **Colors and visual tokens:** White and near-white workspace planes, neutral dividers, charcoal text, restrained Hane pink, and separate blue/green/amber operational states are present. Pink is reserved for brand and review actions.
 - **Image quality and asset fidelity:** The implementation uses the supplied transparent Hane logo. Interface symbols use the installed Phosphor library; no emoji, Lucide dependency, or approximate brand drawing was introduced.
 - **Copy and content:** Agent names, Portuguese orchestration dialogue, task plan, generated artifacts, uncertainty boundary, and explicit review action match the approved concept.
 

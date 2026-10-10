@@ -1,58 +1,40 @@
 #!/usr/bin/env python3
-"""Measure small-size legibility of candidate Hane ladders against Segoe UI.
+"""Compare Hane's small-size ink against Segoe UI at real interface sizes.
 
-Renders the same Portuguese UI string at real interface sizes and reports two
-proxies: overall ink coverage, and the share of that ink that actually reaches
-solid black (thin hairlines survive as gray smears, which is what reads as
-'illegible' at 9-15 px).
+Total ink alone is not legibility, but a face that renders below Segoe UI's
+coverage at 10-12.5 px is under-filled for the screen. `solid_share` is the
+share of visible ink that actually reaches solid black: thin hairlines survive
+antialiasing as gray smears, which is what reads as "não está legível".
 """
-import sys, tempfile
+import sys
 from pathlib import Path
-import refine_hane as R
 from PIL import Image, ImageDraw, ImageFont
 
-TXT = 'Resuma os riscos de migrar para ESM: atenção necessária 4/4 chamadas'
+TXT = 'Resuma os riscos de migrar para ESM: Atenção necessária 4/4 chamadas'
 SIZES = [10, 12, 12.5, 15]
-SEGOE = [('Segoe UI', 'segoeui.ttf'), ('Segoe UI Semibold', 'segoeuib.ttf')]
+OUT = Path(__file__).resolve().parent.parent.parent / 'Hane-v0.3'
+WINDOWS = Path('C:/Windows/Fonts')
+FACES = [('Segoe UI', WINDOWS / 'segoeui.ttf'),
+         ('Segoe UI Semibold', WINDOWS / 'segoeuib.ttf')] + \
+        [(f'Hane 0.3 {s}', OUT / f'HaneSans-{s}.ttf') for s in ('Regular', 'Medium', 'SemiBold')]
 
 
 def stats(path, size):
     font = ImageFont.truetype(str(path), size)
     box = font.getbbox(TXT)
-    w, h = box[2] - box[0] + 12, box[3] - box[1] + 12
-    img = Image.new('L', (w, h), 255)
+    img = Image.new('L', (box[2] - box[0] + 12, box[3] - box[1] + 12), 255)
     ImageDraw.Draw(img).text((6 - box[0], 6 - box[1]), TXT, 0, font=font)
-    px = img.tobytes()
-    ink = [1 - p / 255 for p in px]
-    total = sum(ink)
+    ink = [1 - p / 255 for p in img.tobytes()]
     visible = sum(1 for d in ink if d > 0.06)
     solid = sum(1 for d in ink if d >= 0.7)
-    return {'size': size, 'coverage': round(total / len(ink), 4),
-            'solid_share': round(solid / max(1, visible), 3)}
-
-
-def candidates():
-    out = []
-    windows = Path('C:/Windows/Fonts')
-    for label, fn in SEGOE:
-        p = windows / fn
-        if p.exists():
-            out.append((label, p))
-    tmp = Path(tempfile.mkdtemp(prefix='hane-probe-'))
-    R.OUT = tmp
-    for name, (weight, thick, thin, expand) in R.STYLES.items():
-        R.build(name, weight, thick, thin, expand)
-        out.append((f'Hane 0.3 {name} (current)', tmp / f'HaneSans-{name}.ttf'))
-    trials = {'ProbeMedium': (500, 52, 30, 26), 'ProbeRegular': (400, 45, 26, 18),
-              'ProbeSemi': (600, 60, 34, 34)}
-    for name, (weight, thick, thin, expand) in trials.items():
-        R.build(name, weight, thick, thin, expand)
-        out.append((f'Hane probe {name} {thick}/{thin}/{expand}', tmp / f'HaneSans-{name}.ttf'))
-    return out
+    return sum(ink) / len(ink), solid / max(1, visible)
 
 
 if __name__ == '__main__':
-    for label, path in candidates():
-        row = ' '.join(f"{s['size']}px cov {s['coverage']:.3f} solid {s['solid_share']:.2f}"
-                       for s in (stats(path, sz) for sz in SIZES))
-        print(f'{label:42} {row}')
+    for size in SIZES:
+        print(f'--- {size} px')
+        for label, path in FACES:
+            if not path.exists():
+                print(f'{label:22} ausente'); continue
+            cov, sol = stats(path, size)
+            print(f'{label:22} cobertura {cov:.4f}  sólido {sol:.2f}')
