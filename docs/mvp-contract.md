@@ -70,14 +70,27 @@ budget.
   a known name plus a bounded scope. The initial registry is `workspace.read`,
   `workspace.write`, `process.run`, and `network.request`; no capability is
   implicit, and unknown or duplicate grants are rejected. A grant whose scope
-  names a path is a plain path relative to the mission's workspace root, not a
-  glob.
+  names a path is a plain path relative to the mission's workspace root: a glob,
+  an absolute path, or a `..` climb out is refused at ingress.
+- The workspace root is a launch-time decision of the machine, never a value a
+  browser invents: `hane serve --workspace <dir>` sets the default a mission
+  falls back to, and a workspace grant with neither an explicit `workspaceRoot`
+  nor that default is refused at ingress. Path scopes stay plain relative paths
+  and a `*`, an absolute path, or a `..` in one is rejected before the run
+  starts, so a grant can never widen itself into a pattern or reach a place the
+  root does not cover.
 - `workspace.read` is executed by the orchestrator, not by the model. The
   mission carries a workspace root, and every path is resolved through a
   containment check before any file is opened: absolute paths, drive letters,
   UNC and device prefixes, `..` segments, anything outside a granted scope, and
   anything matching the secret deny-list (`.env*`, key material, credential
-  files, `.git`, `node_modules`, `outputs`, SQLite databases) are refused.
+  files, cloud and container config directories, `.git`, `node_modules`,
+  `outputs`, SQLite and Terraform state) are refused. The deny-list ignores
+  case and is applied to the resolved path as well as to the requested one, so
+  a link that lands on a secret is a refusal rather than a read. A scope whose
+  own real target sits outside the root — a link to somewhere else, or a `..`
+  that reached the resolver by another route — grants nothing at all, so the
+  root stays the ceiling even when the link itself lives inside it.
   Reads are byte-capped, line-aligned, and binary content is refused. Each read
   and each refusal is an append-only audit entry
   (`tool_read`, `tool_listing`, `tool_denied`, `tool_listing_denied`), and the

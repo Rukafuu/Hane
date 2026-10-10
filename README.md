@@ -70,7 +70,7 @@ hane missions [--db <path>]
 hane mission <id> [--db <path>] [--json]
 hane retry <id> [--provider <label>] [--max-calls N] [--db <path>] [--json]
 hane approve <id> [--provider <label>] [--max-calls N] [--db <path>] [--json]
-hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>]
+hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--workspace <dir>]
 ```
 
 The default database is `outputs/hane.sqlite`, resolved from the package root so
@@ -127,17 +127,32 @@ workspace capability without a root is refused before the run starts, and so is
 a grant written without its scope. Over HTTP the same contract is carried by
 `POST /api/missions`, which takes `workspaceRoot` plus `capabilities`.
 
+The root is a decision of the machine, not of the page: `hane serve --workspace
+<dir>` resolves a default at launch, so a browser that can only offer a folder's
+display name never has to invent a path — a mission created without
+`workspaceRoot` runs under that default, and `GET /api/workspace` reports whether
+the server owns one. A scope is a plain relative path inside that root: one that
+contains `*`, carries a drive letter or a leading `/`, or contains a `..` segment
+is rejected at the door, because a grant names one place the root covers — never
+a pattern that widens under the resolver, and never a hole punched past the
+ceiling.
+
 What stands between a grant and your disk:
 
 - Every path is required to be relative to the root. Absolute paths, drive
   letters, UNC and device prefixes, and any `..` segment are rejected.
 - A scope is a plain path, not a glob. A scope file must match exactly; a scope
-  directory must contain the candidate.
-- Secret material is denied even inside a granted scope: `.env*`, key and
-  certificate files, credential files and `.npmrc` / `.netrc` style configs,
-  `.git`, `node_modules`, `outputs`, and SQLite databases.
-- Symlinks are resolved before the containment check, so a link out of the
-  workspace reads as what it is — a refusal.
+  directory must contain the candidate. A scope whose real target lands outside
+  the root — climbed out with `..`, or a link to somewhere else — authorizes
+  nothing at all, even though the link itself sits inside the root.
+- Secret material is denied even inside a granted scope, and the deny-list
+  ignores case: `OUTPUTS/x` is as refused as `outputs/x`. It covers `.env*`, key
+  and certificate files, credential files and `.npmrc` / `.netrc` style configs,
+  `kubeconfig`, `.git`, `.ssh`, `.aws`, `.azure`, `.gcloud`, `.gnupg`, `.docker`,
+  `.kube`, `node_modules`, `outputs`, and SQLite or Terraform state files.
+- Symlinks and junctions are resolved before the containment check, and the
+  deny-list is applied to the path that actually opens — so a link inside a
+  granted directory that lands on `.git/config` is a refusal, not a read.
 - Reads are byte-capped and aligned to a line boundary, and binary content is
   refused rather than streamed into a prompt.
 - Reads and refusals are audit entries (`tool_read`, `tool_listing`,
