@@ -22,7 +22,7 @@ const REVISION_ROLES = Object.freeze(['executor', 'reviewer']);
  *           defaultWorkspaceRoot?: string | null }} dependencies
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null }) {
+export function createMissionServer({ repository, providerConfigStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null }) {
   const sseClients = new Set();
   const running = new Map();
   const heartbeat = setInterval(() => {
@@ -36,7 +36,7 @@ export function createMissionServer({ repository, providerConfigStore, credentia
   };
 
   const server = createServer((request, response) => {
-    handle({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, sseClients, broadcast, running })
+    handle({ request, response, repository, providerConfigStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, sseClients, broadcast, running })
       .catch((error) => {
         if (!response.headersSent) {
           respondJson(response, 500, { error: error instanceof Error ? error.message : 'Internal server error.' });
@@ -90,6 +90,10 @@ async function handle(context) {
 
   if (pathname === '/api/providers' && request.method === 'GET') {
     return respondJson(response, 200, { providers: context.providerConfigStore.list() });
+  }
+
+  if (pathname === '/api/skills' && request.method === 'GET') {
+    return respondJson(response, 200, { skills: context.skillStore?.list() ?? [] });
   }
 
   // The browser cannot name a path, so it asks whether this server already

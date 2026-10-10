@@ -10,9 +10,10 @@ const columns = (database, table) => database.prepare(`PRAGMA table_info(${table
 test('a fresh database holds the whole schema and records every migration', () => {
   const database = openHaneDatabase(':memory:');
 
-  assert.deepEqual(appliedIds(database), [1, 2, 3, 5]);
+  assert.deepEqual(appliedIds(database), [1, 2, 3, 5, 6]);
   assert.deepEqual(columns(database, 'task_runs'), ['id', 'objective', 'status', 'max_provider_calls', 'provider_calls', 'provider_label', 'capability_grants_json', 'workspace_root', 'max_tool_calls', 'tool_calls']);
   assert.deepEqual(columns(database, 'provider_configs'), ['label', 'base_url', 'model', 'credential_reference', 'max_tokens']);
+  assert.deepEqual(columns(database, 'installed_skills'), ['id', 'version', 'name', 'description', 'instructions', 'tags_json', 'source_path', 'content_hash', 'installed_at']);
   for (const table of ['task_outputs', 'task_audit_entries']) assert.equal(columns(database, table).length > 0, true);
   database.close();
 });
@@ -25,7 +26,7 @@ test('re-running the migrations is a no-op', () => {
   migrate(database);
   migrate(database);
 
-  assert.deepEqual(appliedIds(database), [1, 2, 3, 5]);
+  assert.deepEqual(appliedIds(database), [1, 2, 3, 5, 6]);
   assert.equal(database.prepare('SELECT COUNT(*) AS count FROM provider_configs').get().count, 1);
   database.close();
 });
@@ -67,7 +68,7 @@ test('adopts a legacy database, keeping its rows and adding the new columns', ()
 
   migrate(database);
 
-  assert.deepEqual(appliedIds(database), [1, 2, 3, 5]);
+  assert.deepEqual(appliedIds(database), [1, 2, 3, 5, 6]);
   assert.equal(database.prepare('SELECT objective FROM task_runs WHERE id = ?').get('legacy-run').objective, 'Keep me.');
   assert.ok(columns(database, 'task_runs').includes('provider_label'));
   assert.ok(columns(database, 'task_runs').includes('capability_grants_json'));
@@ -105,5 +106,5 @@ test('a failing migration rolls back and names itself', () => {
 });
 
 test('latestMigrationId reports the newest migration', () => {
-  assert.equal(latestMigrationId(), 5);
+  assert.equal(latestMigrationId(), 6);
 });

@@ -62,6 +62,23 @@ const MIGRATIONS = Object.freeze([
       'ALTER TABLE task_runs ADD COLUMN tool_calls INTEGER NOT NULL DEFAULT 0;',
     ]),
   }),
+  Object.freeze({
+    id: 6,
+    name: 'installed_local_skills',
+    statements: Object.freeze([
+      `CREATE TABLE IF NOT EXISTS installed_skills (
+        id TEXT PRIMARY KEY,
+        version TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL,
+        instructions TEXT NOT NULL,
+        tags_json TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        installed_at TEXT NOT NULL
+      ) STRICT;`,
+    ]),
+  }),
 ]);
 
 export function latestMigrationId() {

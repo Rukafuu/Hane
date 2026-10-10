@@ -5,14 +5,17 @@ import { providerAddCommand, providerListCommand, providerRemoveCommand, provide
 import { openHaneDatabase } from '../storage/sqlite-database.js';
 import { SqliteTaskRepository } from '../storage/sqlite-task-repository.js';
 import { SqliteProviderConfigStore } from '../storage/sqlite-provider-config-store.js';
+import { SqliteSkillStore } from '../storage/sqlite-skill-store.js';
 import { WindowsCredentialManager } from '../credentials/windows-credential-manager.js';
 import { createProviderFromConfig } from '../providers/provider-factory.js';
+import { skillsInstallCommand, skillsListCommand } from './manage-skills.js';
 
 export function createDefaultDependencies() {
   return {
     openDatabase: (filename) => openHaneDatabase(filename),
     createTaskRepository: (database) => new SqliteTaskRepository({ database }),
     createProviderConfigStore: (database) => new SqliteProviderConfigStore({ database }),
+    createSkillStore: (database) => new SqliteSkillStore({ database }),
     credentialManager: new WindowsCredentialManager(),
     createProvider: createProviderFromConfig,
   };
@@ -25,6 +28,8 @@ commands:
   provider list
   provider remove <label>
   provider set-secret <label>
+  skills install <directory> [--db <path>]
+  skills list [--db <path>]
   run "<objective>" [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--workspace <dir>] [--capability <name>=<scope>] [--json]
   missions [--db <path>]
   mission <id> [--db <path>] [--json]
@@ -53,6 +58,12 @@ export async function runCli({ argv = [], stdout = process.stdout, stderr = proc
           stderr.write(`error: unknown provider command "${subcommand ?? ''}".\n${USAGE}`);
           return 1;
       }
+    }
+    if (command === 'skills') {
+      if (subcommand === 'install') return await skillsInstallCommand({ args: rest, stdout, dependencies });
+      if (subcommand === 'list') return await skillsListCommand({ args: rest, stdout, dependencies });
+      stderr.write(`error: unknown skills command "${subcommand ?? ''}".\n${USAGE}`);
+      return 1;
     }
     if (command === 'run') return await runMissionCommand({ args: argv.slice(1), stdout, stderr, dependencies });
     if (command === 'missions') return await missionsCommand({ args: argv.slice(1), stdout, dependencies });

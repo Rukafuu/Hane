@@ -43,9 +43,11 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
   const database = dependencies.openDatabase(dbPath);
   const repository = dependencies.createTaskRepository(database);
   const providerConfigStore = dependencies.createProviderConfigStore(database);
+  const skillStore = dependencies.createSkillStore?.(database) ?? null;
   const server = createMissionServer({
     repository,
     providerConfigStore,
+    skillStore,
     credentialManager: dependencies.credentialManager,
     createProvider: dependencies.createProvider,
     defaultProvider: values.provider ?? null,
@@ -60,7 +62,7 @@ export async function serveMissionCommand({ args, stdout, stderr, dependencies }
   }
 
   const address = server.address();
-  stdout.write(`hane serve · http://${address.address}:${address.port}\ndb: ${dbPath}\nroutes: GET /api/missions · GET /api/missions/:id · POST /api/missions · GET /api/events · GET /api/providers · GET /api/workspace\n`);
+  stdout.write(`hane serve · http://${address.address}:${address.port}\ndb: ${dbPath}\nroutes: GET /api/missions · GET /api/missions/:id · POST /api/missions · GET /api/events · GET /api/providers · GET /api/skills · GET /api/workspace\n`);
   if (!values.provider) stdout.write('provider: auto (single configured provider)\n');
   else stdout.write(`provider: ${values.provider}\n`);
   stdout.write(`workspace: ${defaultWorkspaceRoot ?? 'no default (pass --workspace <dir>; POST /api/missions must then send workspaceRoot)'}\n`);

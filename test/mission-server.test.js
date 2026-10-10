@@ -7,6 +7,7 @@ import { createMissionServer } from '../src/server/mission-server.js';
 import { openHaneDatabase } from '../src/storage/sqlite-database.js';
 import { SqliteTaskRepository } from '../src/storage/sqlite-task-repository.js';
 import { SqliteProviderConfigStore } from '../src/storage/sqlite-provider-config-store.js';
+import { SqliteSkillStore } from '../src/storage/sqlite-skill-store.js';
 import { createProviderFromConfig } from '../src/providers/provider-factory.js';
 import { CAPABILITY } from '../src/capabilities.js';
 
@@ -34,10 +35,12 @@ function createHarness({ providerConstructor = RecordingProvider, defaultWorkspa
   const database = openHaneDatabase(':memory:');
   const repository = new SqliteTaskRepository({ database });
   const providerConfigStore = new SqliteProviderConfigStore({ database });
+  const skillStore = new SqliteSkillStore({ database });
   const credentialManager = new FakeCredentialManager();
   const server = createMissionServer({
     repository,
     providerConfigStore,
+    skillStore,
     credentialManager,
     createProvider: (options) => createProviderFromConfig({ ...options, providerConstructor }),
     defaultWorkspaceRoot,
@@ -51,6 +54,7 @@ function createHarness({ providerConstructor = RecordingProvider, defaultWorkspa
     database,
     repository,
     providerConfigStore,
+    skillStore,
     credentialManager,
     baseUrl: () => baseUrlPromise,
     close: () => new Promise((resolve) => server.close(() => resolve())),
@@ -401,6 +405,26 @@ test('GET /api/providers lists configured providers without secrets', async (t) 
   assert.equal(JSON.stringify(providers).includes('sk-test-value'), false);
 });
 
+test('GET /api/skills exposes installed local skill metadata without its instructions or source path', async (t) => {
+  const harness = createHarness();
+  t.after(() => harness.close());
+  harness.skillStore.install({
+    manifest: {
+      schemaVersion: 1, id: 'review.release-notes', version: '1.0.0', name: 'Release-note reviewer',
+      description: 'Produces a concise, evidence-first release-note review.',
+      instructions: 'Do not include this private instruction in the catalog response.', tags: ['review'],
+    },
+    sourcePath: 'C:/skills/release/skill.json', contentHash: 'b'.repeat(64), installedAt: '2026-10-10T12:00:00.000Z',
+  });
+  const response = await fetch(`${await harness.baseUrl()}/api/skills`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.skills.length, 1);
+  assert.equal(body.skills[0].id, 'review.release-notes');
+  assert.equal(JSON.stringify(body).includes('private instruction'), false);
+  assert.equal(JSON.stringify(body).includes('C:/skills'), false);
+});
+
 test('unknown routes answer 404 as JSON', async (t) => {
   const harness = createHarness();
   t.after(() => harness.close());
@@ -514,6 +538,7 @@ test('POST /cancel aborts a running provider call and preserves an auditable can
   assert.deepEqual(mission.outputs, {});
   assert.ok(mission.audit.some((entry) => entry.type === 'mission_cancelled'));
 });
+
 test('POST /api/missions carries an explicit tool budget and refuses a non-positive one', async (t) => {
   const harness = createHarness();
   t.after(() => harness.close());

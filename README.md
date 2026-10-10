@@ -20,6 +20,7 @@ scope to read. A model response alone never becomes a shell command.
 | `src/credentials/` | Windows Credential Manager bridge (PowerShell, stdin-only payload) |
 | `src/workspace-scope.js`, `src/tools/` | path containment, secret deny-list and the `workspace.read` tool |
 | `src/capabilities.js` | the capability registry and grant validation |
+| `src/skills/`, `src/storage/sqlite-skill-store.js` | data-only local skill manifests and the installed-skill catalog |
 | `src/cli/`, `bin/hane.js` | the `hane` command |
 | `src/server/mission-server.js` | loopback HTTP API + SSE events for a UI |
 | `work/mission-ui-prototype/` | UI prototype that consumes the HTTP API |
@@ -65,6 +66,8 @@ hane provider add --label <name> --base-url <url> --model <id> [--max-tokens N]
 hane provider list
 hane provider remove <label>
 hane provider set-secret <label>          # reads the secret from stdin, no echo
+hane skills install <directory> [--db <path>]
+hane skills list [--db <path>]
 hane run "<objective>" [--provider <label>] [--max-calls N] [--max-tool-calls N] [--workspace <dir>] [--capability <name>=<scope>] [--db <path>] [--json]
 hane missions [--db <path>]
 hane mission <id> [--db <path>] [--json]
@@ -76,6 +79,15 @@ hane serve [--port N] [--host <addr>] [--db <path>] [--provider <label>] [--work
 The default database is `outputs/hane.sqlite`, resolved from the package root so
 the cwd never matters. `--json` prints only the task snapshot, which makes the
 CLI pipeable.
+
+## Local skills
+
+Local skills are versioned `skill.json` instruction manifests. They are static
+data, never executable packages: installing one neither runs code nor grants
+workspace, process, or network access. The installed catalog is available to a
+local UI through `GET /api/skills`; see [`docs/local-skills.md`](docs/local-skills.md)
+for the manifest and commands. Selecting a skill for a mission remains a
+separate future step so that its prompt effect is explicit and auditable.
 
 Exit codes: `0` completed · `1` usage, configuration or credential error ·
 `2` `needs_attention` or `awaiting_approval` · `3` `failed` · `130` interrupted.
