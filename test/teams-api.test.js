@@ -72,7 +72,16 @@ test('restart preserves teams, and a linked preset execution reaches SQLite and 
   assert.equal((await h.request('/api/missions','POST',{objective:'Archived team',teamId:g.body.id})).status,400);
 });
 test('CLI creates eight-member teams, rejects ninth and persists the execution link',async t=>{
-  const dir=mkdtempSync(path.join(os.tmpdir(),'hane-team-cli-')),filename=path.join(dir,'cli.sqlite'),handles=[];t.after(()=>{for(const db of handles){try{db.close();}catch{/* the command that opened it already closed it */}}rmSync(dir,{recursive:true,force:true});});
+  const dir=mkdtempSync(path.join(os.tmpdir(),'hane-team-cli-')),filename=path.join(dir,'cli.sqlite'),handles=[];
+  t.after(async()=>{
+    for(const db of handles){try{db.close();}catch{/* the command that opened it already closed it */}}
+    // Windows keeps the -wal and -shm sidecars mapped for a moment after the last close,
+    // the same reason test/migrations.test.js retries its cleanup.
+    for(let attempt=0;attempt<8;attempt+=1){
+      try { rmSync(dir,{recursive:true,force:true}); return; }
+      catch { await new Promise(resolve=>setTimeout(resolve,60)); }
+    }
+  });
   const dependencies={...createDefaultDependencies(),openDatabase:file=>{const db=openHaneDatabase(file);handles.push(db);return db;},createProvider:async()=>provider};
   async function cli(args){let output='',error='';const code=await runCli({argv:[...args,'--db',filename,'--json'],stdout:{write:s=>output+=s},stderr:{write:s=>error+=s},dependencies});return {code,output:output?JSON.parse(output):null,error};}
   const ids=[];for(let i=0;i<9;i++){const result=await cli(['agent','add','--name','CLI Agent '+i]);assert.equal(result.code,0);ids.push(result.output.id);}
