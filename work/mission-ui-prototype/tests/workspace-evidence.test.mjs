@@ -130,6 +130,17 @@ test("names the denial reasons the core actually emits", () => {
     "denied_by_secret_policy",
     "not_found",
     "binary_content",
+    // The actor messaging gateway refuses with these, and an inbox that shows
+    // `peer_not_granted` to the user is a UI lying about a grant.
+    "sender_not_in_execution",
+    "recipient_not_in_execution",
+    "recipient_ambiguous",
+    "self_message_not_allowed",
+    "peer_not_granted",
+    "invalid_message",
+    "hop_limit_exceeded",
+    "pair_limit_exceeded",
+    "actor_inbound_limit_exceeded",
   ]) {
     assert.notEqual(denialReasonLabel(reason), reason, `${reason} needs a pt-BR phrase`);
     assert.equal(denialReasonLabel(reason).includes("_"), false, `${reason} must not leak the machine string`);
@@ -139,6 +150,7 @@ test("names the denial reasons the core actually emits", () => {
   assert.equal(denialReasonLabel("outside_granted_scope"), "fora do escopo concedido");
   assert.equal(denialReasonLabel("not_found"), "não encontrado");
   assert.equal(denialReasonLabel("binary_content"), "conteúdo binário");
+  assert.equal(denialReasonLabel("peer_not_granted"), "colega fora da concessão de mensagem");
   // Unknown reasons stay verbatim: the UI does not invent a translation.
   assert.equal(denialReasonLabel("brand_new_reason"), "brand_new_reason");
   assert.equal(denialReasonLabel(undefined), "motivo não informado");

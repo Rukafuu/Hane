@@ -92,6 +92,10 @@ export function createConversationsApi({database,agentStore,teamStore,providerCo
      const grants=assertCapabilityGrants(body.capabilities);assertEnforceableScopes(grants);
      if(body.sandbox&& !['workspace','box'].includes(body.sandbox))throw new TeamError(400,'Unknown sandbox.');
      if(grants.some(g=>g.name==='network.request'))throw new TeamError(400,'Network execution is not available.');
+     // Messaging needs the scheduler that owns an actor's mailbox, and a
+     // conversation turn has none yet: the peer would be offered a channel no
+     // runtime delivers rather than a conversation that quietly loses the message.
+     if(grants.some(g=>g.name==='team.communicate'))throw new TeamError(400,'Agent-to-agent messaging is not available in a conversation turn yet.');
      if(body.sandbox!=='box'&&grants.some(g=>g.name!=='workspace.read'))throw new TeamError(400,'Writes and commands require the Hane box.');
      if(body.sandbox!=='box'&&grants.length&&!defaultWorkspaceRoot)throw new TeamError(400,'No server workspace is authorized.');
      for(const g of grants)if(!agents.some(a=>a.capabilities.includes(g.name)))throw new TeamError(403,'No selected participant is authorized for '+g.name+'.');

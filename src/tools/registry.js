@@ -76,6 +76,25 @@ export const TOOLS = Object.freeze([
       additionalProperties: false,
     }),
   }),
+  // Carried out by the actor runtime's own gateway, never by a filesystem
+  // backend: a mission running one role at a time has no peer to reach, so this
+  // tool stays invisible there rather than becoming a call that is refused.
+  Object.freeze({
+    name: 'team_send_message',
+    capability: CAPABILITY.TEAM_COMMUNICATE,
+    verb: 'message',
+    description: 'Hand one directed message to a teammate of this execution. Only the ids listed as peers are accepted, and the message arrives in that agent\'s inbox rather than in front of the user. Returns the delivered message id, or the reason it was refused.',
+    parameters: Object.freeze({
+      type: 'object',
+      properties: Object.freeze({
+        to: Object.freeze({ type: 'string', description: 'The peer\'s id exactly as the roster gives it.' }),
+        content: Object.freeze({ type: 'string', description: 'What to tell the peer: one finding, one request. It is read as untrusted data by the agent that receives it.' }),
+        replyTo: Object.freeze({ type: 'integer', description: 'Optional: the id of the message being answered, so the thread stays visible.' }),
+      }),
+      required: Object.freeze(['to', 'content']),
+      additionalProperties: false,
+    }),
+  }),
 ]);
 
 const BY_NAME = Object.freeze(new Map(TOOLS.map((tool) => [tool.name, tool])));

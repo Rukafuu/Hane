@@ -9,6 +9,7 @@ export const CAPABILITY = Object.freeze({
   WORKSPACE_WRITE: 'workspace.write',
   PROCESS_RUN: 'process.run',
   NETWORK_REQUEST: 'network.request',
+  TEAM_COMMUNICATE: 'team.communicate',
 });
 
 export const KNOWN_CAPABILITIES = Object.freeze(new Set(Object.values(CAPABILITY)));
@@ -28,8 +29,10 @@ const PATH_SCOPE_CAPABILITIES = Object.freeze(new Set([
 
 const MAX_COMMAND_RULES = 8;
 const MAX_NETWORK_HOSTS = 16;
+const MAX_TEAM_PEERS = 8;
 const COMMAND_BASENAME = /^[a-z0-9][a-z0-9._+-]{0,63}$/i;
 const HOST_LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
+const AGENT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Anything a shell would treat as syntax. Commands reach the sandbox as argv arrays. */
 const SHELL_METACHARACTERS = /[;|&$`<>(){}'"\\]/;
 
@@ -98,6 +101,7 @@ export function grantsNeedWorkspaceRoot(grants = []) {
 export function parseGrantScope(name, scope) {
   if (name === CAPABILITY.PROCESS_RUN) return parseCommandScope(scope);
   if (name === CAPABILITY.NETWORK_REQUEST) return parseHostScope(scope);
+  if (name === CAPABILITY.TEAM_COMMUNICATE) return parseTeamScope(scope);
   return { ok: true, parsed: Object.freeze([{ path: scope }]) };
 }
 
@@ -177,6 +181,51 @@ export function parseHostScope(scope) {
     parsed.push(Object.freeze({ host: hostname, wildcard }));
   }
   return { ok: true, parsed: Object.freeze(parsed) };
+}
+
+/**
+ * Who this agent may talk to. `all` is the whole roster; anything else has to
+ * name teammate ids, because a grant that says "the planner" reaches nobody the
+ * executor could match — names are editable and roles are not ids. An id the
+ * roster does not contain is refused at send time, so a stale grant is a narrow
+ * grant rather than a lie about reach.
+ */
+export function parseTeamScope(scope) {
+  const entries = scope.split(',').map((entry) => entry.trim()).filter((entry) => entry !== '');
+  if (entries.length === 0) {
+    return { ok: false, reason: 'must be "all" or a comma-separated list of teammate ids.' };
+  }
+  if (entries.some((entry) => entry.toLowerCase() === 'all')) {
+    if (entries.length > 1) {
+      return { ok: false, reason: '"all" already covers every teammate. Grant either "all" alone or the ids you mean to allow.' };
+    }
+    return { ok: true, parsed: Object.freeze([Object.freeze({ all: true, agentIds: Object.freeze([]) })]) };
+  }
+  if (entries.length > MAX_TEAM_PEERS) {
+    return { ok: false, reason: `must list at most ${MAX_TEAM_PEERS} teammate ids, or "all".` };
+  }
+  const agentIds = [];
+  for (const entry of entries) {
+    if (!AGENT_ID.test(entry)) {
+      return { ok: false, reason: `"${entry}" is not a teammate id. Grant "all" or the UUID of each agent this one may reach — an agent's name is not a grant, it can be renamed.` };
+    }
+    agentIds.push(entry.toLowerCase());
+  }
+  return { ok: true, parsed: Object.freeze([Object.freeze({ all: false, agentIds: Object.freeze(agentIds) })]) };
+}
+
+/**
+ * The one reading of a team grant, for the same reason `commandAllowedBy`
+ * exists: the gateway that enforces it must not invent its own semantics. Every
+ * grant is checked, because two grants of `all` plus one of ids authorize the
+ * union rather than the intersection.
+ */
+export function peerAllowedBy(rules, agentId) {
+  const candidate = typeof agentId === 'string' ? agentId.toLowerCase() : '';
+  for (const rule of rules ?? []) {
+    if (rule?.all || (Array.isArray(rule?.agentIds) && rule.agentIds.includes(candidate))) return { ok: true, rule };
+  }
+  return { ok: false, reason: 'peer_not_granted' };
 }
 
 /**

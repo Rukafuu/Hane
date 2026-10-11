@@ -7,6 +7,16 @@ const RESUMABLE_STATUSES = Object.freeze([TASK_STATUS.PLANNED, TASK_STATUS.EXECU
 export const DEFAULT_MAX_TOOL_CALLS = 24;
 
 /**
+ * One actor's share of the mission's provider budget. The mission-level ceiling
+ * stays the real limit — this is the second one, for the case a group of agents
+ * working at the same time creates: one teammate spending the whole run on its
+ * own reading while the others never get a turn.
+ */
+export const DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR = 6;
+
+export const EXECUTION_MODES = Object.freeze(['sequential', 'actor']);
+
+/**
  * Three roles plus the turns a looped role can spend. A tool turn is a provider
  * call, so a mission whose executor reads four files costs eight calls, not one:
  * the budget has to be the real spend or it stops meaning anything.
@@ -28,17 +38,21 @@ const TRANSITIONS = Object.freeze({
 export class TaskRun {
   #calls = 0;
   #toolCalls = 0;
+  #actorCalls = new Map();
 
-  constructor({ id, objective, teamId = null, executionPlan = null, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = DEFAULT_MAX_TOOL_CALLS, now = () => new Date().toISOString() }) {
+  constructor({ id, objective, teamId = null, executionPlan = null, mode = 'sequential', maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, maxProviderCallsPerActor = DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = DEFAULT_MAX_TOOL_CALLS, now = () => new Date().toISOString() }) {
     if (typeof id !== 'string' || id.length === 0) throw new TypeError('id is required.');
+    if (!EXECUTION_MODES.includes(mode)) throw new TypeError(`mode must be one of ${EXECUTION_MODES.join(', ')}.`);
     if (providerLabel !== null && (typeof providerLabel !== 'string' || providerLabel.trim().length === 0)) {
       throw new TypeError('providerLabel must be a non-empty string or null.');
     }
     this.teamId = teamId === null ? null : assertId(teamId,'teamId');
     this.executionPlan = executionPlan === null ? null : assertExecutionPlan(executionPlan,this.teamId);
     this.id = id;
+    this.mode = mode;
     this.objective = assertObjective(objective);
     this.maxProviderCalls = assertPositiveInteger(maxProviderCalls, 'maxProviderCalls');
+    this.maxProviderCallsPerActor = assertPositiveInteger(maxProviderCallsPerActor, 'maxProviderCallsPerActor');
     this.providerLabel = providerLabel;
     this.capabilityGrants = assertCapabilityGrants(capabilityGrants);
     this.workspaceRoot = assertWorkspaceRoot(workspaceRoot);
@@ -50,6 +64,10 @@ export class TaskRun {
     this.record('task_created', {
       ...(this.teamId ? { teamId: this.teamId } : {}),
       ...(this.executionPlan ? { executionMode: 'team-preset' } : {}),
+      // A sequential ledger has no per-actor share to report, and a mission that
+      // is both a Team preset and actor-run says both rather than one overwriting
+      // the other.
+      ...(this.mode === 'sequential' ? {} : { mode: this.mode, maxProviderCallsPerActor: this.maxProviderCallsPerActor }),
       objective: this.objective,
       maxProviderCalls: this.maxProviderCalls,
       providerLabel,
@@ -63,20 +81,28 @@ export class TaskRun {
 
   get toolCalls() { return this.#toolCalls; }
 
+  /** What each actor has spent so far — the number a scheduler reads before waking another. */
+  actorCalls() {
+    return Object.freeze([...this.#actorCalls.entries()].map(([agentId, providerCalls]) => ({ agentId, providerCalls })));
+  }
+
   snapshot() {
     return Object.freeze({
       id: this.id,
       ...(this.teamId ? { teamId: this.teamId } : {}),
       objective: this.objective,
       status: this.status,
+      mode: this.mode,
       ...(this.executionPlan ? {executionPlan:this.executionPlan} : {}),
       maxProviderCalls: this.maxProviderCalls,
+      maxProviderCallsPerActor: this.maxProviderCallsPerActor,
       providerCalls: this.#calls,
       providerLabel: this.providerLabel,
       capabilityGrants: Object.freeze(this.capabilityGrants.map((grant) => ({ ...grant }))),
       workspaceRoot: this.workspaceRoot,
       maxToolCalls: this.maxToolCalls,
       toolCalls: this.#toolCalls,
+      actors: this.actorCalls(),
       outputs: Object.freeze({ ...this.outputs }),
       audit: Object.freeze(this.audit.map((entry) => ({ ...entry, detail: { ...entry.detail } }))),
     });
@@ -97,21 +123,46 @@ export class TaskRun {
     this.record('state_changed', { previousStatus, nextStatus });
   }
 
-  reserveProviderCall(role) {
-    if (!ROLE_SEQUENCE.includes(role)) throw new TypeError(`Unknown role: ${role}`);
+  /**
+   * Buys one provider call. `agentId` is how an actor mission spends: the
+   * mission counter stays the global ceiling and the per-actor counter is the
+   * fairness bound under it. A sequential role keeps the old shape exactly —
+   * same unknown-role refusal, same audit line — because that ledger is what a
+   * stored mission is resumed against.
+   */
+  reserveProviderCall(role, agentId = null) {
+    if (agentId === null) {
+      if (!ROLE_SEQUENCE.includes(role)) throw new TypeError(`Unknown role: ${role}`);
+    } else if (typeof agentId !== 'string' || agentId.trim() === '' || agentId.length > 128 || /[\r\n\0]/.test(agentId)) {
+      throw new TypeError('an actor reservation needs a single-line agentId of at most 128 characters.');
+    }
+    const tag = agentId === null ? {} : { agentId };
     if (this.#calls >= this.maxProviderCalls) {
-      this.record('budget_exhausted', { role, maxProviderCalls: this.maxProviderCalls });
+      this.record('budget_exhausted', { role, ...tag, maxProviderCalls: this.maxProviderCalls });
+      return false;
+    }
+    if (agentId !== null && (this.#actorCalls.get(agentId) ?? 0) >= this.maxProviderCallsPerActor) {
+      this.record('actor_budget_exhausted', { role, agentId, maxProviderCallsPerActor: this.maxProviderCallsPerActor });
       return false;
     }
     this.#calls += 1;
-    this.record('provider_call_reserved', { role, providerCall: this.#calls });
+    if (agentId !== null) this.#actorCalls.set(agentId, (this.#actorCalls.get(agentId) ?? 0) + 1);
+    this.record('provider_call_reserved', { role, ...tag, providerCall: this.#calls });
     return true;
   }
 
-  reserveToolCall(role) {
-    if (!ROLE_SEQUENCE.includes(role)) throw new TypeError(`Unknown role: ${role}`);
+  /**
+   * Tools are spent against the mission counter only: an actor that reads fifty
+   * files still costs the group one budget, which is the number the user set.
+   */
+  reserveToolCall(role, agentId = null) {
+    if (agentId === null) {
+      if (!ROLE_SEQUENCE.includes(role)) throw new TypeError(`Unknown role: ${role}`);
+    } else if (typeof agentId !== 'string' || agentId.trim() === '') {
+      throw new TypeError('an actor reservation needs an agentId.');
+    }
     if (this.#toolCalls >= this.maxToolCalls) {
-      this.record('tool_budget_exhausted', { role, maxToolCalls: this.maxToolCalls });
+      this.record('tool_budget_exhausted', { role, ...(agentId === null ? {} : { agentId }), maxToolCalls: this.maxToolCalls });
       return false;
     }
     this.#toolCalls += 1;
@@ -167,8 +218,10 @@ export class TaskRun {
       id: snapshot.id,
       teamId: snapshot.teamId ?? null,
       executionPlan: snapshot.executionPlan ?? null,
+      mode: snapshot.mode ?? 'sequential',
       objective: snapshot.objective,
       maxProviderCalls: snapshot.maxProviderCalls,
+      maxProviderCallsPerActor: snapshot.maxProviderCallsPerActor ?? DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR,
       providerLabel: snapshot.providerLabel ?? null,
       capabilityGrants: snapshot.capabilityGrants ?? [],
       workspaceRoot: snapshot.workspaceRoot ?? null,
@@ -189,8 +242,35 @@ export class TaskRun {
     task.#toolCalls = snapshot.toolCalls;
     task.outputs = { ...snapshot.outputs };
     task.audit = snapshot.audit.map((entry) => Object.freeze({ ...entry, detail: Object.freeze({ ...entry.detail }) }));
+    task.#actorCalls = actorCallsFrom(snapshot, task.audit);
     return task;
   }
+}
+
+/**
+ * A resumed actor mission must not get a fresh allowance for work it already
+ * paid for. The snapshot carries the per-actor counts, and a mission rebuilt
+ * from SQLite — which stores the trail but not that field — is read back out of
+ * the trail itself, one `provider_call_reserved` per call spent.
+ */
+function actorCallsFrom(snapshot, audit) {
+  if (Array.isArray(snapshot.actors)) {
+    const counts = new Map();
+    for (const actor of snapshot.actors) {
+      if (typeof actor?.agentId !== 'string' || actor.agentId === '') throw new TypeError('snapshot.actors entries need an agentId.');
+      if (!Number.isInteger(actor.providerCalls) || actor.providerCalls < 0) throw new TypeError('snapshot.actors providerCalls must be a non-negative integer.');
+      counts.set(actor.agentId, actor.providerCalls);
+    }
+    return counts;
+  }
+  const counts = new Map();
+  for (const entry of audit) {
+    const agentId = entry?.detail?.agentId;
+    if (typeof agentId === 'string' && agentId !== '' && entry?.type === 'provider_call_reserved') {
+      counts.set(agentId, (counts.get(agentId) ?? 0) + 1);
+    }
+  }
+  return counts;
 }
 
 /**

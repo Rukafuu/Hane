@@ -15,6 +15,7 @@ const CAPABILITIES = [
  ['workspace.read','Ler arquivos','Consultar arquivos que você anexar ou autorizar.'],
  ['workspace.write','Escrever arquivos','Alterar arquivos dentro da caixa Linux autorizada.'],
  ['process.run','Executar código','Rodar comandos dentro da caixa Linux autorizada.'],
+ ['team.communicate','Falar com o Team','Enviar mensagens a um colega durante uma execução em atores.'],
 ];
 function readDataUrl(file) {
  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Não foi possível ler esse arquivo. Tente novamente.'));reader.onabort=()=>reject(new Error('Leitura cancelada.'));reader.readAsDataURL(file);});
@@ -75,7 +76,7 @@ export default function AgentEditor({draft, onChange, onSave, onCancel, existing
      <p>Documentos ajudam a dar contexto. Eles não liberam ferramentas nem substituem suas orientações.</p>
     </div></details>
     <details className="studio-extra"><summary><ShieldCheck/><span>Acessos e participação<small>Capacidades do perfil; acesso real exige autorização.</small><span className="studio-access-summary"><span>{hasAccess("workspace.read")?"Leitura: pode solicitar":"Leitura: desativada"}</span><span>{hasAccess("workspace.write")?"Escrita: pode solicitar":"Escrita: desativada"}</span><span>{hasAccess("process.run")?"Código: pode solicitar":"Código: desativado"}</span><span>Rede: indisponível</span></span></span></summary><div>
-     {CAPABILITIES.map(([name,label,detail])=><label className="studio-capability" key={name}><input type="checkbox" checked={draft.capabilities?.includes(name)||false} onChange={e=>patch({capabilities:e.target.checked?[...(draft.capabilities||[]),name]:(draft.capabilities||[]).filter(v=>v!==name)})}/><span><strong>{label}</strong><small>{detail}</small>{name!=="workspace.read"&&<em className="studio-access-risk">Altera arquivos ou executa comandos · desativado em novos agentes</em>}</span></label>)}
+     {CAPABILITIES.map(([name,label,detail])=><label className="studio-capability" key={name}><input type="checkbox" checked={draft.capabilities?.includes(name)||false} onChange={e=>patch({capabilities:e.target.checked?[...(draft.capabilities||[]),name]:(draft.capabilities||[]).filter(v=>v!==name)})}/><span><strong>{label}</strong><small>{detail}</small>{name!=="workspace.read"&&name!=="team.communicate"&&<em className="studio-access-risk">Altera arquivos ou executa comandos · desativado em novos agentes</em>}</span></label>)}
      <p className="studio-access-environment"><strong>Ambiente de execução: </strong>caixa Linux, quando disponível e escolhida para a execução. Nenhum ambiente ou pasta é autorizado ao salvar este perfil.</p><p>Capacidades não liberam acesso sozinhas: cada execução precisa da sua autorização. Escrita e código dependem da caixa Linux. Rede não está disponível.</p>
      <label className="studio-capability"><input type="checkbox" checked={Boolean(draft.exclusive)} onChange={e=>patch({exclusive:e.target.checked})}/><span><strong>Participar de um único grupo</strong><small>Desmarcado, ele pode colaborar em diferentes grupos.</small></span></label>
     </div></details>

@@ -49,6 +49,17 @@ export const DENIAL_REASON_LABELS = Object.freeze({
   read_failed: "falha ao ler",
   list_failed: "falha ao listar",
   capability_not_available: "sem executor nesta máquina",
+  // The messaging gateway's refusals: a peer message is denied by the roster and
+  // the grant, and the user reads which of the two stopped it.
+  sender_not_in_execution: "este agente não integra mais a execução",
+  recipient_not_in_execution: "o destinatário não integra a execução",
+  recipient_ambiguous: "dois colegas compartilham esse nome",
+  self_message_not_allowed: "o agente não pode falar consigo mesmo",
+  peer_not_granted: "colega fora da concessão de mensagem",
+  invalid_message: "mensagem inválida",
+  hop_limit_exceeded: "a cadeia de respostas atingiu o limite",
+  pair_limit_exceeded: "este colega já enviou mensagens demais para o mesmo destino",
+  actor_inbound_limit_exceeded: "o destinatário já absorveu mensagens demais",
 });
 
 /** An unknown reason is shown verbatim rather than translated into a guess. */

@@ -11,7 +11,7 @@
  */
 
 /** The full verb set. A backend implements the verbs it can actually carry out. */
-export const SANDBOX_METHODS = Object.freeze(['read', 'list', 'write', 'run', 'fetch', 'snapshotWorkdir']);
+export const SANDBOX_METHODS = Object.freeze(['read', 'list', 'write', 'run', 'fetch', 'snapshotWorkdir', 'message']);
 
 /**
  * Every token a backend may answer with. The UI translates these and shows an
@@ -41,6 +41,18 @@ export const SANDBOX_DENIAL_REASONS = Object.freeze([
   'write_failed',
   'content_too_large',
   'invalid_content',
+  // The actor messaging gateway's refusals. A peer the execution does not have,
+  // a name two teammates share, and the three delivery limits are all facts about
+  // this run rather than a filesystem path the model got wrong.
+  'sender_not_in_execution',
+  'recipient_not_in_execution',
+  'recipient_ambiguous',
+  'self_message_not_allowed',
+  'peer_not_granted',
+  'invalid_message',
+  'hop_limit_exceeded',
+  'pair_limit_exceeded',
+  'actor_inbound_limit_exceeded',
 ]);
 
 export function denial(reason, details = {}) {
@@ -66,7 +78,7 @@ function isOutcome(candidate) {
 /**
  * @param {{ id: string, root?: string|null, available?: boolean }} identity and
  * the verbs this backend actually carries out, keyed by `SANDBOX_METHODS`.
- * @returns a frozen sandbox exposing all six verbs.
+ * @returns a frozen sandbox exposing every published verb.
  */
 export function defineSandbox({ id, root = null, available = true, ...implementations }) {
   if (typeof id !== 'string' || id.trim() === '') throw new TypeError('a sandbox needs an id.');
