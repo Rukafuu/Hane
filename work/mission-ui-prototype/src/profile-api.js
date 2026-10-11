@@ -1,7 +1,16 @@
 const MUTATION_HEADERS = { 'content-type':'application/json', 'x-hane-request':'1' };
 async function result(response) {
-  const data = await response.json();
-  if (!response.ok) { const error = new Error(data.error || 'Não foi possível acessar seu perfil local.'); error.status = response.status; throw error; }
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch { /* A stopped backend can leave an empty proxy response. */ }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    const error = new Error(response.ok
+      ? 'The local Hane server returned an invalid response. Check the server before trying again.'
+      : 'The local Hane server is unavailable. Check that it is running, then try again.');
+    error.status = response.status;
+    throw error;
+  }
+  if (!response.ok) { const error = new Error(data.error || 'Unable to access your local profile.'); error.status = response.status; throw error; }
   return data;
 }
 const send = (route,body,method='POST') => fetch(`/api/profile${route}`,{method,headers:MUTATION_HEADERS,body:JSON.stringify(body),credentials:'same-origin',cache:'no-store'}).then(result);
