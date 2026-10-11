@@ -77,8 +77,12 @@ export class SqliteTaskRepository {
   }
 
   list() {
+    // `mode` is the only actor fact this row carries: a client decides from it
+    // whether to ask for the crew, the board or the inbox. The per-actor share
+    // stays out — the list is headers only, and a snapshot that omitted it would
+    // read as 6 on a mission the user authorized at 3.
     return this.database.prepare(`
-      SELECT r.id, r.objective, r.status, r.team_id AS teamId, r.execution_plan_json AS planJson,
+      SELECT r.id, r.objective, r.status, r.mode, r.team_id AS teamId, r.execution_plan_json AS planJson,
              r.max_provider_calls AS maxProviderCalls,
              r.provider_calls AS providerCalls,
              COALESCE(MAX(a.at), '') AS updatedAt

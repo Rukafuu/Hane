@@ -166,3 +166,109 @@ export function evidenceRows(mission) {
     .map((entry, index) => (EVIDENCE_TYPES.has(entry?.type) ? rowFor(entry, index) : null))
     .filter((row) => row !== null);
 }
+
+/**
+ * A concurrent run has its own work list, so the interface shows as many points
+ * as there are tasks rather than a fixed three-step band. The payload is the
+ * server's `GET /api/missions/:id/actors`: who was booked, what they hold, and
+ * the note the scheduler wrote when a task stopped for a reason.
+ */
+export const ACTOR_TASK_STATUS_LABELS = Object.freeze({
+  pending: "na fila",
+  ready: "pronta",
+  running: "em execução",
+  completed: "concluída",
+  failed: "falhou",
+  blocked: "bloqueada",
+});
+
+export const actorTaskStatusLabel = (status) => ACTOR_TASK_STATUS_LABELS[status] ?? status;
+
+export function actorWorkPoints(actorsPayload) {
+  const actors = Array.isArray(actorsPayload?.actors) ? actorsPayload.actors : [];
+  return actors.flatMap((actor) => (Array.isArray(actor?.tasks) ? actor.tasks.map((task) => ({
+    id: `${actor.agentId}:${task.id}`,
+    taskId: task.id,
+    title: task.title,
+    status: task.status,
+    label: actorTaskStatusLabel(task.status),
+    agentId: actor.agentId,
+    agentName: actor.name,
+    note: typeof task.note === "string" && task.note !== "" ? task.note : null,
+    attempts: Number.isInteger(task.attempts) ? task.attempts : null,
+  })) : []));
+}
+
+/** How many teammates hold a task at the instant the payload was read. */
+export function activeActorCount(actorsPayload) {
+  return actorWorkPoints(actorsPayload).filter((point) => point.status === "running").length;
+}
+
+export function activeActorsLabel(count) {
+  if (!Number.isInteger(count) || count <= 0) return null;
+  return count === 1 ? "1 ator ativo" : `${count} atores ativos`;
+}
+
+const ACTOR_TRAIL_TYPES = new Set([
+  "actor_started",
+  "actor_task_completed",
+  "actor_stopped",
+  "actor_refused",
+  "actor_message",
+  "actor_state_committed",
+]);
+
+// Same two shapes as the avatars read: a live broadcast flattens its payload,
+// a stored trail row nests it under `payload`.
+const trailData = (event) => (event?.payload !== null && typeof event?.payload === "object" ? event.payload : event ?? {});
+
+const trailText = (value) => (typeof value === "string" && value !== "" ? value : null);
+
+/**
+ * The live computer for an actor run, built from the mission's own event trail:
+ * one row per thing a teammate did, in the order the server wrote it. There is
+ * no row here for a mission that said nothing, which is the point — a run that
+ * is idle reads as idle.
+ * @param {readonly object[]} events `GET /api/mission-events` rows or live SSE events
+ */
+export function actorEvidenceRows(events = []) {
+  if (!Array.isArray(events)) return [];
+  return events
+    .slice()
+    .sort((left, right) => (left?.ordinal ?? 0) - (right?.ordinal ?? 0))
+    .map((event) => {
+      if (!ACTOR_TRAIL_TYPES.has(event?.type)) return null;
+      const data = trailData(event);
+      const base = {
+        id: `${event.ordinal ?? "trail"}-${event.type}-${event.actorId ?? "mission"}`,
+        ordinal: Number.isInteger(event.ordinal) ? event.ordinal : null,
+        at: trailText(event.createdAt) ?? trailText(data.at) ?? null,
+        agentId: trailText(event.actorId),
+        type: event.type,
+      };
+
+      if (event.type === "actor_started") {
+        return { ...base, kind: "task", label: "começou", text: trailText(data.title) ?? trailText(data.taskId), meta: Number.isInteger(data.attempts) && data.attempts > 1 ? `${data.attempts}ª tentativa` : null };
+      }
+      if (event.type === "actor_task_completed") {
+        const characters = Number.isFinite(data.characters) ? data.characters : null;
+        return { ...base, kind: "done", label: "concluiu", text: trailText(data.resultKey) ?? trailText(data.taskId), meta: characters === null ? null : `${characters} caracteres`, marker: data.stateConflict ? "conflito de estado" : null };
+      }
+      if (event.type === "actor_stopped") {
+        return { ...base, kind: data.status === "failed" ? "error" : "stopped", label: data.status === "failed" ? "falhou" : "parou", text: trailText(data.taskId), meta: denialReasonLabel(trailText(data.reason) ?? "motivo não informado") };
+      }
+      if (event.type === "actor_refused") {
+        const tasks = Array.isArray(data.tasks) ? data.tasks.filter((id) => typeof id === "string") : [];
+        return { ...base, kind: "denied", label: "recusado", text: tasks.length > 0 ? tasks.join(", ") : trailText(data.taskId), meta: denialReasonLabel(trailText(data.reason) ?? "motivo não informado") };
+      }
+      if (event.type === "actor_state_committed") {
+        const revision = Number.isInteger(data.revision) ? data.revision : null;
+        return { ...base, kind: "state", label: "estado escrito", text: trailText(data.key), meta: revision === null ? null : `revisão ${revision}` };
+      }
+      // A message row says that a teammate talked to a teammate. The body stays out
+      // of the work strip on purpose: it is in the inbox, where the user can read it
+      // with a sender and a delivery status, not as decoration.
+      return { ...base, kind: "message", label: "mensagem", text: `${trailText(data.fromAgentId) ?? "?"} → ${trailText(data.toAgentId) ?? "?"}`, meta: data.priority === "high" ? "urgente" : null };
+    })
+    .filter((row) => row !== null);
+}

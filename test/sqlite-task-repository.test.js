@@ -175,7 +175,7 @@ test('lists missions most recently active first without loading bodies', async (
 
   const missions = repository.list();
   assert.deepEqual(missions.map((mission) => mission.id), ['newer-run', 'older-run']);
-  assert.deepEqual(Object.keys(missions[0]), ['id', 'objective', 'status', 'maxProviderCalls', 'providerCalls', 'updatedAt']);
+  assert.deepEqual(Object.keys(missions[0]), ['id', 'objective', 'status', 'mode', 'maxProviderCalls', 'providerCalls', 'updatedAt']);
   assert.equal(missions[0].status, 'completed');
   assert.equal(missions[0].providerCalls, 3);
   assert.match(missions[0].updatedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -197,6 +197,22 @@ test('a tie on the activity timestamp lists the mission created later first', ()
   // The ids are deliberately reverse-alphabetical to the insert order: sorting the tie
   // by id would put the older mission first.
   assert.deepEqual(repository.list().map((mission) => mission.id), ['aaa-created-second', 'zzz-created-first']);
+  repository.close();
+});
+
+test('the mission list says which run works in actors', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const crew = new TaskRun({ id: 'crew-run', objective: 'Três mãos ao mesmo tempo.', mode: 'actor', maxProviderCalls: 24, maxProviderCallsPerActor: 6 });
+  crew.transition('planned');
+  repository.save(crew.snapshot());
+  const plain = new TaskRun({ id: 'plain-run', objective: 'Uma rodada atrás da outra.' });
+  plain.transition('planned');
+  repository.save(plain.snapshot());
+
+  const byId = Object.fromEntries(repository.list().map((mission) => [mission.id, mission]));
+  assert.equal(byId['crew-run'].mode, 'actor');
+  assert.equal(byId['plain-run'].mode, 'sequential', 'a run listed without ever saying a mode is still sequential');
+  assert.equal('maxProviderCallsPerActor' in byId['crew-run'], false, 'the bodies stay out of the list, budget shares included');
   repository.close();
 });
 
