@@ -145,7 +145,7 @@ export function HaneAvatar({ agentId, name, shape = "petal", color = "#c9b7d9", 
     {image ? <img className="hane-avatar__image" src={image} alt="" /> : null}
     <svg viewBox="0 0 100 100" role="img" aria-hidden="true" focusable="false">
       <defs><radialGradient id={gradientId} cx="35%" cy="25%" r="80%"><stop offset="0" stopColor="#fffdfd"/><stop offset=".65" stopColor={color}/><stop offset="1" stopColor="#edc8d9"/></radialGradient></defs>
-      <g ref={bodyRef}><path ref={pathRef} d={contour(shape, 0, 0)} fill={garden ? `url(#${gradientId})` : color} /><path d={contour(shape, -0.03, 0)} fill="none" stroke="white" strokeOpacity=".32" strokeWidth="1" /></g>
+      <g ref={bodyRef}><path ref={pathRef} d={contour(shape, 0, 0)} fill={garden ? `url(#${gradientId})` : color} /></g>
       <g ref={eyesRef}><g ref={blinkRef} className="hane-avatar__eyes"><ellipse cx="40" cy="49" rx="4.5" ry="6.5"/><ellipse cx="60" cy="49" rx="4.5" ry="6.5"/></g>{state === "blocked" && <path className="hane-avatar__signal" d="M72 22 L72 31 M67.5 26.5 L76.5 26.5" />}</g>
     </svg>
   </Shell>;

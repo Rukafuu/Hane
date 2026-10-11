@@ -1,11 +1,11 @@
 /* Procedural transforms are owned by motion.js / the existing Avatar Engine. */
 .hane-garden{position:relative;width:320px;height:270px;max-width:100%;isolation:isolate;flex-shrink:0;align-self:center;color:#795366}
 .garden-halo{position:absolute;inset:18% 9%;border-radius:50%;background:radial-gradient(ellipse,#fffbfd99,transparent 68%);filter:blur(12px);pointer-events:none}
-.profile-stage .garden-mascot{position:absolute;left:70px;top:43px;width:180px;height:180px;padding:0!important;border:0!important;border-radius:50%!important;background:transparent!important;z-index:2;filter:drop-shadow(0 20px 20px #a7617b18);touch-action:none;user-select:none;cursor:grab;transform-origin:90px 90px}.garden-mascot:active{cursor:grabbing}.garden-mascot>.hane-avatar{position:absolute;left:-35px;top:-35px;pointer-events:none}
+:is(.profile-stage,.workspace-welcome-avatar) .garden-mascot{position:absolute;left:70px;top:43px;width:180px;height:180px;padding:0!important;border:0!important;border-radius:50%!important;background:transparent!important;z-index:2;filter:drop-shadow(0 20px 20px #a7617b18);touch-action:none;user-select:none;cursor:grab;transform-origin:90px 90px}.garden-mascot:active{cursor:grabbing}.garden-mascot>.hane-avatar{position:absolute;left:-35px;top:-35px;pointer-events:none}
 .garden-mascot .hane-avatar__eyes{fill:#805668}
 .garden-mascot .hane-avatar__eyes ellipse{rx:2.5px;ry:4px}
 .garden-orbit{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;fill:none;stroke:#bd79994d;stroke-width:.8}
-.profile-stage .garden-orb{position:absolute;left:0;top:0;width:44px;height:44px;border:0!important;padding:0!important;border-radius:50%!important;background:transparent!important;touch-action:none;user-select:none;cursor:grab;color:inherit;z-index:5;will-change:transform;transform:translate(257px,178px) translate(-50%,-50%)}
+:is(.profile-stage,.workspace-welcome-avatar) .garden-orb{position:absolute;left:0;top:0;width:44px;height:44px;border:0!important;padding:0!important;border-radius:50%!important;background:transparent!important;touch-action:none;user-select:none;cursor:grab;color:inherit;z-index:5;will-change:transform;transform:translate(257px,178px) translate(-50%,-50%)}
 .garden-orb:active{cursor:grabbing}.garden-orb>span{display:block;width:36px;height:36px;margin:4px;border-radius:50%;background:radial-gradient(circle at 30% 25%,#eba0bb,#cf6d93 75%);box-shadow:inset -4px -5px 0 #b4587d20,0 8px 18px #a95e8225}
 .garden-feather{position:absolute;width:58px;height:58px;top:60px;left:85px;z-index:7;opacity:0;pointer-events:none;fill:#fff9fc;stroke:#c87598;stroke-width:1.2}
 .garden-kanji{position:absolute;right:38px;top:34px;font-family:serif;font-size:28px;color:#a25276;opacity:0;pointer-events:none}

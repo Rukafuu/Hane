@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, PaperPlaneRight, GearSix } from '@phosphor-icons/react';
 import { HaneAvatar } from './HaneAvatar.jsx';
 import { libraryRequest } from './library-api.js';
-export default function AgentConversation({agent,group,library,providers,onEditAgent,onEditGroup,personalProfile,serverWorkspace,onStartExecution}) {
+export default function AgentConversation({agent,group,library,providers,onEditAgent,onEditGroup,personalProfile,serverWorkspace,onStartExecution,preferredProvider,onProviderChange}) {
  const participants=group?library.agents.filter(a=>group.members.includes(a.id)):[agent];
  const [conversations,setConversations]=useState([]),[selected,setSelected]=useState(null),[conversation,setConversation]=useState(null);
  const [draft,setDraft]=useState(''),[error,setError]=useState(''),[sending,setSending]=useState(false),[recipient,setRecipient]=useState('');
- const [provider,setProvider]=useState(''),[grants,setGrants]=useState([]),[sandbox,setSandbox]=useState('workspace'),[maxCalls,setMaxCalls]=useState('');
+ const [grants,setGrants]=useState([]),[sandbox,setSandbox]=useState('workspace'),[maxCalls,setMaxCalls]=useState('');
+ const provider=preferredProvider||'';
  const messagesRef=useRef(null),busy=conversation?.turns.some(t=>t.status==='running');
  const title=group?.name||agent?.name||'Conversa';
  useEffect(()=>{let alive=true;libraryRequest('conversations').then(data=>{if(!alive)return;const items=data.conversations.filter(c=>group?c.teamId===group.id:c.agentId===agent.id);setConversations(items);setSelected(items[0]?.id||null);}).catch(e=>{if(alive)setError(e.message);});return()=>{alive=false;};},[group?.id,agent?.id]);
@@ -51,7 +52,7 @@ export default function AgentConversation({agent,group,library,providers,onEditA
   </div>
   <form className="composer-form" onSubmit={send}>
    <div className="chat-controls">{group&&<label>Destinatário <select aria-label="Destinatário da mensagem" value={recipient} disabled={busy||sending} onChange={e=>setRecipient(e.target.value)}><option value="">Todos os integrantes</option>{participants.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
-    <label>Provedor <select value={provider} disabled={busy||sending} onChange={e=>setProvider(e.target.value)}><option value="">Padrão do agente/servidor</option>{providers.map(p=><option key={p.label} value={p.label}>{p.label}</option>)}</select></label>
+    <label>Provedor <select value={provider} disabled={busy||sending} onChange={e=>onProviderChange(e.target.value||null)}><option value="">Padrão do agente/servidor</option>{providers.map(p=><option key={p.label} value={p.label}>{p.label}</option>)}</select></label>
     <label>Orçamento de chamadas <input type="number" min={recipient||!group?1:participants.length} max={64} value={maxCalls} disabled={busy||sending} onChange={e=>setMaxCalls(e.target.value===''?'':Number(e.target.value))} placeholder="Opcional · padrão do servidor"/><small>Opcional; em branco o servidor aplica seu default e teto.</small></label>
    </div>
    <details className="chat-permissions"><summary>Permissões deste envio · {grants.length} autorizadas</summary><p>As instruções não habilitam ferramentas. Cada operação respeita as capacidades do agente e os escopos abaixo.</p>
