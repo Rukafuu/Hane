@@ -76,6 +76,35 @@ test('persists the workspace root and tool counters, and restores them for a res
   repository.close();
 });
 
+test('persists the actor mode and the per-actor share, and restores both for a resume', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const task = new TaskRun({
+    id: 'actor-run',
+    objective: 'Work the DAG concurrently.',
+    mode: 'actor',
+    maxProviderCalls: 24,
+    maxProviderCallsPerActor: 5,
+  });
+  task.reserveProviderCall('executor', 'agent-ana');
+  repository.save(task.snapshot());
+
+  const stored = repository.findById('actor-run');
+  assert.equal(stored.mode, 'actor');
+  assert.equal(stored.maxProviderCallsPerActor, 5);
+
+  const rebuilt = TaskRun.fromSnapshot(stored);
+  assert.equal(rebuilt.mode, 'actor');
+  assert.equal(rebuilt.maxProviderCallsPerActor, 5);
+  assert.deepEqual(rebuilt.actorCalls(), [{ agentId: 'agent-ana', providerCalls: 1 }]);
+
+  // The share is the budget the user authorized at creation, so a later save that
+  // carries no share at all must leave the stored one alone instead of defaulting
+  // the mission back to 6.
+  repository.save({ ...task.snapshot(), maxProviderCallsPerActor: undefined });
+  assert.equal(repository.findById('actor-run').maxProviderCallsPerActor, 5);
+  repository.close();
+});
+
 test('refuses to rewind the tool counter of a stored mission', () => {
   const repository = new SqliteTaskRepository(':memory:');
   const task = new TaskRun({ id: 'tool-rewind', objective: 'Read files.', workspaceRoot: 'A:/Hane', capabilityGrants: [{ name: CAPABILITY.WORKSPACE_READ, scope: 'src' }] });

@@ -24,9 +24,12 @@ export class SqliteTaskRepository {
       if (stored && task.toolCalls < stored.toolCalls) {
         throw new Error(`cannot persist a task with fewer tool calls (${task.toolCalls}) than already stored (${stored.toolCalls}).`);
       }
+      // The per-actor share is deliberately absent from the conflict update: it is
+      // what the user authorized when the mission was created, and a save whose
+      // snapshot happens to omit it must narrow nothing and widen nothing.
       this.database.prepare(`
-        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json, workspace_root, max_tool_calls, tool_calls, team_id, execution_plan_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json, workspace_root, max_tool_calls, tool_calls, team_id, execution_plan_json, mode, max_provider_calls_per_actor)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           objective = excluded.objective,
           status = excluded.status,
@@ -38,7 +41,8 @@ export class SqliteTaskRepository {
           max_tool_calls = excluded.max_tool_calls,
           tool_calls = excluded.tool_calls,
           team_id = excluded.team_id,
-          execution_plan_json = excluded.execution_plan_json
+          execution_plan_json = excluded.execution_plan_json,
+          mode = excluded.mode
       `).run(
         task.id,
         task.objective,
@@ -52,6 +56,10 @@ export class SqliteTaskRepository {
         task.toolCalls ?? 0,
         task.teamId ?? null,
         planJson,
+        // A snapshot from before actors existed has no mode. Writing the default
+        // rather than the stored value keeps a sequential mission sequential.
+        task.mode === 'actor' ? 'actor' : 'sequential',
+        task.maxProviderCallsPerActor ?? 6,
       );
       const outputStatement = this.database.prepare('INSERT OR REPLACE INTO task_outputs (task_id, role, content) VALUES (?, ?, ?)');
       for (const [role, content] of Object.entries(task.outputs)) outputStatement.run(task.id, role, content);
@@ -97,7 +105,8 @@ export class SqliteTaskRepository {
     const task = this.database.prepare(`
       SELECT id, objective, status, max_provider_calls AS maxProviderCalls, provider_calls AS providerCalls,
              provider_label AS providerLabel, capability_grants_json AS capabilityGrantsJson,
-             workspace_root AS workspaceRoot, max_tool_calls AS maxToolCalls, tool_calls AS toolCalls, team_id AS teamId, execution_plan_json AS planJson
+             workspace_root AS workspaceRoot, max_tool_calls AS maxToolCalls, tool_calls AS toolCalls, team_id AS teamId, execution_plan_json AS planJson, mode,
+             max_provider_calls_per_actor AS maxProviderCallsPerActor
       FROM task_runs WHERE id = ?
     `).get(id);
     if (!task) return null;

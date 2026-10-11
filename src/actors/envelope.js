@@ -15,6 +15,15 @@ const MAX_BODY_LENGTH = 16_000;
 const MAX_AGENT_ID_LENGTH = 128;
 const MAX_KIND_LENGTH = 48;
 
+/**
+ * Who a message from outside the team is authored by. It is a sender id the
+ * mailbox accepts and no agent can hold, so a peer message and something the user
+ * typed stay tellable apart — which is the difference between a teammate's claim
+ * and an instruction, and the model has to be able to see it.
+ */
+export const USER_SENDER_ID = 'user';
+export const USER_SENDER_NAME = 'the user';
+
 const singleLine = (value, label, max) => {
   if (typeof value !== 'string' || value.trim() === '' || value.length > max || /[\r\n\0]/.test(value)) {
     throw new TypeError(`${label} must be a single-line string up to ${max} characters.`);

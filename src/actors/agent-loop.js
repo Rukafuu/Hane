@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { renderToolProtocolHint } from '../tools/protocol.js';
 import { runToolLoop } from '../orchestrator/tool-loop.js';
-import { maxHopOf } from './envelope.js';
+import { maxHopOf, USER_SENDER_ID, USER_SENDER_NAME } from './envelope.js';
 import { ACTOR_LIMITS } from './limits.js';
 
 /**
@@ -95,7 +95,12 @@ export async function runActorTurn({ agent, provider, router = null, mailbox, ga
     return { ok: false, content: null, claimed, hop, spentTurn: false };
   }
 
-  const received = claimed.map((message) => ({ ...message, fromName: message.fromName ?? null }));
+  // The sender's id is the authority and the name is only for reading. The roster
+  // this turn was handed is the one place a name comes from, so a model cannot
+  // dress an id up as a teammate it is not — and a message the user typed is
+  // labelled as that rather than arriving as an anonymous peer.
+  const names = new Map([[USER_SENDER_ID, USER_SENDER_NAME], ...peers.map((peer) => [peer.agentId, peer.name])]);
+  const received = claimed.map((message) => ({ ...message, fromName: names.get(message.fromAgentId) ?? message.fromName ?? null }));
   const messages = buildActorMessages({
     instruction,
     objective,

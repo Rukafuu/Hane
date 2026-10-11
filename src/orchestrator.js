@@ -1,11 +1,11 @@
 import { roleInstruction } from './teams/execution-plan.js';
-import { TASK_STATUS } from './contracts.js';
+import { TASK_STATUS, cancellationReason } from './contracts.js';
 import { grantsForWorkspaceRead, resolveWorkspaceRoot } from './workspace-scope.js';
 import { createWorkspaceDirSandbox } from './sandbox/workspace-dir.js';
 import { createToolRouter } from './tools/router.js';
 import { buildToolLoopMessages, runToolLoop } from './orchestrator/tool-loop.js';
 import { TaskRun, DEFAULT_MAX_PROVIDER_CALLS } from './task-run.js';
-import { parseVerdict } from './verdict.js';
+import { settleByVerdict } from './verdict.js';
 
 const ROLE_INSTRUCTIONS = Object.freeze({
   planner: 'Create a concise plan. Do not claim to have run tools or changed files.',
@@ -87,7 +87,7 @@ export class Orchestrator {
       if (cancelled) return this.#finish(task, onEvent);
       if (task.status !== activeStatus) { settled = false; break; }
     }
-    if (settled && task.status === TASK_STATUS.REVIEWING) this.#settleByVerdict(task);
+    if (settled && task.status === TASK_STATUS.REVIEWING) settleByVerdict(task);
     return this.#finish(task, onEvent);
   }
 
@@ -219,18 +219,6 @@ export class Orchestrator {
     return this.#finish(task, onEvent);
   }
 
-  #settleByVerdict(task) {
-    const verdict = parseVerdict(task.outputs.reviewer);
-    task.record(verdict === 'verdict_unparsed' ? 'verdict_unparsed' : 'verdict_parsed', { verdict });
-    if (verdict === 'approved') {
-      task.transition(TASK_STATUS.COMPLETED);
-    } else if (verdict === 'revise') {
-      task.transition(TASK_STATUS.AWAITING_APPROVAL);
-    } else {
-      task.transition(TASK_STATUS.NEEDS_ATTENTION);
-    }
-  }
-
   #transitionIfNeeded(task, status) {
     if (task.status !== status) task.transition(status);
   }
@@ -249,9 +237,4 @@ export class Orchestrator {
     if (this.repository) this.repository.save(task.snapshot());
     return task;
   }
-}
-
-function cancellationReason(signal) {
-  const reason = signal?.reason;
-  return reason instanceof Error && reason.message ? reason.message : 'user_requested';
 }

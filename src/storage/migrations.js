@@ -289,6 +289,13 @@ const MIGRATIONS = Object.freeze([
     ) STRICT;`,
     'CREATE INDEX actor_tasks_by_status ON actor_tasks(execution_id, status, id);',
   ]) }),
+  // The per-actor share is part of the budget the user authorized, so a resume has
+  // to read it back rather than re-decide it. The default mirrors
+  // DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR in src/task-run.js; a mission stored
+  // before actors existed keeps that share without saying anything about itself.
+  Object.freeze({ id: 24, name: 'actor_provider_share', statements: Object.freeze([
+    'ALTER TABLE task_runs ADD COLUMN max_provider_calls_per_actor INTEGER NOT NULL DEFAULT 6;',
+  ]) }),
   // Id 16 is reserved for the per-execution backend choice (mission sandbox
   // selection). Take a later id, or claim 16 explicitly, instead of colliding.
 ]);

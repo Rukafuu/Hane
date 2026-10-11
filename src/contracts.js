@@ -30,3 +30,12 @@ export function assertPositiveInteger(value, field) {
   }
   return value;
 }
+
+/**
+ * Why a run stopped being a run. Both orchestration styles write the same reason
+ * into the same audit line, so it is read from the abort signal in one place.
+ */
+export function cancellationReason(signal) {
+  const reason = signal?.reason;
+  return reason instanceof Error && reason.message ? reason.message : 'user_requested';
+}

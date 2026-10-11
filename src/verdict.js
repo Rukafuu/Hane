@@ -1,3 +1,5 @@
+import { TASK_STATUS } from './contracts.js';
+
 const VERDICT_PATTERN = /\b(approved|revise|needs_attention|needs attention)\b/gi;
 
 /**
@@ -25,4 +27,20 @@ function lastVerdictIn(text) {
   if (verdict === null) return null;
   const normalized = verdict.toLowerCase();
   return normalized === 'needs attention' ? 'needs_attention' : normalized;
+}
+
+/**
+ * What a review means for the mission's status. Both orchestration styles settle
+ * on the same rule — a verdict nobody can read never completes a run — so it
+ * lives here rather than in one of them, where the second would copy it.
+ * @param {{ outputs: Record<string, string>, record(type: string, detail: object): void,
+ *           transition(status: string): void }} task
+ */
+export function settleByVerdict(task) {
+  const verdict = parseVerdict(task.outputs.reviewer);
+  task.record(verdict === 'verdict_unparsed' ? 'verdict_unparsed' : 'verdict_parsed', { verdict });
+  if (verdict === 'approved') task.transition(TASK_STATUS.COMPLETED);
+  else if (verdict === 'revise') task.transition(TASK_STATUS.AWAITING_APPROVAL);
+  else task.transition(TASK_STATUS.NEEDS_ATTENTION);
+  return verdict;
 }
