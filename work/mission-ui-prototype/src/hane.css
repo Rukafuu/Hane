@@ -636,3 +636,9 @@ html[data-hane-theme="paper"],body[data-hane-theme="paper"],#root[data-hane-them
 
 /* Profile forms may grow beyond the viewport when password fields open. */
 .profile-experience{height:100dvh;overflow-y:auto}.profile-experience .profile-stage{height:auto;min-height:100%;overflow-y:visible;align-items:stretch}.profile-welcome-art{align-self:stretch}
+
+.library-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.library-controls:disabled { opacity: .65; }
+
+/* Persistent agent conversations */
+.agent-chat-link{display:grid;gap:3px;text-align:left;background:none;border:0;color:inherit;flex:1;padding:6px;cursor:pointer}.agent-chat-link small{color:var(--muted)}.agent-conversation .chat-history-picker,.agent-conversation .chat-controls{display:flex;flex-wrap:wrap;gap:12px;padding:10px 18px}.agent-conversation .chat-controls label{display:grid;gap:4px;font-size:12px}.agent-conversation select,.agent-conversation input{background:var(--card,var(--bg));color:inherit;border:1px solid var(--line);border-radius:8px;padding:6px}.agent-conversation input[type=number]{width:80px}.agent-conversation .chat-permissions{margin:6px 18px;font-size:12px}.agent-conversation .chat-permissions label{display:flex;gap:8px;align-items:center;margin:8px 0}.agent-conversation .chat-permissions p{color:var(--muted)}.agent-conversation .group-context button{display:inline-flex;align-items:center;gap:7px;background:transparent;border:0;color:inherit;cursor:pointer}.agent-conversation .empty-stage{padding:24px}.agent-conversation .messages{min-height:0;overflow:auto}.agent-conversation .output-text{white-space:pre-wrap}

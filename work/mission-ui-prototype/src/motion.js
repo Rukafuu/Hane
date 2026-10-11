@@ -51,7 +51,9 @@ export function rise(targets, { y = 10, duration = 340 } = {}) {
 
 export function toastOut(el) {
   if (!el || reduceMotion()) return Promise.resolve();
-  return animate(el, { opacity: [1, 0], translateY: [0, 8], duration: 180, ease: "inQuad" }).finished;
+  // anime.js 4.5 animations are thenable and have no `.finished`; Promise.resolve
+  // adopts them, so the caller's `.then` always gets a real promise.
+  return Promise.resolve(animate(el, { opacity: [1, 0], translateY: [0, 8], duration: 180, ease: "inQuad" }));
 }
 
 export function pop(el) {

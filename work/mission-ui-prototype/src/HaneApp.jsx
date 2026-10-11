@@ -1,3 +1,5 @@
+import AgentConversation from './AgentConversation.jsx';
+import { fetchLibrary, changeLibrary, importBrowserLibrary, legacyLibrary, unavailableNotice } from './library-api.js';
 import { ProfileMenu, ProfileSettings, PersonalAvatar } from "./PersonalProfile.jsx";
 import SettingsCenter, { SettingsSection } from "./SettingsCenter.jsx";
 import { readPreference, writePreference, normalizeAppearance, normalizeGeneral, validateLibrary, appearanceStyle } from "./preferences.js";
@@ -77,6 +79,7 @@ const dateLabel = (iso) => {
 function toSummary(task) {
   return {
     id: task.id,
+    ...(task.teamId ? { teamId: task.teamId } : {}),
     objective: task.objective,
     status: task.status,
     maxProviderCalls: task.maxProviderCalls,
@@ -245,9 +248,23 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     return normalizeAppearance(readPreference("hane-appearance", {}));
   });
   const [general, setGeneral] = useState(() => normalizeGeneral(readPreference("hane-general", {})));
-  const [library, setLibraryState] = useState(() => { try { return validateLibrary(readPreference("hane-library", { agents: readPreference("hane-custom-hanes", []).map(a => ({ ...a, description: a.job || "Hane personalizado", groupId: "" })), groups: [] })); } catch { return { agents: [], groups: [] }; } });
+  const [libraryState, setLibraryState] = useState({agents:[],groups:[]});
+  const library = useMemo(() => !missions || offline ? libraryState : {...libraryState,groups:libraryState.groups.map(g=>({...g,runs:missions.filter(run=>run.teamId===g.id).map(run=>run.id)}))}, [libraryState,missions,offline]);
+  const [legacy] = useState(() => { try { return legacyLibrary(); } catch { return readPreference('hane-library',{agents:[],groups:[]}); } });
+  const [libraryReady, setLibraryReady] = useState(false);
+  const [libraryError, setLibraryError] = useState('');
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const libraryWriting = useRef(false);
+  const [activeAgentId,setActiveAgentId] = useState(null);
+  const [editingAgentId,setEditingAgentId] = useState(null);
+  const activeAgent=library.agents.find(a=>a.id===activeAgentId);
   const [activeGroupId, setActiveGroupId] = useState(null);
   const activeGroup = library.groups.find(group => group.id === activeGroupId);
+  // Conversa and Missão are two entries, not one derived state: opening an agent
+  // must not hide the composer, and choosing Missão keeps the group as the
+  // execution link (ADR-0010).
+  const [viewMode, setViewMode] = useState('missao');
+  const showConversation = viewMode === 'conversa' && Boolean(activeAgent || activeGroup);
   const [groupsExpanded, setGroupsExpanded] = useState(true);
   const [runsExpanded, setRunsExpanded] = useState(true);
   const [persistenceError, setPersistenceError] = useState("");
@@ -268,8 +285,27 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     if (window.matchMedia?.("(max-width: 980px)").matches) return false;
     return localStorage.getItem("hane-panel-open") !== "false";
   });
-  const libraryDirty = useRef(false);
-  function setLibrary(value) { libraryDirty.current = true; setLibraryState(value); }
+  async function setLibrary(value) {
+    if (!libraryReady) throw new Error('Aguarde a biblioteca do servidor.');
+    if (libraryWriting.current) throw new Error('Uma alteração já está sendo salva.');
+    libraryWriting.current=true; setLibraryBusy(true);
+    try {
+      const result=await changeLibrary(library,typeof value==='function'?value(library):value);
+      setLibraryState(result.library);
+      if (!result.visualSaved) setPersistenceError('Agentes e grupos salvos no servidor. Não foi possível salvar as cores e avatares neste navegador.');
+    } finally { libraryWriting.current=false; setLibraryBusy(false); }
+  }
+  async function importLibrary(source) {
+    if (libraryWriting.current) throw new Error('Uma alteração já está sendo salva.');
+    libraryWriting.current=true; setLibraryBusy(true);
+    try {
+      const result=await importBrowserLibrary(source);
+      if (!result.visualSaved) setPersistenceError('Importação salva no servidor; as cores e avatares não puderam ser salvos neste navegador.');
+      try { const data = await fetchLibrary(); setLibraryState(data); setLibraryReady(true); setLibraryError(unavailableNotice(data.unavailable)); }
+      catch (error) { setLibraryReady(false); setLibraryError('Importação salva. Recarregue a biblioteca: '+error.message); }
+      return result;
+    } finally { libraryWriting.current=false; setLibraryBusy(false); }
+  }
   const rootRef = useRef(null);
   const barRef = useRef(null);
   const toastRef = useRef(null);
@@ -286,7 +322,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const rowIdsRef = useRef("");
   selectedRef.current = selectedId;
 
-  const visible = useMemo(() => (missions ?? []).filter(item => !activeGroup || activeGroup.runs.includes(item.id)).filter((item) => `${item.objective} ${item.id}`.toLowerCase().includes(query.toLowerCase())), [missions, query, activeGroup]);
+  const visible = useMemo(() => (missions ?? []).filter(item => !activeGroup || item.teamId === activeGroup.id).filter((item) => `${item.objective} ${item.id}`.toLowerCase().includes(query.toLowerCase())), [missions, query, activeGroup]);
   const [selectedLabel, selectedChip] = statusInfo(mission?.status ?? (selectedId ? "queued" : "draft"));
   const currentRole = mission ? ROLE_ORDER.find((role) => mission.outputs?.[role] === undefined) : null;
   const progressPct = mission && mission.maxProviderCalls > 0 ? Math.min(100, Math.round((mission.providerCalls / mission.maxProviderCalls) * 100)) : 0;
@@ -313,7 +349,12 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   useEffect(() => { localStorage.setItem("hane-panel-open", String(panelOpen)); }, [panelOpen]);
   useEffect(() => { if (!writePreference("hane-appearance", appearance)) setPersistenceError("Não foi possível salvar a aparência neste navegador."); }, [appearance]);
   useEffect(() => { if (!writePreference("hane-general", general)) setPersistenceError("Não foi possível salvar as preferências neste navegador."); }, [general]);
-  useEffect(() => { if (!libraryDirty.current) return; if (!writePreference("hane-library", library)) setPersistenceError("Não foi possível salvar a biblioteca. Exporte um backup antes de recarregar."); }, [library]);
+  useEffect(() => {
+    let alive=true; setLibraryReady(false); setLibraryError('');
+    fetchLibrary().then(data=>{if(alive){setLibraryState(data);setLibraryReady(true);setLibraryError(unavailableNotice(data.unavailable));if(!activeAgentId&&!activeGroupId)setActiveAgentId(data.agents.find(a=>a.isInitial)?.id||null);}}).catch(error=>{if(alive)setLibraryError('Não foi possível carregar a biblioteca do servidor: '+error.message);});
+    return ()=>{alive=false;};
+  }, [retryTick]);
+
   useEffect(() => { document.documentElement.dataset.haneMotion = appearance.motion; }, [appearance.motion]);
   useEffect(() => { const onHash = () => setShowSettings(window.location.hash.startsWith("#settings")); window.addEventListener("hashchange", onHash); return () => window.removeEventListener("hashchange", onHash); }, []);
   useEffect(() => {
@@ -497,13 +538,15 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   }
 
   function focusComposer() {
+    setViewMode('missao');
     setSelectedId(null);
-    composerRef.current?.focus();
+    window.requestAnimationFrame(() => composerRef.current?.focus());
   }
 
   function beginFirstMission() {
     setOnboardingDismissed(true);
     setSelectedId(null);
+    setViewMode('missao');
     window.requestAnimationFrame(() => composerRef.current?.focus());
   }
 
@@ -552,13 +595,14 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     window.requestAnimationFrame(() => messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: reduceMotion() ? "auto" : "smooth" }));
   }
 
-  function createCustomHane() {
+  async function createCustomHane() {
     const name = profileDraft.name.trim();
     if (!name) return;
-    setLibrary(current => validateLibrary({ ...current, agents: [...current.agents, { ...profileDraft, name, id: crypto.randomUUID(), description: "Hane personalizado", groupId: "" }] }));
+    try { await setLibrary(current => ({ ...current, agents: [...current.agents, { ...profileDraft, name, id: crypto.randomUUID(), description: "Hane personalizado", instructions:"",provider:"",exclusive:false,groupId: "" }] }));
     setProfileDraft({ name: "", color: "#e66f98", shape: "pebble", image: null });
     setOnboardingStep(5);
-    notify(`${name} foi criado localmente.`);
+    notify(`${name} foi salvo no SQLite local.`);
+    } catch(error) { setCreateError(error.message); }
   }
 
   function togglePopover(kind) {
@@ -619,6 +663,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   async function send(event) {
     event.preventDefault();
     if (sending) return;
+    if (activeGroup?.archivedAt) { setCreateError("Este grupo está arquivado. Abra outro grupo para criar uma execução."); return; }
     const objective = composeObjective(draft.trim(), attachments);
     if (objective.length < 3) {
       notify("Descreva a execução em pelo menos três caracteres.");
@@ -632,8 +677,8 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     setSending(true);
     setCreateError("");
     try {
-      const created = await createMission(objective, chosenProvider || general.defaultProvider, capabilityPayload(capabilityGrants), { maxProviderCalls: general.maxProviderCalls, maxToolCalls: general.maxToolCalls });
-      if (activeGroup) setLibrary(current => ({ ...current, groups: current.groups.map(group => group.id === activeGroup.id ? { ...group, runs: [...group.runs, created.id] } : group) }));
+      const created = await createMission(objective, chosenProvider || general.defaultProvider, capabilityPayload(capabilityGrants), { maxProviderCalls: general.maxProviderCalls, maxToolCalls: general.maxToolCalls, teamId: activeGroup?.id });
+
       setDraft("");
       setAttachments([]);
       setCapabilityGrants([]);
@@ -688,11 +733,13 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
 
   function backToWorkspace() { window.location.hash = "workspace"; setShowSettings(false); requestAnimationFrame(() => gearRef.current?.focus()); }
   function openSection(section) { window.location.hash = "settings/" + section; setShowSettings(true); }
-  function openGroup(id) { setActiveGroupId(id); setSelectedId(null); setOnboardingDismissed(true); backToWorkspace(); }
-  if (showSettings) return <SettingsCenter renderProfile={() => <ProfileSettings profile={personalProfile} onProfileChange={onPersonalProfileChange} onLock={onLockProfile} limits={profileLimits} onRecoveryCode={onRecoveryCode}/>} appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} library={library} onLibraryChange={setLibrary} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveGroupId(null); setSelectedId(id); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id !== "mcp").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
+  function openGroup(id) { setActiveAgentId(null); setActiveGroupId(id); setSelectedId(null); setViewMode('conversa'); setOnboardingDismissed(true); backToWorkspace(); }
+  function editAgent(id) { setEditingAgentId(id); openSection('agents'); }
+  function openAgent(id) { setActiveGroupId(null);setActiveAgentId(id);setSelectedId(null);setViewMode('conversa');backToWorkspace(); }
+  if (showSettings) return <SettingsCenter editingAgentId={editingAgentId} onOpenAgent={openAgent} renderProfile={() => <ProfileSettings profile={personalProfile} onProfileChange={onPersonalProfileChange} onLock={onLockProfile} limits={profileLimits} onRecoveryCode={onRecoveryCode}/>} appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} library={library} onLibraryChange={setLibrary} libraryReady={libraryReady} libraryBusy={libraryBusy} libraryError={libraryError} legacyLibrary={legacy} onImportLibrary={importLibrary} onReloadLibrary={() => setRetryTick(v=>v+1)} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveAgentId(null);setActiveGroupId(null); setSelectedId(id); setViewMode('missao'); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id !== "mcp").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
 
 
-  return <main className={`app-shell ${panelOpen ? "" : "panel-collapsed"}`} ref={rootRef} {...appearanceProps}>
+  return <main className={`app-shell ${panelOpen && !showConversation ? "" : "panel-collapsed"}`} ref={rootRef} {...appearanceProps}>
     <aside className="left-sidebar" aria-label="Navegação do Hane">
       <div className="brand-row"><img src="/brand/hane-logo.png" alt="Hane" /><button ref={gearRef} className="icon-button" aria-label="Abrir configurações do Hane" onClick={openSettings}><GearSix /></button></div>
       <label className="search-box"><MagnifyingGlass /><input ref={searchRef} aria-label="Pesquisar execuções" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Pesquisar execuções" /><kbd>{MOD_KEY} K</kbd></label>
@@ -700,37 +747,20 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
 
       <nav className="sidebar-scroll" aria-label="Agentes e execuções">
         <header className="section-head"><span>AGENTES</span><button aria-label="Recarregar dados dos agentes" onClick={reload}><ArrowsClockwise /></button></header>
-        {showOnboarding ? <button className="agent-nav selected" aria-label="Abrir guia de início do Hane" onClick={() => messagesRef.current?.scrollTo({ top: 0, behavior: "smooth" })}>
-          <Avatar person={onboardingAgent} size="sm" state="thinking" />
-          <span><strong>Hane</strong><small>Guia de início</small></span>
-          <i className="online" />
-        </button> : ROLE_ORDER.map((role) => {
-          const person = roles[role];
-          const done = mission?.outputs?.[role] !== undefined;
-          const working = mission && isActive(mission.status) && role === currentRole;
-          return <button className={`agent-nav ${role === observedRole && mission ? "selected" : ""}`} key={role} aria-label={`${person.name}: ${working ? "executando agora" : done ? "última saída pronta" : person.job}. ${mission ? "Abrir saída do agente" : "Abra ou crie uma execução para acompanhar o agente"}`} onClick={() => {
-            if (!mission) return notify("Abra ou crie uma execução para acompanhar o agente.");
-            focusOutput(role);
-          }}>
-            <Avatar person={person} size="sm" state={avatarStateFromMission({ mission, role, currentRole })} />
-            <span><strong>{person.name}</strong><small>{working ? "Executando agora" : done ? "Última saída pronta" : person.job}</small></span>
-            {working ? <i className="online" /> : done ? <Check weight="bold" className="pick" /> : null}
-          </button>;
-        })}
-        {library.agents.filter(a => !a.groupId || a.groupId === activeGroupId).map((person) => <div className="agent-nav custom-hane" key={person.id}><Avatar person={person} size="sm" /><span><strong>{person.name}</strong><small>Hane personalizado</small></span></div>)}
+        {library.agents.map(person => <div className="agent-nav custom-hane" key={person.id}><HaneAvatar agentId={person.id} name={person.name} color={person.color} shape={person.shape} image={person.image} size={34} interactive onClick={()=>editAgent(person.id)}/><button className="agent-chat-link" aria-label={'Conversar com '+person.name} onClick={()=>openAgent(person.id)}><strong>{person.name}</strong><small>{person.isInitial?'Seu Hane':'Agente personalizado'}</small></button></div>)}
         {loaded && noProviders && <EmptyMini Icon={Plugs} title="Nenhum provedor" action={{ label: "Detalhes", onClick: () => setPopover("providers") }}>
           Hane pode orientar você; conecte um provedor para executar execuções.
         </EmptyMini>}
         <header className="section-head conversation-head"><button aria-expanded={groupsExpanded} onClick={() => setGroupsExpanded(!groupsExpanded)}>GRUPOS</button><button aria-label="Biblioteca de agentes" onClick={() => openSection("agents")}><UsersThree /></button></header>
-        {groupsExpanded && library.groups.filter(g => g.name.toLowerCase().includes(query.toLowerCase())).map(group => <button className={"conversation-row " + (activeGroupId === group.id ? "selected" : "")} key={group.id} onClick={() => openGroup(group.id)}><span className="group-dot" style={{background:group.color}}/><span className="conversation-copy"><strong>{group.name}</strong><small>{group.members.length} integrantes · {group.runs.length} execuções</small></span></button>)}
-        <header className="section-head conversation-head"><button aria-label="Todas as execuções" onClick={() => { setActiveGroupId(null); setSelectedId(null); }}>Todas</button><button aria-expanded={runsExpanded} onClick={() => setRunsExpanded(!runsExpanded)}>EXECUÇÕES</button><button aria-label="Nova execução" onClick={focusComposer}><Plus /></button></header>
+        {groupsExpanded && library.groups.filter(g => !g.archivedAt && g.name.toLowerCase().includes(query.toLowerCase())).map(group => <button className={"conversation-row " + (activeGroupId === group.id ? "selected" : "")} key={group.id} onClick={() => openGroup(group.id)}><span className="group-dot" style={{background:group.color}}/><span className="conversation-copy"><strong>{group.name}</strong><small>{group.members.length} integrantes · {group.runs.length} execuções</small></span></button>)}
+        <header className="section-head conversation-head"><button aria-label="Todas as execuções" onClick={() => { setActiveAgentId(null);setActiveGroupId(null); setSelectedId(null); setViewMode('missao'); }}>Todas</button><button aria-expanded={runsExpanded} onClick={() => setRunsExpanded(!runsExpanded)}>EXECUÇÕES</button><button aria-label="Nova execução" onClick={focusComposer}><Plus /></button></header>
         {missions === null && <small className="panel-note">Carregando…</small>}
         {offline && <EmptyMini Icon={Plugs} title="API do Hane offline" action={{ label: "Tentar", onClick: reload }}>Inicie com <code>hane serve</code> na porta 7788.</EmptyMini>}
         {loaded && !noMissions && visible.length === 0 && <EmptyMini Icon={MagnifyingGlass} title="Nada encontrado" action={{ label: "Limpar", onClick: () => { setQuery(""); searchRef.current?.focus(); } }}>Nenhuma execução combina com “{query}”.</EmptyMini>}
         {loaded && noMissions && <EmptyMini Icon={Sparkle} title="Nenhuma execução" action={{ label: "Criar", onClick: focusComposer }}>Escreva um objetivo no campo abaixo.</EmptyMini>}
         {runsExpanded && visible.map((item) => {
           const [label, chip] = statusInfo(item.status);
-          return <button className={`conversation-row ${selectedId === item.id ? "selected" : ""}`} key={item.id} onClick={() => setSelectedId(item.id)} title={item.objective}>
+          return <button className={`conversation-row ${selectedId === item.id ? "selected" : ""}`} key={item.id} onClick={() => {setActiveAgentId(null);setActiveGroupId(null);setSelectedId(item.id);setViewMode('missao');}} title={item.objective}>
             <Stack mission={item.id === mission?.id ? mission : null} currentRole={item.id === mission?.id ? currentRole : null} /><span className="conversation-copy"><strong>{item.objective}</strong><small>{label} · {item.providerCalls}/{item.maxProviderCalls} chamadas</small></span><time>{clock(item.updatedAt)}</time>
           </button>;
         })}
@@ -741,9 +771,9 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       {personalProfile && <ProfileMenu profile={personalProfile} onSection={openSection} onLock={onLockProfile}/>}</footer>
     </aside>
 
-    <section className="conversation-view">
+    {showConversation ? <AgentConversation key={activeGroup?.id||activeAgent?.id} agent={activeAgent} group={activeGroup} library={library} providers={providers} personalProfile={personalProfile} onEditAgent={editAgent} onEditGroup={()=>openSection("agents")} serverWorkspace={serverWorkspace}/> : <section className="conversation-view">
       <header className="conversation-header">{showOnboarding ? <Avatar person={onboardingAgent} size="sm" state="thinking" /> : <Stack mission={mission} currentRole={currentRole} />}<span className="conversation-title"><strong>{activeGroup?.name ?? mission?.objective ?? (showOnboarding ? "Hane" : missions?.length ? "Selecione uma execução" : "Descreva uma execução abaixo")}</strong><small><i /> {mission ? `${selectedLabel} · ${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : showOnboarding ? "guia para configurar e usar o Hane" : "equipe: planejador, executor, revisor"}</small></span>{mission && <Status kind={selectedChip}>{selectedLabel}</Status>}{activeGroup && <button className="icon-button" aria-label="Configurar grupo" onClick={() => openSection("agents")}><GearSix/></button>}</header>
-      <div className="messages" ref={messagesRef}>{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && <div className="group-context"><strong>{activeGroup.description || "Grupo local"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder desejado":""}</span>)}</div><small>Execução atual: planejador → executor → revisor. Perfis e liderança personalizados ainda não são executados pelo runtime.</small></div>}
+      <div className="messages" ref={messagesRef}>{libraryError && <p className="composer-error" role="alert">{libraryError} <button onClick={()=>setRetryTick(v=>v+1)}>Tentar novamente</button></p>}{(legacy?.agents?.length>0 || legacy?.groups?.length>0) && <p className="settings-description">Há uma biblioteca antiga neste navegador. <button onClick={()=>openSection('agents')}>Revisar importação</button></p>}{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && <div className="group-context"><strong>{activeGroup.description || "Grupo local"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder desejado":""}</span>)}</div><small>Execução atual: planejador → executor → revisor. Perfis e liderança personalizados ainda não são executados pelo runtime.</small></div>}
         {loaded && !mission && !selectedId && !showOnboarding && <EmptyStage Icon={Sparkle} title={activeGroup ? activeGroup.name : personalProfile ? `Bem-vindo, ${personalProfile.displayName}.` : "Seu espaço para colaborar"} action={{ label: activeGroup ? "Escrever objetivo" : "Criar grupo", onClick: activeGroup ? focusComposer : () => openSection("agents") }}>Organize agentes em grupos, configure um provedor e descreva o próximo objetivo. Você decide quando começar.</EmptyStage>}
         {missions === null && <EmptyStage Icon={CircleNotch} title="Consultando o Hane…">Lendo o arquivo de execuções local para montar a trilha.</EmptyStage>}
         {offline && <EmptyStage Icon={Plugs} title="API do Hane indisponível" commands={["hane serve --port 7788"]} action={{ label: "Tentar de novo", onClick: reload }} onCopy={copyNotice}>
@@ -832,11 +862,11 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
           {capabilityGrants.map((grant) => <span className="chip" key={`${grant.name}-${grant.scope}`}><ShieldCheck weight="bold" />{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}<button type="button" aria-label={`Remover ${grant.name}`} onClick={() => setCapabilityGrants((current) => current.filter((item) => item.name !== grant.name || item.scope !== grant.scope))}><X /></button></span>)}
         </div>}
         {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Execução não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
-        <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma execução para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da execução" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar execução" disabled={sending}><PaperPlaneRight weight="fill" /></button></div></div>
-        <small>Cada envio cria uma execução real de planejador, executor e revisor{activeGroup ? " vinculada a este grupo." : "."}</small>
+        <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma execução para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da execução" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar execução" disabled={sending || Boolean(activeGroup?.archivedAt)}><PaperPlaneRight weight="fill" /></button></div></div>
+        <small>{activeGroup?.archivedAt ? "Grupo arquivado. O histórico permanece disponível; novas execuções estão bloqueadas." : <>Cada envio cria uma execução real de planejador, executor e revisor{activeGroup ? " vinculada a este grupo." : "."}</>}</small>
       </form>
       <button ref={panelTriggerRef} type="button" className={`panel-reopen ${panelOpen ? "" : "visible"}`} aria-controls="hane-mission-context" aria-label="Mostrar painel de contexto" aria-expanded={panelOpen} title="Mostrar painel (Ctrl + \)" tabIndex={panelOpen ? -1 : 0} onClick={() => setPanelOpen(true)}><CaretLeft /></button>
-    </section>
+    </section>}
 
     <aside id="hane-mission-context" className="right-panel" aria-label="Contexto da execução" aria-hidden={!panelOpen} inert={panelOpen ? undefined : ""}><header><span><strong>Contexto da execução</strong><small>{mission ? clock(mission.audit?.at(-1)?.at) || "agora" : "sem execução ativa"}</small></span><button type="button" aria-controls="hane-mission-context" aria-label="Ocultar painel de contexto" aria-expanded={panelOpen} title="Ocultar painel (Ctrl + \)" onClick={closeContextPanel}><CaretRight /></button></header><div className="panel-scroll">
       <section className="panel-section live-computer"><div className="panel-title"><strong>Computador ao vivo</strong><span>{GATED_CAPABILITIES_NOTE}</span></div>
