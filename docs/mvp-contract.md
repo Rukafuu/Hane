@@ -60,9 +60,12 @@ budget.
 `maxToolCalls` bounds the actions instead, so a mission cannot gather an
 unbounded amount of the workspace on a fixed number of calls. A loop also stops
 at eight turns whether or not either budget is left, and the reason it stopped is
-audited as `tool_loop_stopped` (`tool_budget`, `provider_budget`, `turn_guard`):
-a role that ran out of calls is parked for a human to raise the budget rather
-than saved as half an answer.
+audited as `tool_loop_stopped` (`tool_budget`, `turn_guard`). The provider budget
+never stops the loop mid-read: as soon as only one call remains it is reserved
+for an answer turn that offers no tools, audited as `tool_loop_last_call`, so the
+executor states what it could not finish and asks the user for a resume
+("continue") with more budget. A role left with no call at all is parked for a
+human to raise the budget rather than saved as half an answer.
 
 ## Initial roles
 

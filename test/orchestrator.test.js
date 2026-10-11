@@ -432,28 +432,59 @@ test('a provider that cannot take a turn loses its tools loudly, not silently', 
   }
 });
 
-test('a provider budget spent mid-loop stops the role instead of saving half an answer', async () => {
+test('the last provider call answers without tools instead of dying mid-read', async () => {
   const root = makeWorkspace({ 'src/a.js': 'A\n', 'src/b.js': 'B\n' });
   const gateway = new ToolGateway([
     { calls: [readCall('src/a.js')] },
-    { content: 'unreachable: the loop has no call left to ask for it' },
+    { content: 'I read a.js but not b.js. Resume the mission (send "continue") to finish.' },
   ]);
   const events = [];
   try {
-    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-loop-budget' }).start({
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-loop-last-call' }).start({
       objective: 'Read until the budget says stop.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+      maxProviderCalls: 3,
+      onEvent: (event) => events.push(event),
+    });
+
+    assert.equal(task.status, 'needs_attention', 'the reviewer has no call left, so the run parks for the user');
+    assert.equal(task.providerCalls, 3);
+    assert.equal(task.toolCalls, 1, 'the last call was not spent on a second read');
+    assert.equal(task.outputs.executor, 'I read a.js but not b.js. Resume the mission (send "continue") to finish.');
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_last_call' && entry.detail.role === 'executor'));
+    assert.equal(gateway.turnsAsked.length, 2);
+    assert.equal(gateway.turnsAsked[1].tools, null, 'the final turn offers no tools');
+    assert.match(gateway.turnsAsked[1].messages.at(-1).content, /final provider call/);
+    assert.deepEqual(events.map((event) => event.type), ['role_saved', 'tool_audited', 'role_saved', 'role_skipped_budget', 'run_finished']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a role that starts on its last call answers, and a tool call it makes anyway is not executed', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n' });
+  const gateway = new ToolGateway([
+    { calls: [readCall('src/a.js')], content: 'Budget ran out before I could read anything. Send "continue" to resume.' },
+  ]);
+  const events = [];
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-first-call-last' }).start({
+      objective: 'Read a file with one call to spare.',
       capabilityGrants: [readGrant('src')],
       workspaceRoot: root,
       maxProviderCalls: 2,
       onEvent: (event) => events.push(event),
     });
 
-    assert.equal(task.status, 'needs_attention');
-    assert.equal(task.toolCalls, 1);
-    assert.deepEqual(task.outputs, { planner: 'planner output' });
-    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_stopped' && entry.detail.reason === 'provider_budget'));
-    assert.equal(gateway.turnsAsked.length, 1, 'a role with no call left is not asked for a closing answer');
-    assert.deepEqual(events.map((event) => event.type), ['role_saved', 'tool_audited', 'role_skipped_budget', 'run_finished']);
+    assert.equal(task.toolCalls, 0, 'the call it made anyway was not executed on the final turn');
+    assert.equal(gateway.turnsAsked.length, 1);
+    assert.equal(gateway.turnsAsked[0].tools, null);
+    assert.equal(task.outputs.executor, 'Budget ran out before I could read anything. Send "continue" to resume.');
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_last_call' && entry.detail.role === 'executor'));
+    assert.ok(!task.audit.some((entry) => entry.type === 'tool_read'));
+    assert.equal(task.status, 'needs_attention', 'the reviewer has no call left');
+    assert.deepEqual(events.map((event) => event.type), ['role_saved', 'role_saved', 'role_skipped_budget', 'run_finished']);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -478,6 +509,33 @@ test('the turn guard stops a model that keeps asking and never answers', async (
     assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_stopped' && entry.detail.reason === 'turn_guard'));
     assert.equal(task.providerCalls, 12, 'eight turns, the turn the guard spent, the closing answer, and one call per other role');
     assert.equal(task.outputs.executor, 'asked once too often, then answered');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the turn guard landing on the last call still answers instead of dying silent', async () => {
+  const root = makeWorkspace({ 'src/a.js': 'A\n' });
+  const gateway = new ToolGateway([
+    ...Array.from({ length: 8 }, () => ({ calls: [readCall('src/a.js')] })),
+    { content: 'Eight reads and my budget is gone. Resume the mission (send "continue") to go on.' },
+  ]);
+  try {
+    const task = await new Orchestrator({ provider: gateway, idFactory: () => 'run-guard-last-call' }).start({
+      objective: 'Read the same file until both guards fire.',
+      capabilityGrants: [readGrant('src')],
+      workspaceRoot: root,
+      maxProviderCalls: 10,
+    });
+
+    assert.equal(task.toolCalls, 8);
+    assert.equal(task.providerCalls, 10, 'the call reserved for the turn that never ran paid for the answer');
+    assert.equal(task.outputs.executor, 'Eight reads and my budget is gone. Resume the mission (send "continue") to go on.');
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_stopped' && entry.detail.reason === 'turn_guard'));
+    assert.ok(task.audit.some((entry) => entry.type === 'tool_loop_last_call' && entry.detail.role === 'executor'));
+    assert.equal(gateway.turnsAsked.length, 9);
+    assert.equal(gateway.turnsAsked[8].tools, null, 'the answer after the guard offers no tools');
+    assert.equal(task.status, 'needs_attention', 'the reviewer has no call left');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

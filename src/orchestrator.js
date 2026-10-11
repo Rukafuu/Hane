@@ -203,8 +203,14 @@ export class Orchestrator {
     const onRetry = (info) => task.record('provider_retry', { role, ...info });
     let lastText = null;
     let stopped = null;
+    // A tool turn is a provider call, so the last call must be an answer:
+    // spending it on a read leaves the role with nothing left to answer with,
+    // and a run that dies mid-loop saves no output for the reviewer. True means
+    // the next completeTurn is already paid for and must not offer tools.
+    let finalTurn = task.providerCalls >= task.maxProviderCalls;
 
     for (let turn = 1; turn <= MAX_TOOL_TURNS; turn += 1) {
+      if (finalTurn) return (await this.#answerOnLastCall(task, role, messages, onRetry, signal)) ?? lastText;
       const result = await this.#providerFor(task,role).completeTurn({ messages, tools: router.schemas, signal, onRetry });
       if (result.protocol === 'inline') {
         task.record('tool_protocol_fallback', { role, turn, calls: result.toolCalls.length });
@@ -242,10 +248,15 @@ export class Orchestrator {
         stopped = 'provider_budget';
         break;
       }
+      finalTurn = task.providerCalls >= task.maxProviderCalls;
     }
 
     if (stopped === null) stopped = 'turn_guard';
     task.record('tool_loop_stopped', { role, reason: stopped });
+
+    // The guard can land on the same turn the budget did: the call reserved for
+    // the turn that never ran is still the role's to spend on its answer.
+    if (finalTurn) return (await this.#answerOnLastCall(task, role, messages, onRetry, signal)) ?? lastText;
 
     // Stopping the reads is not losing the answer. A role that ran out of tool
     // calls still gets one last turn to say what it saw — with no tools offered,
@@ -256,6 +267,19 @@ export class Orchestrator {
       if (typeof final.content === 'string' && final.content.trim() !== '') return final.content;
     }
     return lastText;
+  }
+
+  /**
+   * The call the budget can no longer buy is spent on an answer, never on
+   * another read. The model is told the truth — no tools are offered and the
+   * mission stops after this turn — so it can tell the user to resume with more
+   * budget instead of the run dying mid-loop in silence.
+   */
+  async #answerOnLastCall(task, role, messages, onRetry, signal) {
+    messages.push({ role: 'user', content: 'This is the final provider call available for this mission, so no tools are offered on this turn. Answer now with what you have: state what you verified and what remains unfinished. If the objective is not complete, tell the user what is missing and that they can resume the mission (for example by sending "continue") so the work can go on with more budget.' });
+    task.record('tool_loop_last_call', { role });
+    const final = await this.#providerFor(task,role).completeTurn({ messages, tools: null, signal, onRetry });
+    return typeof final.content === 'string' && final.content.trim() !== '' ? final.content : null;
   }
 
   #auditToolOutcome(task, role, call, outcome) {
