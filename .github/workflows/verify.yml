@@ -1,0 +1,58 @@
+name: Verify
+
+# The green number has to be reproducible from a clean clone, so the job builds the
+# prototype before testing it: work/mission-ui-prototype/tests/sites-worker.test.mjs
+# asserts the packaging artifacts exist, and `dist/` is gitignored.
+# Two Node versions are measured on purpose: the floor `package.json` promises and the
+# LTS the developers actually run. `node:sqlite` availability is the difference between
+# them, and that claim belongs to CI, not to a comment.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    # Windows because this is the platform the product targets (Credential Manager, WSL
+    # sandbox) and the only platform where this suite has been measured green.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.13.0', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            work/mission-ui-prototype/package-lock.json
+
+      - name: Install the runtime dependencies
+        run: npm ci
+
+      - name: Install the prototype dependencies
+        working-directory: work/mission-ui-prototype
+        run: npm ci
+
+      - name: Build the prototype
+        working-directory: work/mission-ui-prototype
+        run: npm run build
+
+      - name: Syntax check and test suite
+        run: npm run verify
+
+      - name: Prototype suite on its own entry point
+        working-directory: work/mission-ui-prototype
+        run: npm run test:sites
