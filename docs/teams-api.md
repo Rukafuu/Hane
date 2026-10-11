@@ -1,6 +1,6 @@
 # Hane Teams — contrato de persistência
 
-Esta primeira entrega persiste agentes, equipes, membros e o vínculo de execuções em SQLite. A interface ainda usa a biblioteca do navegador. O runtime continua executando o preset planner → executor → reviewer; as instruções, o provedor e a liderança dos agentes cadastrados ainda não governam essa execução.
+Esta primeira entrega persiste agentes, equipes, membros e o vínculo de execuções em SQLite. A interface usa a API para gerenciar agentes e grupos; cores e avatares continuam no navegador. A biblioteca antiga permanece disponível para importação explícita. O runtime continua executando o preset planner → executor → reviewer; as instruções, o provedor e a liderança dos agentes cadastrados ainda não governam essa execução.
 
 ## Fronteira de acesso
 
@@ -63,7 +63,7 @@ Todos os comandos de gerenciamento aceitam --db e --json. Nenhum cadastro execut
 
 ## Migrações e verificação
 
-Migrações aditivas: 9 persistent_agents, 10 persistent_teams, 11 execution_team_link. A migração 8 de recuperação permanece intacta. Não foram migrados os dados pessoais do usuário nesta entrega: os testes usam bancos temporários.
+Migrações aditivas: 9 persistent_agents, 10 persistent_teams, 11 execution_team_link. A migração 8 de recuperação permanece intacta. A migração 12 adiciona recibos de importação, sem alterar execuções existentes. Não foram migrados os dados pessoais do usuário nesta entrega: os testes usam bancos temporários.
 
 A suíte cobre domínio, exclusividade, ordem, rollback, limite de oito, liderança, integridade do histórico, compatibilidade de missões antigas, reabertura de arquivo SQLite, CRUD HTTP, guard sem perfil, sessão, CLI e uma execução do preset registrada no SQLite e no SSE. O provedor dessa prova é um double restrito aos testes; não é validação de chamada externa.
 
@@ -85,3 +85,11 @@ x-hane-request: 1
 ```
 
 Verificação em 2026-10-10: npm run verify aprovou 329 testes e a checagem de sintaxe de 78 arquivos na árvore compartilhada. A regressão de cadastro em localhost:4173 foi corrigida usando a mesma lista explícita de origens no servidor e na API de perfil. Nenhuma chamada a um provedor externo foi feita.
+
+## Importação da interface
+
+POST /api/library/import aceita {importId:UUID, agents:[{id:string,name,description?,instructions?,providerLabel?,exclusive?}], teams:[{id:string,name,description?,members:[sourceAgentId],leaderAgentId?:sourceAgentId|null,archived?:boolean}]}. IDs de origem são remapeados para UUIDs gerados pelo servidor. Até 200 agentes, 200 equipes e 4 MiB de JSON; uploads e campos visuais não fazem parte deste payload.
+
+A operação é aditiva e transacional: falhas desfazem todas as inserções, incluindo o recibo. Repetir o mesmo importId e conteúdo devolve os mesmos mapas agentIds/teamIds, inclusive após reiniciar o servidor. Reutilizar importId com conteúdo diferente retorna 409. Guard e sessão são exigidos como nas outras rotas. Nenhuma execução antiga recebe vínculo retroativo.
+
+A interface guarda o identificador por hash do conteúdo no navegador antes de enviar; se esse registro não puder ser salvo, a importação não começa. Limpar esse registro ou importar em outro navegador inicia uma nova importação. O original hane-library não é sobrescrito. Rascunhos vazios são exibidos para escolha de integrantes; reservas exclusivas sem associação exigem revisão explícita. Detalhes e validação em [teams-ui-migration.md](teams-ui-migration.md).
