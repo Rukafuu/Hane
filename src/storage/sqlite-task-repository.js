@@ -77,7 +77,11 @@ export class SqliteTaskRepository {
       FROM task_runs r
       LEFT JOIN task_audit_entries a ON a.task_id = r.id
       GROUP BY r.id
-      ORDER BY updatedAt DESC, r.id DESC
+      -- Two missions finishing inside the same millisecond tie on updatedAt, and the
+      -- TEXT id is not a clock: sorting by it made the newest mission depend on which
+      -- name comes later in the alphabet. rowid is the insert order and stays put
+      -- across upserts, so the tie resolves to "created later, listed first".
+      ORDER BY updatedAt DESC, r.rowid DESC
     `).all().map(row => {
       if (row.planJson !== null) {
         const plan=assertExecutionPlan(JSON.parse(row.planJson),row.teamId);

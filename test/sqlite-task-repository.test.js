@@ -156,6 +156,21 @@ test('lists missions most recently active first without loading bodies', async (
   repository.close();
 });
 
+test('a tie on the activity timestamp lists the mission created later first', () => {
+  const repository = new SqliteTaskRepository(':memory:');
+  const sameMillisecond = () => '2026-05-05T10:00:00.000Z';
+  for (const id of ['zzz-created-first', 'aaa-created-second']) {
+    const task = new TaskRun({ id, objective: `Tied ${id}.`, now: sameMillisecond });
+    task.transition('planned');
+    repository.save(task.snapshot());
+  }
+
+  // The ids are deliberately reverse-alphabetical to the insert order: sorting the tie
+  // by id would put the older mission first.
+  assert.deepEqual(repository.list().map((mission) => mission.id), ['aaa-created-second', 'zzz-created-first']);
+  repository.close();
+});
+
 test('rejects a save that would move provider calls backwards', () => {
   const repository = new SqliteTaskRepository(':memory:');
   const task = new TaskRun({ id: 'monotonic-run', objective: 'Protect the call budget.' });
