@@ -195,6 +195,100 @@ const MIGRATIONS = Object.freeze([
   Object.freeze({ id: 19, name: 'manual_mcp_call_audit', statements: Object.freeze([
     'CREATE TABLE settings_mcp_calls (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, server_name TEXT NOT NULL, tool TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT) STRICT;',
   ]) }),
+  // The actor runtime's own tables. They key on `execution_id` rather than a
+  // foreign key into task_runs on purpose: the same mailbox, trail and versioned
+  // state are meant to serve a team conversation later, and a conversation id
+  // has no row in task_runs to point at. Nor do they reference agents(id):
+  // deleting an agent is a supported library action, and an audit trail of what
+  // already happened must not quietly make every agent that ever ran undeletable.
+  // Roster membership is checked where a message or a task is accepted, which is
+  // where the guarantee has to live anyway.
+  Object.freeze({ id: 20, name: 'actor_mailbox', statements: Object.freeze([
+    `CREATE TABLE actor_mailbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      execution_id TEXT NOT NULL,
+      recipient_agent_id TEXT NOT NULL,
+      sender_agent_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      body TEXT NOT NULL,
+      hop INTEGER NOT NULL DEFAULT 0,
+      priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('normal','high')),
+      reply_to INTEGER REFERENCES actor_mailbox(id) ON DELETE SET NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','processed','dropped')),
+      drop_reason TEXT,
+      claim_token TEXT,
+      claim_owner TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts BETWEEN 0 AND 8),
+      lease_expires_at TEXT,
+      dedupe_key TEXT UNIQUE,
+      created_at TEXT NOT NULL,
+      processed_at TEXT
+    ) STRICT;`,
+    'CREATE INDEX actor_mailbox_inbox ON actor_mailbox(execution_id, recipient_agent_id, status, id);',
+    "ALTER TABLE task_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'sequential';",
+  ]) }),
+  Object.freeze({ id: 21, name: 'execution_event_trail', statements: Object.freeze([
+    `CREATE TABLE mission_events (
+      ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+      execution_kind TEXT NOT NULL DEFAULT 'mission' CHECK(execution_kind IN ('mission','conversation')),
+      execution_id TEXT NOT NULL,
+      team_id TEXT,
+      actor_id TEXT,
+      type TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;`,
+    'CREATE INDEX mission_events_by_execution ON mission_events(execution_id, ordinal);',
+  ]) }),
+  Object.freeze({ id: 22, name: 'versioned_execution_state', statements: Object.freeze([
+    `CREATE TABLE task_state_revisions (
+      execution_id TEXT NOT NULL,
+      state_key TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision >= 1),
+      value_json TEXT NOT NULL,
+      writer_agent_id TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(execution_id, state_key, revision)
+    ) STRICT;`,
+    `CREATE TABLE task_state_current (
+      execution_id TEXT NOT NULL,
+      state_key TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision >= 1),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(execution_id, state_key)
+    ) STRICT;`,
+    `CREATE TABLE artifacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      execution_id TEXT NOT NULL,
+      task_id TEXT,
+      agent_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      path TEXT NOT NULL,
+      bytes INTEGER NOT NULL,
+      sha256 TEXT NOT NULL,
+      effect_key TEXT UNIQUE,
+      created_at TEXT NOT NULL
+    ) STRICT;`,
+    'CREATE INDEX artifacts_by_execution ON artifacts(execution_id, id);',
+  ]) }),
+  Object.freeze({ id: 23, name: 'actor_task_graph', statements: Object.freeze([
+    `CREATE TABLE actor_tasks (
+      execution_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      assignee_agent_id TEXT NOT NULL,
+      depends_on_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','ready','running','completed','failed','blocked')),
+      result_key TEXT,
+      note TEXT,
+      claim_owner TEXT,
+      lease_expires_at TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts BETWEEN 0 AND 8),
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(execution_id, id)
+    ) STRICT;`,
+    'CREATE INDEX actor_tasks_by_status ON actor_tasks(execution_id, status, id);',
+  ]) }),
   // Id 16 is reserved for the per-execution backend choice (mission sandbox
   // selection). Take a later id, or claim 16 explicitly, instead of colliding.
 ]);
