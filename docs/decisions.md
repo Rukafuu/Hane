@@ -674,9 +674,14 @@ com o código e qual fica com o modelo.
   entrega como `sender_agent_id = 'user'` — um id que o mailbox aceita e nenhum agente pode deter,
   porque a diferença entre "colega afirmou" e "usuário mandou" tem que ser visível para o modelo que
   lê. Mandar recado para missão encerrada é 409: não há quem leia.
-- O SSE mantém todos os shapes de antes e soma `actor_started`, `actor_stopped`, `actor_message`,
-  `actor_state_committed`, `actor_task_completed`, `actor_artifact_created`, `actor_dropped`,
-  `actor_refused`, `actor_held`, `actor_recovered`. Cliente antigo ignora o que não conhece.
+- O SSE mantém todos os shapes de antes e soma os eventos que o bus publica: `actor_started`,
+  `actor_stopped`, `actor_refused`, `actor_task_completed`, `actor_message`,
+  `actor_state_committed` e `actor_artifact_created`, cada um com `actorId` e `ordinal`. Cliente
+  antigo ignora o que não conhece. O que a reconciliação decide (`actor_dropped`, `actor_held`,
+  `actor_recovered`) e o que o turno recusa (`message_refused`) estão na auditoria da missão, não no
+  bus: a trilha de eventos conta o que aconteceu enquanto alguém olha, e a auditoria conta o que
+  aconteceu de fato. Quem precisar de drop ao vivo no laço de eventos vai espelhar esses tipos, com
+  teste, em vez de adivinhar pelo silêncio.
 - Interface não pode mostrar mais do que a trilha prova: atividade simultânea, badge de atores e
   "computador ao vivo" se derivam de `mission_events` e `actor_tasks`, e uma mensagem droppada é
   mostrada com seu motivo.

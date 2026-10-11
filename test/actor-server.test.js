@@ -339,6 +339,13 @@ test('retry resumes an actor mission with the reviewer it was booked with', asyn
   assert.equal(rebound.length, 2);
   assert.equal(rebound[1].detail.reviewerAgentId, CELIA, 'the resume reviews with the same teammate, not whoever leads now');
   assert.deepEqual(done.audit.filter((entry) => entry.type === 'actor_reconciled').length, 1);
+
+  // The reconciliation is written where it happened: the ledger's audit trail. The
+  // event bus carries what ran under somebody's hands, so a client must not be
+  // taught to read a resume as if it were live work.
+  const types = (await world.get(`/api/mission-events?missionId=${queued.body.id}&after=0`)).body.events.map((event) => event.type);
+  assert.ok(types.includes('actor_started'), 'the run itself is on the trail');
+  assert.equal(types.includes('actor_reconciled'), false);
 });
 
 test('the actor windows refuse what is not an actor mission, and the sequential flow is untouched', async (t) => {
