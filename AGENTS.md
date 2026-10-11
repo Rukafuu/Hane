@@ -50,9 +50,11 @@ Windows Credential Manager — never in SQLite, HTTP bodies, git, or a screensho
 
 ## Where truth lives
 
-- `docs/decisions.md` owns the ADRs (0001–0010) — including ADR-0007 (the box is
-  its own `.wsl` distro) and ADR-0010 (Conversa and Missão are two modes sharing
-  agents, permissions and orchestration). Read it before reopening a decision.
+- `docs/decisions.md` owns the ADRs (0001–0011) — including ADR-0007 (the box is
+  its own `.wsl` distro), ADR-0010 (Conversa and Missão are two modes sharing
+  agents, permissions and orchestration) and ADR-0011 (concurrent actors, one
+  scheduler as sole mutation authority, at-least-once mail, sequential preset
+  unchanged). Read it before reopening a decision.
 - `docs/mvp-contract.md` is the external contract; `docs/runtime-honesty-audit.md`
   classifies every surface as REAL / PARTIAL / NOT IMPLEMENTED. When a frontend
   becomes more capable than the runtime, the audit is the file that has to change

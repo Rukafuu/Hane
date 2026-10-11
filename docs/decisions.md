@@ -571,3 +571,153 @@ qualquer inteiro positivo; e as preferências da UI prometem "de 1 a 100 por exe
 componente de conversa ainda envia `maxToolCalls: 8` fixo, ignorando a preferência do usuário.
 Nenhum desses números tem relação com o limite de 8 agentes por grupo — são regras de naturezas
 diferentes que coincidem em valor.
+
+
+# ADR-0011 — Orquestração concorrente: atores com mailbox, trilha e estado versionado, sob um scheduler único
+
+Status: aceito (implementado e testado até a camada HTTP; observabilidade e inbox são os dois
+últimos incrementos).
+
+## Contexto
+
+O preset `three-role` da ADR-0003 é um `for` sobre três papéis fixos (`ROLE_FLOW`), com uma rodada
+global. Isso é auditável, previsível em custo, e continua sendo o default. Mas a rodada única tem
+três consequências que o Lucas apontou como motivo suficiente para existir um segundo modo: dois
+agentes não conseguem conversar sem que o turno de todo mundo passe no meio; "trabalho simultâneo"
+na interface seria representação, porque no máximo um provedor está sendo chamado por vez; e o
+contexto de um agente é a saída anterior de outro papel, não o que ele próprio acumulou.
+
+As três peças necessárias — mailbox por agente, trilha de eventos persistida, estado compartilhado
+versionado — já existiam pela metade no runtime sequencial. O que elas não resolvem sozinhas é
+autoridade: um modelo em que qualquer agente escreve estado é um modelo sem orçamento, sem
+aprovação humana e sem retomada possível. A decisão inteira está em qual peça de coordenação fica
+com o código e qual fica com o modelo.
+
+## Decisão
+
+- **O runtime de atores não é da Missão.** Nada em `src/actors/` importa `mission-server.js`,
+  `TaskRun` ou shape de React. O runtime recebe um `executionRef` `{ kind: 'mission' | 'conversation', id }`
+  e um ledger plano por trás de uma interface (`reserveProviderCall` / `reserveToolCall` / `record` /
+  `transition`). As tabelas novas chaveiam `execution_id`, sem foreign key para `task_runs`: uma
+  conversa de Team vai usar as mesmas mesas, e uma linha de auditoria do que já aconteceu não pode
+  tornar um agente indeletável. `TaskRun` continua sendo o ledger da Missão, não um conceito do
+  runtime.
+- **O scheduler é o único que autoriza mutação.** Agente não escreve mailbox diretamente, não cria
+  tarefa, não reatribui tarefa, não muda status da missão e não libera predecessora. A única porta
+  de escrita que um ator tem é a mesma porta de ferramenta que o restante do Hane já tinha.
+- **Mensagem agente→agente é capacidade, ferramenta e verbo.** `team.communicate` é a capacidade,
+  `team_send_message` é a ferramenta, `message` é o verbo, e o `sandbox` desse verbo é o gateway do
+  scheduler (`src/actors/gateway.js`). Ela passa pelo `createToolRouter` exatamente como as outras
+  quatro, porque uma ferramenta fora da rota é uma ferramenta sem grant. O emissor é o ator preso
+  ao gateway, nunca um campo do JSON que o modelo produziu; destinatário fora da execução é recusa
+  auditada (`recipient_not_in_execution`, `recipient_ambiguous`, `peer_not_granted`), e o limite
+  estourado também (`hop_limit_exceeded`, `actor_inbound_limit_exceeded`). Um drop nunca é resultado
+  vazio: vai para `dropped` com `drop_reason` e para a trilha como `actor_dropped`.
+- **Entrega é at-least-once, e é isso que prometemos.** Os estados são
+  `pending → processing → processed | pending (retry) | dropped`. O claim é uma declaração
+  (`UPDATE … WHERE id IN (SELECT … ORDER BY …) RETURNING *`) dentro de `BEGIN IMMEDIATE`, com
+  `claim_token`, `claim_owner`, `lease_expires_at` e `attempts`; o ack só vale com o token, então uma
+  tentativa que sobreviveu ao próprio lease não confirma de novo. Depois de
+  `MAX_DELIVERY_ATTEMPTS = 3` a mensagem é droppada onde o usuário enxerga. **Não existe
+  exactly-once** para chamada de LLM nem para `write_file` / `run_command`: o efeito acontece fora do
+  nosso banco e nenhuma transação nossa pode atravessar um `await`.
+- **Idempotência onde ela pode existir.** Toda mensagem carregada por um turno tem `dedupe_key`
+  (token do turno + destinatário + hash do corpo) com `UNIQUE` no banco, então repetir o turno não
+  duplica o recado. Cada artefato é registrado por um `effect_key UNIQUE`. O estado compartilhado é CAS:
+  reler é sempre seguro, e quem perde a corrida recebe `state_conflict` com o valor atual em vez de
+  sobrescrever em cima.
+- **O DAG se forma antes de existir missão.** `POST /api/missions` com `executionMode:"actor"` aceita
+  `tasks:[{id,title,assigneeAgentId,dependsOn}]`; sem `tasks`, um ator autor do plano produz o DAG em
+  uma chamada e ele passa pelo mesmo `assertActorDag`. São 12 tarefas no máximo, id único, assignee
+  dentro do roster, dependência existente, sem ciclo (ordenação topológica por Kahn). A validação é
+  antes de qualquer ator subir e antes de persistir, porque um ciclo descoberto depois do 202 é
+  destroço que o usuário tem que ler. Um plano gerado que não passa tem uma tentativa de reparo e
+  depois vai a `NEEDS_ATTENTION` com `actor_plan_unusable`.
+- **Concorrência real, dentro de um processo.** Independentes rodam ao mesmo tempo até
+  `maxConcurrentActors` (3, teto duro 4); dependentes só são liberadas quando a predecessora concluiu
+  de verdade. O paralelismo é o event loop do Node sobre uma conexão síncrona de SQLite: nenhum
+  módulo segura transação aberta enquanto espera provedor. Delegação dinâmica — ator criando,
+  removendo ou reatribuindo tarefa — continua fora do escopo.
+- **Orçamento é do backend e sobrevive ao processo.** Teto global da missão (`maxProviderCalls`,
+  default 10, teto de servidor 64), fatia por ator (`maxProviderCallsPerActor`, default 6),
+  ferramentas (default 24, teto de servidor 24). Os limites de conversa entre agentes são hop 3,
+  4 mensagens por par ordenado e 12 absorvidas por ator, e todos são checados **antes** de gastar
+  chamada de provedor. `mode` e a fatia por ator têm coluna própria em `task_runs` (migrações 20 e
+  24); a fatia não é reescrita no `ON CONFLICT` porque é o que o usuário autorizou na criação, e um
+  save cujo snapshot omite o número não pode alargar nem estreitar nada. Retomar uma missão em
+  atores não dá cota nova: os gastos por agente voltam do snapshot ou da própria trilha.
+- **Retomada lê o que foi persistido confirmado, não o snapshot.** `reconcileOnResume` recolhe
+  reserva de mailbox vencida e resolve tarefa presa em `running`: se a resposta está commitada no
+  board e assinada por quem detinha a tarefa, a linha fecha (`actor_recovered`); se a trilha mostra
+  um efeito externo (`tool_written` / `tool_ran`) sem par concluído, a tarefa vai para `blocked` com
+  `actor_held` nomando o verbo e o caminho ou comando, e a missão vai a `NEEDS_ATTENTION` — **nunca
+  é repetida automaticamente**; sem confirmação e sem efeito em aberto, a tarefa volta à fila
+  (`resumed_after_interruption`). O reviewer é gravado na auditoria ao iniciar
+  (`actor_reviewer_bound`) para que um processo reaberto revise com o mesmo colega, e não com quem
+  lidera o Team hoje.
+- **Interrupção drena o turno; não há preempção.** `/cancel` aborta o sinal e cada ator termina o turno em
+  curso; o que estava reservado volta para a fila. Uma geração de LLM morta no meio custa o custo
+  integral sem resposta legível, então o caminho mais barato é o que o Hane já tinha.
+- **Compatibilidade com a ADR-0003, dita explicitamente.** O modo ator é a segunda estratégia do
+  preset legado, não um segundo produto: `ROLE_FLOW` e o default sequencial ficam intactos, e uma
+  missão salva antes dos atores continua sequencial (`mode TEXT DEFAULT 'sequential'`). Delegação
+  continua estrutura persistida (`actor_tasks`), não conversa. Quem é dono do estado continua sendo
+  o orquestrador — agora o `ActorOrchestrator`. A alternativa rejeitada pela ADR-0003 — um LLM
+  supervisor decidindo livremente a próxima chamada — **não volta disfarçada**: quem autoriza despacho
+  é código; ao modelo cabe o conteúdo de uma tarefa e de uma mensagem.
+
+## Consequências
+
+- A superfície HTTP ganhou quatro janelas de leitura atrás do `request-guard`
+  (`GET|POST /api/missions/:id/mailbox`, `GET .../state`, `GET .../actors`,
+  `GET /api/mission-events?missionId&after=ordinal`) e uma de escrita: o composer do usuário, que
+  entrega como `sender_agent_id = 'user'` — um id que o mailbox aceita e nenhum agente pode deter,
+  porque a diferença entre "colega afirmou" e "usuário mandou" tem que ser visível para o modelo que
+  lê. Mandar recado para missão encerrada é 409: não há quem leia.
+- O SSE mantém todos os shapes de antes e soma `actor_started`, `actor_stopped`, `actor_message`,
+  `actor_state_committed`, `actor_task_completed`, `actor_artifact_created`, `actor_dropped`,
+  `actor_refused`, `actor_held`, `actor_recovered`. Cliente antigo ignora o que não conhece.
+- Interface não pode mostrar mais do que a trilha prova: atividade simultânea, badge de atores e
+  "computador ao vivo" se derivam de `mission_events` e `actor_tasks`, e uma mensagem droppada é
+  mostrada com seu motivo.
+- `cancellationReason` e `settleByVerdict` saíram do orquestrador para `contracts.js` /
+  `verdict.js`: dois orquestradores que decidem "o que um veredito significa" em dois lugares
+  diferentes vão divergir, e a segunda cópia é onde a divergência aparece.
+- `team.communicate` entrou na lista de capacidades que a UI oferece porque agora existe executor;
+  `network.request` continua fora por não ter. Conversa recusa grant de `team.communicate` enquanto
+  não houver scheduler atrás dela.
+
+## Pontos de integração futura com a Conversa
+
+Nada em `src/actors/` precisa mudar para servir uma conversa de Team; o que falta está do lado da
+rota, e esta entrega não a toca:
+
+- `src/server/conversations-api.js:19-69` roda um turno sequencial por mensagem e `:102`/`:107`
+  mantêm um lock de turno único por conversa. Ligar o runtime de atores ali exige um
+  `executionRef` de `kind:'conversation'`, um ledger por conversa e o roster da conversa.
+- A recusa atual de `team.communicate` em grant de conversa (`conversations-api.js:98`) é a peça
+  que impede a UI de oferecer messaging entre agentes sem scheduler; ela cai junto com o lock.
+
+## Restrições conhecidas do MVP
+
+- O ledger de artefatos existe, é idempotente por `effect_key` e está coberto de teste, mas o
+  runtime ainda **não** registra artefato a partir de uma escrita real de ferramenta;
+  `actor_artifact_created` não tem produtor em produção. Quem escrever essa ponte liga o
+  `effect_key` na chamada de ferramenta.
+- Sem preempção durante geração; sem delegação dinâmica; sem broadcast e sem "scoring de relevância"
+  — só mensagem direcionada e estado compartilhado.
+- Atores rodam no mesmo processo; sem compactação de contexto por ator, sem custo por agente, sem
+  estado entre missões, sem streaming de tokens, sem negociação/consenso entre agentes.
+- A retomada reconcilia o que a trilha permite provar. Um efeito sem par concluído fica em `blocked`
+  para decisão humana — o preço de não repetir é uma missão que às vezes pede um "pode refazer?".
+
+## Estado atual
+
+Persistência (migrações 20–24: `actor_mailbox`, `execution_event_trail`, `versioned_execution_state`
+com `task_state_current` / `task_state_revisions` / `artifacts`, `actor_task_graph`,
+`actor_provider_share`), núcleo de atores (envelope, bus, mailbox com claim/ack/nack, CAS, agent
+loop, gateway `team_send_message`), scheduler com DAG, limites, cancelamento e reconciliação, e o
+modo `executionMode:"actor"` no HTTP estão implementados e cobertos por teste com provedor simulado.
+A prova de concorrência afirma que duas chamadas de provedor se sobrepõem com pico ≥ 2 e que a
+dependente só começa depois da predecessora concluída — eventos `actor_started` intercalados não
+contam como prova. O preset sequencial passa a suíte inteira dele sem mudança.
