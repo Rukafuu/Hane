@@ -32,3 +32,13 @@ src/Hane fonts/Hane-v0.4/Hane-v0.4/
 
 # Browser profiles written by QA runs. Not project data, and not ours to publish.
 chrome-qa/
+
+# Scratch and screenshot evidence produced by visual audit sessions. Referenced by no build,
+# test or source file; kept locally and backed up outside the repository.
+.tmp/
+outputs/hane-garden/garden-family.jpg
+outputs/hane-garden/profile-height-fix.jpg
+outputs/hane-garden/qa-avatar.gif
+
+# Strategy and roadmap document: local planning, not a published artifact. Backed up outside the repo.
+/Hane_Estrategia_Diferenciacao_e_Roadmap.docx
