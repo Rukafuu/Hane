@@ -2,6 +2,7 @@ import { assertId, assertObject, TeamError } from '../teams/domain.js';
 import { TASK_STATUS } from '../contracts.js';
 import { MESSAGE_PRIORITIES, MESSAGE_STATUSES } from '../storage/sqlite-mailbox-store.js';
 import { USER_SENDER_ID } from '../actors/envelope.js';
+import { SqliteActorPlanStore } from '../storage/sqlite-actor-plan-store.js';
 
 /**
  * The read-only windows onto a running actor mission, plus the one way the user
@@ -22,10 +23,11 @@ import { USER_SENDER_ID } from '../actors/envelope.js';
 const MAX_MESSAGE_BYTES = 16_000;
 
 export function createActorMissionApi({ repository, agentStore = null, tasks, mailbox, state, events, readJsonBody, respondJson, broadcast = () => {} }) {
+  const plans = repository.database ? new SqliteActorPlanStore({ database: repository.database }) : null;
   return async function handle({ request, response, isAuthorized }) {
     const url = new URL(request.url, 'http://127.0.0.1');
     const pathname = url.pathname;
-    const match = pathname.match(/^\/api\/missions\/([\w-]+)\/(mailbox|state|actors)$/);
+    const match = pathname.match(/^\/api\/missions\/([\w-]+)\/(mailbox|state|actors|actor-plan)$/);
     const trail = pathname === '/api/mission-events';
     if (!match && !trail) return false;
     const reply = (status, payload) => { respondJson(response, status, payload); return true; };
@@ -59,6 +61,11 @@ export function createActorMissionApi({ repository, agentStore = null, tasks, ma
       if (mission.mode !== 'actor') return reply(409, { error: `Mission "${missionId}" is a sequential run; it has no mailboxes, board or task crew.` });
       const rows = tasks.list({ executionId: missionId });
 
+      if (match[2] === 'actor-plan' && request.method === 'GET') {
+        const plan = plans?.get({ executionId: missionId }) ?? null;
+        if (!plan) return reply(404, { error: `No actor plan has been proposed for mission "${missionId}".` });
+        return reply(200, { missionId, status: mission.status, proposal: plan, providerCalls: mission.providerCalls, maxProviderCalls: mission.maxProviderCalls, maxProviderCallsPerActor: mission.maxProviderCallsPerActor });
+      }
       if (match[2] === 'actors' && request.method === 'GET') {
         const names = new Map(rows.map((row) => [row.assigneeAgentId, agentStore?.get(row.assigneeAgentId)?.name ?? null]));
         return reply(200, {

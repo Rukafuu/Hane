@@ -23,6 +23,7 @@ import { SqliteActorTaskStore } from '../storage/sqlite-actor-task-store.js';
 import { SqliteMailboxStore } from '../storage/sqlite-mailbox-store.js';
 import { SqliteStateStore } from '../storage/sqlite-state-store.js';
 import { SqliteMissionEventStore } from '../storage/sqlite-mission-events.js';
+import { SqliteActorPlanStore } from '../storage/sqlite-actor-plan-store.js';
 import { ProviderConfigError, CredentialMissingError } from '../providers/provider-factory.js';
 import { resolveProviderConfig } from '../cli/run-mission.js';
 import { GitHubAuthorizationPendingError, pollGitHubDeviceAuthorization, startGitHubDeviceAuthorization } from '../integrations/github-device-flow.js';
@@ -134,6 +135,7 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
     mailbox: new SqliteMailboxStore({ database: repository.database }),
     state: new SqliteStateStore({ database: repository.database }),
     events: new SqliteMissionEventStore({ database: repository.database }),
+    plans: new SqliteActorPlanStore({ database: repository.database }),
   } : null;
   const actorApi = createActorMissionApi({
     repository, agentStore, ...(actorStores ?? {}), readJsonBody, respondJson, broadcast,
@@ -196,6 +198,10 @@ async function handle(context) {
   if (actionMatch && request.method === 'POST') {
     if (actionMatch[2] === 'cancel') return cancelMission({ ...context, id: actionMatch[1] });
     return resumeMission({ ...context, id: actionMatch[1], action: actionMatch[2] });
+  }
+  const actorPlanAction = pathname.match(/^\/api\/missions\/([\w-]+)\/actor-plan\/(approve|regenerate)$/);
+  if (actorPlanAction && request.method === 'POST') {
+    return resumeMission({ ...context, id: actorPlanAction[1], action: `actor-plan-${actorPlanAction[2]}` });
   }
 
   if (pathname === '/api/events' && request.method === 'GET') {
@@ -424,27 +430,24 @@ async function startMission({ request, response, repository, agentStore, teamSto
       agentCapabilityCheck: agentStore ? (id, capability) => agentStore.get(id)?.capabilities.includes(capability) === true : null,
       idFactory: () => missionId,
     });
-    respondJson(response, 202, {
-      id: missionId, objective, status: 'queued', executionMode, teamId,
-      maxProviderCalls, maxProviderCallsPerActor, maxToolCalls, capabilityGrants, workspaceRoot,
-      providerLabel,
-      actors: actorRoster.map(({ agentId, name, providerLabel: label, model }) => ({ agentId, name, providerLabel: label, model })),
-      ...(actorTasks ? { tasks: actorTasks } : {}),
-    });
-    running.set(missionId, controller);
     try {
-      await orchestrator.start({
+      const proposed = await orchestrator.propose({
         objective, teamId, executionPlan: null, tasks: actorTasks, planAgentId, reviewerAgentId,
         roster: actorRoster, providerLabel, maxProviderCalls, maxProviderCallsPerActor,
         ...(maxToolCalls === undefined ? {} : { maxToolCalls }),
         capabilityGrants, workspaceRoot, signal: controller.signal, onEvent,
       });
+      const snapshot = proposed.task.snapshot();
+      return respondJson(response, 202, {
+        id: missionId, objective, status: snapshot.status, executionMode, teamId,
+        maxProviderCalls: snapshot.maxProviderCalls, providerCalls: snapshot.providerCalls, maxProviderCallsPerActor,
+        maxToolCalls, capabilityGrants, workspaceRoot, providerLabel,
+        actors: actorRoster.map(({ agentId, name, providerLabel: label, model }) => ({ agentId, name, providerLabel: label, model })),
+        ...(proposed.proposal ? { actorPlan: proposed.proposal } : {}),
+      });
     } catch (error) {
-      broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
-    } finally {
-      if (running.get(missionId) === controller) running.delete(missionId);
+      return respondJson(response, 500, { error: 'Não foi possível propor o plano da equipe.' });
     }
-    return;
   }
 
   const orchestrator = new Orchestrator({ provider, roleProviders, agentCapabilityCheck:agentStore ? (id,capability)=>agentStore.get(id)?.capabilities.includes(capability) === true : null, repository, idFactory: () => missionId });
@@ -485,15 +488,23 @@ async function resumeMission({ request, response, repository, agentStore, teamSt
 
   const task = TaskRun.fromSnapshot(mission);
   try {
-    if (action === 'approve') {
+    if (action === 'approve' || action === 'actor-plan-approve') {
       if (mission.status !== TASK_STATUS.AWAITING_APPROVAL) {
         return respondJson(response, 409, { error: `Mission "${id}" is ${mission.status}, not awaiting_approval. hint: POST /api/missions/${id}/retry resumes interrupted missions` });
       }
-      for (const role of REVISION_ROLES) delete task.outputs[role];
-      const wantedMax = body?.maxProviderCalls !== undefined
-        ? assertBudget(body.maxProviderCalls, 'maxProviderCalls')
-        : Math.min(task.providerCalls + REVISION_ROLES.length, BUDGET_CEILINGS.maxProviderCalls);
-      if (wantedMax > task.maxProviderCalls) task.extendBudget(wantedMax);
+      // Approving an actor proposal starts its already-authorized scheduler; it
+      // is not the sequential review-revision flow and must not silently add calls.
+      if (task.mode !== 'actor') {
+        for (const role of REVISION_ROLES) delete task.outputs[role];
+        const wantedMax = body?.maxProviderCalls !== undefined
+          ? assertBudget(body.maxProviderCalls, 'maxProviderCalls')
+          : Math.min(task.providerCalls + REVISION_ROLES.length, BUDGET_CEILINGS.maxProviderCalls);
+        if (wantedMax > task.maxProviderCalls) task.extendBudget(wantedMax);
+      }
+    } else if (action === 'actor-plan-regenerate') {
+      if (task.mode !== 'actor' || mission.status !== TASK_STATUS.AWAITING_APPROVAL) {
+        return respondJson(response, 409, { error: `Mission "${id}" is not awaiting an actor-plan decision.` });
+      }
     } else {
       if (mission.status !== TASK_STATUS.NEEDS_ATTENTION && mission.status !== TASK_STATUS.FAILED) {
         return respondJson(response, 409, { error: `Mission "${id}" is ${mission.status}; only needs_attention or failed missions can be retried.` });
@@ -549,6 +560,13 @@ async function resumeMission({ request, response, repository, agentStore, teamSt
       providers: actorProviders, database: repository.database, repository,
       agentCapabilityCheck: capabilityCheck,
     });
+    if (action === 'actor-plan-regenerate') {
+      try {
+        const proposal = await orchestrator.regenerate(task, { roster: actorRoster, planAgentId: actorReviewerOf(mission.audit), signal: controller.signal });
+        if (!proposal) return respondJson(response, 422, { error: 'The planner did not return a usable replacement plan.' });
+        return respondJson(response, 200, { id, status: task.status, actorPlan: proposal, providerCalls: task.providerCalls, maxProviderCalls: task.maxProviderCalls });
+      } catch (error) { return respondJson(response, 409, { error: error instanceof Error ? error.message : 'Could not regenerate the actor plan.' }); }
+    }
     respondJson(response, 202, {
       id, objective: mission.objective, status: 'resuming', executionMode: 'actor',
       maxProviderCalls: task.maxProviderCalls, maxProviderCallsPerActor: task.maxProviderCallsPerActor,
@@ -557,13 +575,21 @@ async function resumeMission({ request, response, repository, agentStore, teamSt
     });
     running.set(id, controller);
     try {
+      const approving = action === 'approve' || action === 'actor-plan-approve';
+      const approvedPlan = approving ? actorStores.plans.get({ executionId: id }) : null;
+      if (approving && !approvedPlan) return respondJson(response, 409, { error: `Mission "${id}" has no proposed actor plan to approve.` });
+      if (approving) actorStores.plans.approve({ executionId: id });
       await orchestrator.resume(task, {
+        ...(approvedPlan ? { tasks: approvedPlan.tasks } : {}),
+        resuming: !approving,
         roster: actorRoster,
         reviewerAgentId: actorReviewerOf(mission.audit),
         onEvent,
         signal: controller.signal,
       });
     } catch (error) {
+      task.record('actor_dispatch_failed', { message: error instanceof Error ? error.message : 'Unknown failure.' });
+      repository.save(task.snapshot());
       broadcast({ type: 'server_error', missionId: id, message: error instanceof Error ? error.message : 'Unknown failure.' });
     } finally {
       if (running.get(id) === controller) running.delete(id);
@@ -595,6 +621,9 @@ function actorReviewerOf(audit) {
   for (let index = (audit?.length ?? 0) - 1; index >= 0; index -= 1) {
     const entry = audit[index];
     if (entry?.type === 'actor_reviewer_bound' && typeof entry.detail?.reviewerAgentId === 'string') {
+      return entry.detail.reviewerAgentId;
+    }
+    if (entry?.type === 'actor_plan_proposed' && typeof entry.detail?.reviewerAgentId === 'string') {
       return entry.detail.reviewerAgentId;
     }
   }

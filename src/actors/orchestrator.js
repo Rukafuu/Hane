@@ -10,6 +10,7 @@ import { SqliteActorTaskStore } from '../storage/sqlite-actor-task-store.js';
 import { SqliteMailboxStore } from '../storage/sqlite-mailbox-store.js';
 import { SqliteStateStore } from '../storage/sqlite-state-store.js';
 import { SqliteMissionEventStore } from '../storage/sqlite-mission-events.js';
+import { SqliteActorPlanStore } from '../storage/sqlite-actor-plan-store.js';
 import { assertActorDag } from './dag.js';
 import { authorActorPlan } from './plan-author.js';
 import { createEventBus } from './bus.js';
@@ -71,6 +72,45 @@ export class ActorOrchestrator {
     this.mailboxStore = new SqliteMailboxStore({ database });
     this.stateStore = new SqliteStateStore({ database });
     this.events = new SqliteMissionEventStore({ database });
+    this.plans = new SqliteActorPlanStore({ database });
+  }
+
+  /** Creates a persisted plan candidate. It deliberately does not book actor_tasks or dispatch work. */
+  async propose({ objective, teamId = null, executionPlan = null, tasks = null, planAgentId = null, roster, reviewerAgentId = null, capabilityGrants = [], workspaceRoot = null, providerLabel = null, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, maxProviderCallsPerActor = DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR, maxToolCalls = undefined, signal = null }) {
+    const agentIds = (roster ?? []).map((agent) => agent.agentId);
+    const authored = tasks === null || tasks === undefined || (Array.isArray(tasks) && tasks.length === 0) ? null : assertActorDag({ tasks, agentIds });
+    const task = new TaskRun({ id: this.idFactory(), teamId, executionPlan, mode: 'actor', objective, maxProviderCalls, maxProviderCallsPerActor, providerLabel, capabilityGrants, workspaceRoot, ...(maxToolCalls === undefined ? {} : { maxToolCalls }) });
+    this.#persist(task);
+    const author = this.#authorFor(roster, planAgentId);
+    let plan = authored;
+    let source = 'authored';
+    if (plan === null) {
+      const outcome = await authorActorPlan({ provider: this.providers.get(author.agentId), agent: { agentId: author.agentId, name: author.name }, objective, roster: (roster ?? []).map(({ agentId, name, capabilities }) => ({ agentId, name, capabilities: capabilities ?? [] })), ledger: task, audit: (type, detail) => task.record(type, detail), ...(signal === null ? {} : { signal }) });
+      if (!outcome.ok) { task.record('actor_plan_unusable', { agentId: author.agentId, reason: outcome.reason, detail: outcome.detail, turns: outcome.turns }); task.transition(TASK_STATUS.NEEDS_ATTENTION); this.#persist(task); return { task, proposal: null }; }
+      plan = outcome.tasks; source = 'planner';
+    }
+    const proposal = this.plans.create({ executionId: task.id, tasks: plan, authorAgentId: author?.agentId ?? null, source });
+    task.record('actor_plan_proposed', { revision: proposal.revision, source, authorAgentId: proposal.authorAgentId, tasks: plan.map((entry) => entry.id), reviewerAgentId });
+    task.transition(TASK_STATUS.AWAITING_APPROVAL); this.#persist(task);
+    return { task, proposal };
+  }
+
+  /** One user-requested replacement of an unapproved proposal. */
+  async regenerate(task, { roster, planAgentId = null, signal = null } = {}) {
+    if (!(task instanceof TaskRun) || task.mode !== 'actor') throw new TypeError('regenerate needs an actor mission.');
+    if (task.status !== TASK_STATUS.AWAITING_APPROVAL) throw new TypeError('only an unapproved actor plan can be regenerated.');
+    if (this.plans.count({ executionId: task.id }) >= 2) throw new TypeError('this actor plan has already been regenerated once.');
+    const author = this.#authorFor(roster, planAgentId);
+    const outcome = await authorActorPlan({
+      provider: this.providers.get(author.agentId), agent: { agentId: author.agentId, name: author.name }, objective: task.objective,
+      roster: roster.map(({ agentId, name, capabilities }) => ({ agentId, name, capabilities: capabilities ?? [] })), ledger: task,
+      audit: (type, detail) => task.record(type, detail), ...(signal === null ? {} : { signal }),
+    });
+    if (!outcome.ok) { task.record('actor_plan_unusable', { agentId: author.agentId, reason: outcome.reason, detail: outcome.detail, turns: outcome.turns }); this.#persist(task); return null; }
+    const proposal = this.plans.create({ executionId: task.id, tasks: outcome.tasks, authorAgentId: author.agentId, source: 'regenerated' });
+    task.record('actor_plan_regenerated', { revision: proposal.revision, authorAgentId: author.agentId, tasks: proposal.tasks.map((entry) => entry.id) });
+    this.#persist(task);
+    return proposal;
   }
 
   /**
@@ -131,11 +171,13 @@ export class ActorOrchestrator {
    * a resume reconciles them rather than re-booking them: `tasks` is only accepted
    * for a mission that was persisted before its plan was written.
    */
-  async resume(task, { tasks = null, roster = null, reviewerAgentId = null, onEvent = null, signal = null } = {}) {
+  async resume(task, { tasks = null, roster = null, reviewerAgentId = null, approvePlan = false, resuming = true, onEvent = null, signal = null } = {}) {
     if (!(task instanceof TaskRun)) throw new TypeError('resume requires a TaskRun instance.');
     if (task.mode !== 'actor') throw new TypeError('a sequential mission is resumed by the sequential orchestrator.');
-    const plan = tasks === null ? null : assertActorDag({ tasks, agentIds: (roster ?? []).map((agent) => agent.agentId) });
-    return this.#execute(task, { plan, roster, reviewerAgentId, resuming: true }, onEvent, signal);
+    const stored = tasks === null && approvePlan ? this.plans.get({ executionId: task.id }) : null;
+    const plan = tasks === null ? stored?.tasks ?? null : assertActorDag({ tasks, agentIds: (roster ?? []).map((agent) => agent.agentId) });
+    if (approvePlan && stored && stored.approvedAt === null) { this.plans.approve({ executionId: task.id }); task.record('actor_plan_approved', { revision: stored.revision }); this.#persist(task); }
+    return this.#execute(task, { plan, roster, reviewerAgentId, resuming }, onEvent, signal);
   }
 
   async #execute(task, { plan, roster, reviewerAgentId, resuming }, onEvent, signal) {

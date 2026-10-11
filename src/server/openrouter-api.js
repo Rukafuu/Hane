@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 
 export const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 export const OPENROUTER_CREDENTIAL = 'local-agent-orchestrator/openrouter-catalog';
+export const OPENROUTER_FREE_LABEL = 'openrouter-free';
+export const OPENROUTER_FREE_MODEL = 'openrouter/free';
 
 // Only these fixed OpenRouter endpoints receive the credential. Remote errors
 // and account metadata never cross back into the browser.
@@ -56,7 +58,8 @@ export function createOpenRouterApi({ database, providerConfigStore, credentialM
         if (!data.data || typeof data.data !== 'object' || Array.isArray(data.data)) throw new Error('remote');
         if (!isAuthorized()) return reply(response, 401, { error: 'Sessão encerrada.' });
         await credentialManager.set(OPENROUTER_CREDENTIAL, secret);
-        return reply(response, 200, { configured: true });
+        providerConfigStore.upsert({ label: OPENROUTER_FREE_LABEL, baseUrl: OPENROUTER_BASE, model: OPENROUTER_FREE_MODEL, credentialReference: OPENROUTER_CREDENTIAL });
+        return reply(response, 200, { configured: true, defaultProvider: OPENROUTER_FREE_LABEL });
       }
       if (path !== '/api/settings/openrouter/models') return reply(response, 404, { error: 'Operação não encontrada.' });
       const secret = await credentialManager.get(OPENROUTER_CREDENTIAL);

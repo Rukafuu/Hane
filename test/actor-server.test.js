@@ -93,13 +93,20 @@ function createHarness({ scripts = {}, verdict = APPROVED, objective = 'Três ag
   const baseUrl = () => baseUrlPromise;
   return {
     database, repository, scripts, log, agentStore, teamStore, baseUrl,
-    mission: async (body) => {
+    mission: async (body, { approve = true } = {}) => {
       const response = await fetch(`${await baseUrl()}/api/missions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ objective, ...body }),
       });
-      return { status: response.status, body: await response.json() };
+      const created = { status: response.status, body: await response.json() };
+      if (approve && created.status === 202 && body.executionMode === 'actor' && created.body.status === 'awaiting_approval') {
+        const approval = await fetch(`${await baseUrl()}/api/missions/${created.body.id}/actor-plan/approve`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+        });
+        if (approval.status !== 202) throw new Error(`actor plan approval failed: ${approval.status} ${JSON.stringify(await approval.json())}`);
+      }
+      return created;
     },
     get: async (route) => {
       const response = await fetch(`${await baseUrl()}${route}`);
@@ -149,7 +156,7 @@ test('POST with executionMode actor runs the booked plan and the windows read it
   assert.equal(JSON.stringify(queued.body).includes('apiKey'), false);
 
   const mission = await world.until(`/api/missions/${queued.body.id}`, 'completed');
-  assert.equal(mission.status, 'completed', 'the actor run reached a verdict');
+  assert.equal(mission.status, 'completed', `the actor run reached a verdict: ${JSON.stringify(mission.audit)}`);
   assert.equal(mission.mode, 'actor');
   assert.equal(mission.providerCalls, 4, 'three actors and one review');
   assert.equal(mission.outputs.reviewer, APPROVED);
@@ -305,7 +312,7 @@ test('a leader writes the plan when nobody authored one, and a bad plan asks the
   assert.equal(queued.status, 202);
   const mission = await world.until(`/api/missions/${queued.body.id}`, 'completed');
   assert.equal(mission.status, 'completed', 'the generated plan runs like an authored one');
-  assert.ok(mission.audit.some((entry) => entry.type === 'actor_planned' && entry.detail.agentId === CELIA), 'the leader is named as the author');
+  assert.ok(mission.audit.some((entry) => entry.type === 'actor_plan_proposed' && entry.detail.authorAgentId === CELIA), 'the leader is named as the author');
   const state = await world.get(`/api/missions/${queued.body.id}/state`);
   assert.deepEqual(state.body.tasks.map((task) => task.id), ['g1', 'g2']);
   assert.match(JSON.stringify(world.log.filter((entry) => entry.kind === 'turn')[0].messages), /assign to one of|Never invent a teammate/, 'the prompt shows the roster it may use');

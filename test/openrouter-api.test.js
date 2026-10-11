@@ -3,7 +3,7 @@ import test from 'node:test';
 import { openHaneDatabase } from '../src/storage/sqlite-database.js';
 import { SqliteProviderConfigStore } from '../src/storage/sqlite-provider-config-store.js';
 import { createSettingsApi } from '../src/server/settings-api.js';
-import { OPENROUTER_BASE, OPENROUTER_CREDENTIAL } from '../src/server/openrouter-api.js';
+import { OPENROUTER_BASE, OPENROUTER_CREDENTIAL, OPENROUTER_FREE_LABEL, OPENROUTER_FREE_MODEL } from '../src/server/openrouter-api.js';
 
 const model = (id, output = ['text']) => ({ id, name: id, context_length: 32768, architecture: { output_modalities: output }, pricing: { prompt: '0', completion: '0' } });
 function setup(t, remote = async url => Response.json(url.endsWith('/key') ? { data: { label: 'private-account-label' } } : { data: [model('vendor/one'), model('vendor/two'), model('image/only', ['image'])] })) {
@@ -25,16 +25,17 @@ test('OpenRouter key validates before storing; catalog adds usable models with a
   const h = setup(t);
   assert.equal((await h.call('/models')).status, 409);
   const saved = await h.call('/secret', 'POST', { secret: 'synthetic-test-key' });
-  assert.deepEqual(saved.data, { configured: true });
+  assert.deepEqual(saved.data, { configured: true, defaultProvider: OPENROUTER_FREE_LABEL });
+  assert.deepEqual(h.providers.findByLabel(OPENROUTER_FREE_LABEL)?.model, OPENROUTER_FREE_MODEL);
   assert.equal(h.secrets.get(OPENROUTER_CREDENTIAL), 'synthetic-test-key');
   const catalog = await h.call('/models');
   assert.deepEqual(catalog.data.models.map(m => m.id), ['vendor/one', 'vendor/two']);
   assert.equal(catalog.data.models[0].contextLength, 32768);
   const result = await h.call('/models', 'POST', { models: ['vendor/one', 'vendor/two'] });
-  assert.equal(result.status, 200); assert.equal(result.data.providers.length, 2);
+  assert.equal(result.status, 200); assert.equal(result.data.providers.length, 3);
   assert.ok(result.data.providers.every(p => p.baseUrl === OPENROUTER_BASE && p.credentialReference === OPENROUTER_CREDENTIAL));
   await h.call('/models', 'POST', { models: ['vendor/one'] });
-  assert.equal(h.providers.list().length, 2);
+  assert.equal(h.providers.list().length, 3);
   assert.ok(h.calls.every(c => ['/key', '/models'].some(p => c.url === OPENROUTER_BASE + p) && !c.options.body && c.options.redirect === 'error'));
   assert.equal(JSON.stringify([saved, catalog, result, h.providers.list()]).includes('synthetic-test-key'), false);
   assert.equal(JSON.stringify(saved).includes('private-account-label'), false);

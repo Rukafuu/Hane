@@ -296,6 +296,19 @@ const MIGRATIONS = Object.freeze([
   Object.freeze({ id: 24, name: 'actor_provider_share', statements: Object.freeze([
     'ALTER TABLE task_runs ADD COLUMN max_provider_calls_per_actor INTEGER NOT NULL DEFAULT 6;',
   ]) }),
+  Object.freeze({ id: 25, name: 'actor_plan_revisions', statements: Object.freeze([
+    `CREATE TABLE actor_plan_revisions (
+      execution_id TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0),
+      tasks_json TEXT NOT NULL,
+      author_agent_id TEXT,
+      source TEXT NOT NULL CHECK(source IN ('planner','authored','regenerated')),
+      created_at TEXT NOT NULL,
+      approved_at TEXT,
+      PRIMARY KEY(execution_id, revision)
+    ) STRICT;`,
+    'CREATE INDEX actor_plan_revisions_latest ON actor_plan_revisions(execution_id, revision DESC);',
+  ]) }),
   // Id 16 is reserved for the per-execution backend choice (mission sandbox
   // selection). Take a later id, or claim 16 explicitly, instead of colliding.
 ]);
