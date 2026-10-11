@@ -6,6 +6,7 @@ import { AvatarPlayground } from "./AvatarPlayground.jsx";
 import "./hane.css";
 import "./sidebar.css";
 import "./workspace-layout.css";
+import "./team-flow.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

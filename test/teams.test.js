@@ -30,14 +30,14 @@ test('SQLite checks provider references, exclusivity, member order and rollback'
   const first=teams.save({...team([a.id,b.id]),leaderAgentId:a.id});assert.deepEqual(first.members,[a.id,b.id]);
   const second=teams.save(team([b.id]));assert.throws(()=>teams.save({...second,members:[b.id,a.id]}),/Exclusive/);assert.deepEqual(teams.get(second.id).members,[b.id]);
   assert.throws(()=>agents.upsert({...b,exclusive:true}),/multiple teams/);assert.equal(agents.get(b.id).exclusive,false);
-  assert.throws(()=>teams.save({...first,name:'Changed',members:[a.id,randomUUID()]}),/Unknown team member/);assert.equal(teams.get(first.id).name,'Team');
-  const removed=teams.setMember(first.id,a.id,false);assert.equal(removed.leaderAgentId,null);assert.throws(()=>agents.remove(b.id),/Remove/);
+  assert.throws(()=>teams.save({...first,name:'Changed',members:[a.id,b.id,randomUUID()]}),/Unknown team member/);assert.equal(teams.get(first.id).name,'Team');
+  assert.throws(()=>teams.setMember(first.id,a.id,false),/cannot be removed/);assert.equal(teams.get(first.id).leaderAgentId,a.id);assert.throws(()=>teams.save({...first,members:[b.id],leaderAgentId:null}),/cannot be removed/);assert.throws(()=>agents.remove(b.id),/Remove/);
   assert.throws(()=>db.prepare('INSERT INTO team_members(team_id,agent_id,position,exclusive) VALUES(?,?,?,?)').run(second.id,b.id,8,0));
 });
 test('eight members pass, ninth fails and removing a last member preserves the team',t=>{
   const {agents,teams}=fixture(t);const ids=Array.from({length:9},()=>agents.upsert(agent()).id);const group=teams.save(team(ids.slice(0,8)));
   assert.throws(()=>teams.setMember(group.id,ids[8],true),/1-8/);assert.equal(teams.get(group.id).members.length,8);
-  const solo=teams.save(team([ids[8]]));assert.throws(()=>teams.setMember(solo.id,ids[8],false),/1-8/);assert.equal(teams.get(solo.id).members.length,1);
+  const solo=teams.save(team([ids[8]]));assert.throws(()=>teams.setMember(solo.id,ids[8],false),/cannot be removed/);assert.equal(teams.get(solo.id).members.length,1);
 });
 test('execution links survive reconstruction, are immutable and prevent history deletion',t=>{
   const {db,agents,teams}=fixture(t),a=agents.upsert(agent()),group=teams.save(team([a.id])),repository=new SqliteTaskRepository({database:db});

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Plus, PaperPlaneRight, GearSix } from '@phosphor-icons/react';
 import { HaneAvatar } from './HaneAvatar.jsx';
 import { libraryRequest } from './library-api.js';
-export default function AgentConversation({agent,group,library,providers,onEditAgent,onEditGroup,personalProfile,serverWorkspace,onStartExecution,preferredProvider,onProviderChange}) {
+export default function AgentConversation({agent,group,library,providers,onEditAgent,onEditGroup,personalProfile,serverWorkspace,onStartExecution,onConfigureProvider,preferredProvider,onProviderChange}) {
  const participants=group?library.agents.filter(a=>group.members.includes(a.id)):[agent];
  const [conversations,setConversations]=useState([]),[selected,setSelected]=useState(null),[conversation,setConversation]=useState(null);
  const [draft,setDraft]=useState(''),[error,setError]=useState(''),[sending,setSending]=useState(false),[recipient,setRecipient]=useState('');
@@ -19,7 +19,7 @@ export default function AgentConversation({agent,group,library,providers,onEditA
  },[selected,sending]);
  useEffect(()=>{messagesRef.current?.scrollTo({top:messagesRef.current.scrollHeight,behavior:'auto'});},[conversation?.messages.length]);
  async function send(e){
-  e.preventDefault();if(sending||busy||!draft.trim())return;setSending(true);setError('');
+  e.preventDefault();if(sending||busy||!draft.trim())return;if(!providers.length){setError('Adicione uma conexão de IA antes de enviar.');return;}setSending(true);setError('');
   try {
    let id=selected;
    if(!id){const created=await libraryRequest('conversations','POST',{...(group?{teamId:group.id}:{agentId:agent.id}),title:draft.trim().slice(0,120)});id=created.id;setSelected(id);setConversations(items=>[created,...items]);}
@@ -33,14 +33,14 @@ export default function AgentConversation({agent,group,library,providers,onEditA
  return <section className="conversation-view agent-conversation">
   <header className="conversation-header">{agent&&<HaneAvatar agentId={agent.id} name={agent.name} color={agent.color} shape={agent.shape} image={agent.image} size={38} interactive onClick={()=>onEditAgent(agent.id)}/>}
    <span className="conversation-title"><strong>{title}</strong><small>{group?participants.length+' integrantes · '+(group.leader?'liderança explícita':'coordenação entre participantes'):'Conversa individual'}</small></span>
-   {group && <button type="button" onClick={onStartExecution} disabled={busy||sending||group.archivedAt}>Executar preset</button>}
+   {group && <button type="button" onClick={onStartExecution} disabled={busy||sending||group.archivedAt}>Configurar execução</button>}
    <button className="icon-button" aria-label="Configurar conversa" onClick={()=>group?onEditGroup():onEditAgent(agent.id)}><GearSix/></button>
    <button className="icon-button" aria-label="Nova conversa" disabled={busy||sending} onClick={()=>{setSelected(null);setConversation(null);setError('');}}><Plus/></button>
   </header>
   {conversations.length>0&&<label className="chat-history-picker">Histórico <select aria-label="Selecionar conversa" disabled={busy||sending} value={selected||''} onChange={e=>{setSelected(e.target.value||null);setError('');}}><option value="">Nova conversa</option>{conversations.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select></label>}
   <div className="messages" ref={messagesRef}>
    {group&&<div className="group-context">{participants.map(a=><button key={a.id} type="button" onClick={()=>onEditAgent(a.id)}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28} decorative/>{a.name}{group.leader===a.id?' · líder':''}</button>)}<small>Sem destinatário, todos respondem e coordenam a mensagem entre si.</small></div>}
-   {!conversation?.messages.length&&<div className="empty-stage"><strong>{group?'Converse com seu grupo':'Converse com '+title}</strong><p>As mensagens ficam nesta conversa, no SQLite local.</p></div>}
+   {!conversation?.messages.length&&<div className="empty-stage"><strong>{group?'Comece com seu Team':'Converse com '+title}</strong><p>{group?(participants.length===1?"Envie sua primeira mensagem ao agente deste Team. Não precisa de três integrantes para conversar.":"Envie sua primeira mensagem. Sem destinatário, todos os integrantes participam."):"As mensagens ficam nesta conversa, no SQLite local."}</p>{!providers.length&&<p>Adicione uma conexão de IA antes de enviar. <button type="button" className="link-action" onClick={onConfigureProvider}>Configurar provedor</button></p>}</div>}
    {conversation?.messages.map(msg=>{
     const author=library.agents.find(a=>a.id===msg.agentId);
     return msg.agentId?<article className="message" key={msg.id}><HaneAvatar agentId={msg.agentId} name={author?.name||msg.authorName} color={author?.color} shape={author?.shape} image={author?.image} size={38} interactive onClick={()=>onEditAgent(msg.agentId)}/><div className="message-content"><header><strong>{author?.name||msg.authorName}</strong><small>{new Date(msg.createdAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</small></header><p className="output-text">{msg.content}</p></div></article>:<div className="user-message" key={msg.id}><small>{personalProfile?.displayName||'Você'}</small><p>{msg.content}</p></div>;
@@ -61,7 +61,7 @@ export default function AgentConversation({agent,group,library,providers,onEditA
     {available.map(name=><label key={name}><input type="checkbox" disabled={busy||sending||(sandbox==='workspace'&&!serverWorkspace.available)} checked={grants.some(g=>g.name===name)} onChange={e=>grant(name,e.target.checked)}/>{name}{grants.some(g=>g.name===name)&&<input aria-label={'Escopo de '+name} value={grants.find(g=>g.name===name).scope} disabled={busy||sending} onChange={e=>setGrants(items=>items.map(g=>g.name===name?{...g,scope:e.target.value}:g))}/>}</label>)}
     <p>A caixa precisa estar instalada. Falhas de ferramentas são registradas; acesso à rede ainda não está disponível.</p>
    </details>
-   <div className="composer"><textarea aria-label="Mensagem" value={draft} disabled={sending} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();e.currentTarget.form.requestSubmit();}}} maxLength={12000} placeholder={group?'Envie uma mensagem ao grupo…':'Mensagem para '+title+'…'}/><div><small>{busy?'Aguarde a rodada atual':'Ctrl + Enter para enviar'}</small><button className="send-button" aria-label="Enviar mensagem" disabled={sending||busy||!draft.trim()||group?.archivedAt}><PaperPlaneRight weight="fill"/></button></div></div>
+   <div className="composer"><textarea aria-label="Mensagem" value={draft} disabled={sending} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();e.currentTarget.form.requestSubmit();}}} maxLength={12000} placeholder={group?'Envie uma mensagem ao Team…':'Mensagem para '+title+'…'}/><div><small>{busy?'Aguarde a rodada atual':'Ctrl + Enter para enviar'}</small><button className="send-button" aria-label="Enviar mensagem" disabled={sending||busy||!providers.length||!draft.trim()||group?.archivedAt}><PaperPlaneRight weight="fill"/></button></div></div>
   </form>
  </section>;
 }

@@ -21,7 +21,7 @@ function readDataUrl(file) {
  return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Não foi possível ler esse arquivo. Tente novamente.'));reader.onabort=()=>reject(new Error('Leitura cancelada.'));reader.readAsDataURL(file);});
 }
 
-export default function AgentEditor({draft, onChange, onSave, onCancel, existing, providers, busy, error, confirmDiscard}) {
+export default function AgentEditor({draft, onChange, onSave, onCancel, existing, providers, busy, error, confirmDiscard, backLabel='Voltar à biblioteca'}) {
  const studioRoot=useRef(null), nameInput=useRef(null), alive=useRef(true), initial=useRef(JSON.stringify(draft));
  const [fileBusy,setFileBusy]=useState(''),[fileError,setFileError]=useState('');
  useEffect(()=>{alive.current=true;studioRoot.current?.scrollIntoView({block:'start',behavior:'instant'});nameInput.current?.focus({preventScroll:true});return()=>{alive.current=false;};},[]);
@@ -51,7 +51,7 @@ export default function AgentEditor({draft, onChange, onSave, onCancel, existing
   }catch(e){if(alive.current)setFileError(e.message);}finally{if(alive.current)setFileBusy('');}
  }
  return <form ref={studioRoot} className="agent-studio" onSubmit={e=>{e.preventDefault();if(fileBusy||busy)return;const docs=draft.instructionFiles||[];if(docs.some(d=>!d.text.trim())){setFileError('Uma referência está vazia. Preencha o texto ou remova o documento.');return;}if(docs.reduce((n,d)=>n+d.text.length,0)>24000){setFileError('As referências juntas podem ter até 24.000 caracteres.');return;}setFileError('');onSave();}} aria-label={existing?'Editar agente':'Criar agente'}>
-  <button type="button" className="studio-back" disabled={busy||Boolean(fileBusy)} onClick={cancel}><ArrowLeft/> Voltar à biblioteca</button>
+  <button type="button" className="studio-back" disabled={busy||Boolean(fileBusy)} onClick={cancel}><ArrowLeft/> {backLabel}</button>
   <header className="studio-heading"><span>{existing?"O JEITO DE QUEM PENSA COM VOCÊ":"UM NOVO JEITO DE PENSAR JUNTO"}</span><h2>{existing?'Um pouco mais do seu jeito.':'Dê vida ao seu próximo agente.'}</h2><p>{existing?"Ajuste a identidade e os acessos deste agente. As mudanças valem depois de salvar.":"Um nome, um jeito próprio e espaço para crescer. Você pode ajustar tudo depois."}</p></header>
   <fieldset className="studio-layout" disabled={busy||Boolean(fileBusy)}><legend className="sr-only">Personalizar agente</legend>
    <aside className="studio-persona" aria-label="Prévia do agente" style={{'--persona-color':draft.color}}>

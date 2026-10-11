@@ -29,7 +29,7 @@ export async function fetchLibrary() {
   });
   const visual = visuals();
   const groups = teamData.teams.map((g,i)=>{
-    if (histories[i].status !== 'fulfilled') unavailable.push({ kind:'o histórico do grupo', name:g.name || g.id, reason:reasonOf(histories[i].reason) });
+    if (histories[i].status !== 'fulfilled') unavailable.push({ kind:'o histórico do Team', name:g.name || g.id, reason:reasonOf(histories[i].reason) });
     return groupView(g,visual.groups?.[g.id],histories[i].status === 'fulfilled' ? histories[i].value.executions.map(run=>run.id) : []);
   });
   return {agents:agents.map(a=>agentView(a,groups,visual.agents?.[a.id])),groups,unavailable};
@@ -44,9 +44,9 @@ export async function changeLibrary(current, next) {
     for (const item of next[key]) if (JSON.stringify(item)!==JSON.stringify(current[key].find(a=>a.id===item.id))) changes.push({key,item,old:current[key].find(a=>a.id===item.id)});
     for (const item of current[key]) if (!next[key].some(a=>a.id===item.id)) changes.push({key,item,remove:true});
   }
-  if (changes.length !== 1) throw new Error('Altere um agente ou grupo por vez. Para backups, use a importação.');
+  if (changes.length !== 1) throw new Error('Altere um agente ou Team por vez. Para backups, use a importação.');
   const {key,item,old,remove}=changes[0], agent=key==='agents', route=agent?'agents':'teams';
-  if (!agent && old?.archivedAt) throw new Error('Este grupo está arquivado.');
+  if (!agent && old?.archivedAt) throw new Error('Este Team está arquivado.');
   let saved;
   if (remove) saved=await libraryRequest(route+'/'+endpoint(item.id)+(agent?'':'/archive'),agent?'DELETE':'POST');
   else {
@@ -73,7 +73,7 @@ export function legacyLibrary() {
 }
 export function importPayload(library) {
   const data=validateLibrary(library);
-  for (const agent of data.agents) if (agent.groupId && !data.groups.find(g=>g.id===agent.groupId)?.members.includes(agent.id)) throw new Error('O agente '+agent.name+' está reservado para um grupo, mas não é integrante dele. Revise essa associação no backup antes de importar; o original foi preservado.');
+  for (const agent of data.agents) if (agent.groupId && !data.groups.find(g=>g.id===agent.groupId)?.members.includes(agent.id)) throw new Error('O agente '+agent.name+' está reservado para um Team, mas não é integrante dele. Revise essa associação no backup antes de importar; o original foi preservado.');
   return {agents:data.agents.map(a=>({id:a.id,name:a.name,description:a.description,instructions:a.instructions,instructionFiles:a.instructionFiles||[],capabilities:a.capabilities||[],visual:{color:a.color,shape:a.shape,image:a.image},providerLabel:a.provider || null,exclusive:library.agents.find(source=>source.id===a.id)?.exclusive === true || Boolean(a.groupId)})),teams:data.groups.filter(g=>g.members.length).map(g=>({id:g.id,name:g.name,description:g.description,members:g.members,leaderAgentId:g.leader || null,archived:Boolean(g.archivedAt)}))};
 }
 export async function importBrowserLibrary(library) {

@@ -40,6 +40,15 @@ test('preset validation rejects missing, repeated and foreign members before pro
  assert.equal(JSON.stringify(f.plan).includes('visual'),false);
 });
 
+test('a solo Team cannot prepare the three-stage preset and adding members unlocks it without changing history',t=>{
+ const f=fixture(t);
+ const solo=f.teams.save({id:randomUUID(),name:'Solo Team',members:[f.members[0].id]});
+ assert.throws(()=>buildExecutionPlan({...f.context,teamId:solo.id}),/requires three distinct/);
+ const updated=f.teams.save({...solo,members:f.members.map(a=>a.id)});
+ assert.equal(buildExecutionPlan({...f.context,teamId:updated.id}).teamId,solo.id);
+ assert.deepEqual(f.teams.executions(solo.id),[]);
+});
+
 test('three providers receive authored behavior, documents and prior outputs; SQLite snapshot remains immutable',async t=>{
  const f=fixture(t), calls=[], roleProviders=doubles(calls);
  const task=await new Orchestrator({provider:roleProviders.planner,roleProviders,repository:f.repository}).start({objective:'Verify routing',teamId:f.team.id,executionPlan:f.plan});
@@ -84,6 +93,9 @@ test('HTTP uses distinct local OpenAI gateways and resume keeps original instruc
  const base='http://127.0.0.1:'+server.address().port;
  const post=async(route,body)=>fetch(base+route,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
  assert.equal((await post('/api/missions',{objective:'Invalid binding',roleAssignments:f.assignments})).status,400);
+ const solo=f.teams.save({id:randomUUID(),name:'Solo HTTP Team',members:[f.members[0].id]});
+ assert.equal((await post('/api/missions',{objective:'Incompatible solo preset',teamId:solo.id,roleAssignments:f.assignments})).status,400);
+ assert.equal(received.length,0);assert.equal(f.repository.list().length,0);
  let response=await post('/api/missions',{objective:'HTTP preset execution',teamId:f.team.id,roleAssignments:f.assignments,maxProviderCalls:1});assert.equal(response.status,202);const queued=await response.json();
  let task=await settle(f.repository,queued.id);assert.equal(task.status,'needs_attention');assert.equal(received.length,1);
  f.agents.upsert({...f.members[1],instructions:'EDITED MUST NOT BE USED',name:'Edited executor'}); f.teams.archive(f.team.id);

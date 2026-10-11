@@ -24,6 +24,7 @@ export function assertExecutionPlan(candidate, teamId) {
 export function buildExecutionPlan({teamId, roleAssignments, teamStore, agentStore, providerConfigStore, fallbackProvider = null}) {
   if (!teamId || !teamStore || !agentStore) throw new TeamError(400,'Role assignments require a persisted team.');
   const team = teamStore.requireActive(teamId);
+  if (team.members.length < ROLE_SEQUENCE.length) throw new TeamError(400,'This preset requires three distinct team members.');
   if (!roleAssignments || typeof roleAssignments !== 'object' || Array.isArray(roleAssignments) || Object.keys(roleAssignments).length !== 3 || Object.keys(roleAssignments).some(r=>!ROLE_SEQUENCE.includes(r))) throw new TeamError(400,'Assign planner, executor and reviewer explicitly.');
   const roles = {};
   for (const role of ROLE_SEQUENCE) {

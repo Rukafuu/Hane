@@ -64,3 +64,7 @@ The repository tests use deliberately isolated provider doubles only under
 user-owned credential or quota. The minimal remaining evidence gate is a
 user-authorized, low-budget call with a configured provider, followed by
 inspection of the resulting SQLite mission and SSE events.
+
+## Team creation and first use (2026-10-11)
+
+The UI reuses one Team editor, with direct creation, optional description/leadership, and in-place agent creation that preserves the Team draft. Team persistence does not authorize folders or tools and does not invoke inference. Saved membership is additive in the UI and SQLite store. The three-member sequential preset requires explicit distinct role bindings; the legacy standard preset remains available as an explicit choice and does not use Team identities. Conversation remains available with one member. Provider metadata in the UI is configuration availability, not proof that a credential or remote service works; runtime validation remains authoritative. Concurrent orchestration is not implemented by this refinement.

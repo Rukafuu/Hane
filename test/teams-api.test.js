@@ -37,10 +37,13 @@ test('HTTP CRUD enforces limits, exclusivity and leader membership without expos
   assert.equal((await h.request(url+'/leader','PUT',{leaderAgentId:ids[8]})).status,400);
   assert.equal((await h.request(url,'PUT',{})).status,400);
   assert.equal((await h.request('/api/teams/'+randomUUID())).status,404);
-  const removed=await h.request(url+'/members/'+ids[0],'DELETE');assert.equal(removed.body.leaderAgentId,null);
-  assert.equal((await h.request('/api/agents/'+ids[0],'DELETE')).status,200);
+  assert.equal((await h.request(url+'/members/'+ids[0],'DELETE')).status,409);
+  assert.equal((await h.request(url,'PUT',{members:ids.slice(1,8),leaderAgentId:null})).status,409);
+  assert.deepEqual((await h.request(url)).body.members,ids.slice(0,8));
+  assert.equal((await h.request('/api/agents/'+ids[0],'DELETE')).status,409);
   assert.equal((await h.request(url,'PUT',{name:'Updated Team'})).body.name,'Updated Team');
   assert.equal((await h.request(url,'DELETE')).status,200);
+  assert.equal((await h.request('/api/agents/'+ids[0],'DELETE')).status,200);
 });
 test('new routes honor browser guard even without a personal profile',async t=>{
   const h=await harness();t.after(()=>h.close());

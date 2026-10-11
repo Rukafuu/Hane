@@ -1,0 +1,37 @@
+/* Team identity stays separate from the objective and grants of each execution. */
+.team-first-use{max-width:var(--reading-width,760px);margin:auto;text-align:center;padding:24px 12px;color:inherit}
+.team-first-use-avatars{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.team-first-use>small{display:block;font-size:calc(11px * var(--type-scale,1));font-weight:500;letter-spacing:.06em;color:var(--muted)}
+.team-first-use h2{font-size:calc(22px * var(--type-scale,1));font-weight:600;line-height:1.3;margin:10px 0}
+.team-first-use p{max-width:540px;margin:12px auto;font-size:calc(13px * var(--type-scale,1));line-height:1.6;color:var(--muted)}
+.team-first-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:20px}
+.team-first-actions button,.team-agent-invitation button{min-height:40px;padding:9px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:calc(12.5px * var(--type-scale,1))}
+.team-first-actions .primary{background:var(--pink);color:var(--accent-ink);border-color:var(--pink)}
+.team-first-actions button:hover,.team-agent-invitation button:hover{filter:brightness(1.1);border-color:var(--pink)}
+.team-first-use .team-provider-note{margin-top:20px;font-size:calc(12.5px * var(--type-scale,1))}
+.team-provider-note button,.execution-preset p button{background:transparent;color:var(--pink);text-decoration:underline;text-underline-offset:3px;padding:4px}
+.team-agent-invitation{margin:16px 0}
+.team-agent-invitation svg{width:18px;height:18px}
+.team-advanced{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.team-advanced summary,.execution-resources summary{cursor:pointer;font-size:calc(12.5px * var(--type-scale,1));font-weight:500;padding:6px 0;line-height:1.5}
+.team-advanced summary small,.execution-resources summary small{font-weight:400;color:var(--muted);margin-left:8px}
+.team-advanced label{display:grid;gap:8px;margin-top:14px;font-size:13px}
+.team-advanced :is(textarea,select){width:100%;min-height:40px;border:1px solid var(--line);border-radius:10px;background:var(--inset);color:inherit;padding:10px;font:inherit}
+.team-advanced textarea{min-height:72px;resize:vertical}
+.workspace-dialog .team-draft-note{color:var(--muted);font-size:12px;line-height:1.6}
+.team-agent-dialog{width:min(960px,100%)}
+.team-agent-dialog .agent-studio{max-width:none;margin:0;padding:0;color:inherit;--settings-muted:var(--muted);--settings-inset:var(--inset)}
+.team-agent-dialog .studio-heading h2{font-size:24px}
+.team-agent-dialog .studio-layout{grid-template-columns:220px minmax(0,1fr);gap:24px}
+.team-agent-dialog .studio-persona{align-self:start}
+.app-shell .composer-content{display:flex;flex-direction:column;gap:8px}
+.app-shell .composer-content>.composer{order:0;flex-shrink:0}
+.app-shell .execution-preset-wrap,.app-shell .execution-resources{flex-shrink:0;margin:0;border-top:1px solid var(--line);padding-top:6px}
+.app-shell .execution-preset{gap:8px;margin:8px 0;padding:12px;border-color:var(--line);background:var(--surface)}
+.app-shell .execution-resources p{font-size:calc(12px * var(--type-scale,1));line-height:1.5;color:var(--muted);margin:8px 0}
+.app-shell .execution-resources .workspace-folder{margin:8px 0}
+.app-shell .composer-content>small{margin:0}
+.app-shell .composer-wrap{max-height:70dvh;overflow:auto;scrollbar-width:thin}
+@media(max-width:680px){.team-agent-dialog .studio-layout{grid-template-columns:minmax(0,1fr)}.team-first-use{padding:16px 8px}.team-first-use h2{font-size:calc(19px * var(--type-scale,1))}.team-first-actions{flex-direction:column}.execution-resources summary small{display:block;margin-left:0}}
+
+.app-shell .send-button:disabled{opacity:.4;cursor:not-allowed}

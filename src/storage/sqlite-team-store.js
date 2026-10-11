@@ -24,6 +24,8 @@ export class SqliteTeamStore {
     const team = assertTeam(candidate), db = this.database;
     db.exec('BEGIN IMMEDIATE');
     try {
+      const current = this.get(team.id);
+      if (current && current.members.some(id => !team.members.includes(id))) throw new TeamError(409,'Persisted team members cannot be removed.');
       const agents = team.members.map(id => {
         const agent = db.prepare('SELECT id,exclusive FROM agents WHERE id=?').get(id);
         if (!agent) throw new TeamError(400,'Unknown team member: ' + id);
@@ -43,6 +45,7 @@ export class SqliteTeamStore {
   setMember(id,agentId,add) {
     const team = this.get(id);
     if (!team) throw new TeamError(404,'Unknown team.');
+    if (!add) throw new TeamError(409,'Persisted team members cannot be removed.');
     const members = add ? [...team.members,agentId] : team.members.filter(member => member !== agentId);
     return this.save({ ...team,members,leaderAgentId:members.includes(team.leaderAgentId)?team.leaderAgentId:null });
   }

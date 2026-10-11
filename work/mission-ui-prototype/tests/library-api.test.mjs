@@ -73,5 +73,5 @@ test('a group whose history is unreadable stays listed and names the gap',async 
  const library=await fetchLibrary();
  assert.equal(library.groups.length,1);assert.deepEqual(library.groups[0].runs,[]);
  assert.equal(library.agents.length,1);
- assert.deepEqual(library.unavailable,[{kind:'o histórico do grupo',name:'Local Team',reason:'caixa fora do ar'}]);
+ assert.deepEqual(library.unavailable,[{kind:'o histórico do Team',name:'Local Team',reason:'caixa fora do ar'}]);
 });
