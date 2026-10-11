@@ -14,16 +14,21 @@ export const WORKSPACE_ROOT_SCOPE = ".";
 /**
  * The two workspace grants only mean something when the server was launched
  * with a root (`hane serve --workspace <dir>`); `GET /api/workspace` says
- * whether that happened. The other grants are selectable and carry the scope
- * the core would enforce: a program allowlist and a host allowlist, never a
- * sentence, because a sentence authorizes nothing. Nothing here is executed yet
- * and the labels say so.
+ * whether that happened. The remaining grant is selectable and carries the
+ * scope the core would enforce: a program allowlist, never a sentence, because
+ * a sentence authorizes nothing. Nothing here is executed yet and the labels
+ * say so.
+ *
+ * `network.request` is deliberately absent. The name stays valid in the core
+ * (`src/capabilities.js`), in stored missions and in backups, but no code path
+ * on this machine lets a grant open a socket: egress is only decided by the
+ * box's proxy and `nftables`, which do not exist yet. A chip that authorizes
+ * nothing is not an honest option, so the UI does not offer it.
  */
 export const CAPABILITY_OPTIONS = Object.freeze([
   { name: "workspace.read", scope: WORKSPACE_ROOT_SCOPE, label: "Ler workspace", detail: "Leitura real dentro da raiz concedida a esta missão", requiresServerRoot: true },
   { name: "workspace.write", scope: WORKSPACE_ROOT_SCOPE, label: "Escrever no workspace", detail: "Não executado · a escrita ainda não tem runtime atrás deste grant", requiresServerRoot: true },
   { name: "process.run", scope: "python3, node, git", label: "Executar comandos", detail: "Não executado · nenhum comando roda a partir deste grant" },
-  { name: "network.request", scope: "pypi.org, registry.npmjs.org, api.github.com", label: "Acessar rede", detail: "Não executado · nenhum acesso de rede sai a partir deste grant" },
 ]);
 
 export const WORKSPACE_DISABLED_HINT = "Leitura e escrita só ficam disponíveis quando o servidor é iniciado com hane serve --workspace <pasta>.";
@@ -90,7 +95,7 @@ export function toolUsageLabel(mission) {
  * Non-executed affordances keep their own label so the panel never reads as
  * though writing, shell or network had run.
  */
-export const GATED_CAPABILITIES_NOTE = "escrita, comandos e rede · não executados";
+export const GATED_CAPABILITIES_NOTE = "escrita e comandos · não executados";
 
 const EVIDENCE_TYPES = new Set(["tool_read", "tool_listing", "tool_denied", "tool_listing_denied", "workspace_unavailable", "tool_budget_exhausted"]);
 

@@ -33,7 +33,6 @@ test("sends the granted root as a plain scope instead of a glob", () => {
     { name: "workspace.read", scope: "." },
     { name: "workspace.write", scope: "." },
     { name: "process.run", scope: "python3, node, git" },
-    { name: "network.request", scope: "pypi.org, registry.npmjs.org, api.github.com" },
   ]);
   assert.doesNotThrow(() => assertEnforceableScopes(assertCapabilityGrants(payload)), "every default scope must be enforceable");
 
@@ -54,11 +53,15 @@ test("keeps the workspace chips off until the server reports a root", () => {
   }
 
   // The declarative grants stay selectable and keep saying nothing is executed.
-  for (const name of ["process.run", "network.request"]) {
+  for (const name of ["process.run"]) {
     assert.equal(isCapabilityEnabled(option(name), blocked), true);
     assert.equal(isCapabilityEnabled(option(name), ready), true);
     assert.match(option(name).detail, /não executado/i);
   }
+
+  // Nothing behind this grant opens a socket, so the UI does not offer the chip.
+  // The name stays legal in the core, in stored missions and in backups.
+  assert.equal(option("network.request"), undefined, "network.request is not offered as selectable");
 
   assert.match(WORKSPACE_DISABLED_HINT, /hane serve --workspace <pasta>/);
   assert.match(WORKSPACE_DISABLED_HINT, /Leitura e escrita só ficam disponíveis/);
