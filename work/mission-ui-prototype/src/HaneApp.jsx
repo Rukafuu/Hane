@@ -1,3 +1,4 @@
+import { attachmentText, attachmentGrants } from './workspace-attachments.js';
 import AgentConversation from './AgentConversation.jsx';
 import { fetchLibrary, changeLibrary, importBrowserLibrary, legacyLibrary, unavailableNotice } from './library-api.js';
 import { ProfileMenu, ProfileSettings, PersonalAvatar } from "./PersonalProfile.jsx";
@@ -12,7 +13,7 @@ import {
 import {
   approvePop, entrance, flash, growBar, pop, pulseLoop, reduceMotion, rise, spinLoop, spinOnce, staggerIn, toastOut,
 } from "./motion.js";
-import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchOnboarding, fetchProviders, fetchWorkspace, openMissionEvents, pollGitHubAuthorization, retryMission, startGitHubAuthorization } from "./api.js";
+import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchOnboarding, fetchProviders, fetchWorkspace, selectWorkspaceItem, openMissionEvents, pollGitHubAuthorization, retryMission, startGitHubAuthorization } from "./api.js";
 import { HaneAvatar } from "./HaneAvatar.jsx";
 import { avatarStateFromMission } from "./avatar-runtime.js";
 import { loadLocalWorkspace, requestLocalWorkspace } from "./local-workspace.js";
@@ -80,6 +81,7 @@ function toSummary(task) {
   return {
     id: task.id,
     ...(task.teamId ? { teamId: task.teamId } : {}),
+    ...(task.executionPlan ? {executionPlan:{...task.executionPlan,roles:Object.fromEntries(Object.entries(task.executionPlan.roles).map(([role,{agentId,name,providerLabel,model}])=>[role,{agentId,name,providerLabel,model}]))}} : {}),
     objective: task.objective,
     status: task.status,
     maxProviderCalls: task.maxProviderCalls,
@@ -90,7 +92,7 @@ function toSummary(task) {
 
 function composeObjective(text, attachments) {
   if (attachments.length === 0) return text;
-  const blocks = attachments.map((item) => item.text).join("\n\n");
+  const blocks = attachments.map(attachmentText).join("\n\n");
   return `${text ? `${text}\n\n` : ""}Contexto anexado:\n\n${blocks}`.trim();
 }
 
@@ -107,11 +109,16 @@ function Avatar({ person, size = "md", state = "idle", interactive = false, onCl
   const Icon = person.Icon;
   const dimensions = { xs: 24, sm: 34, md: 44 };
   if (!person.shape) return <span className={`avatar ${person.tone} ${size}`} aria-label={person.name}><Icon weight="bold" /></span>;
-  return <HaneAvatar agentId={person.name} name={person.name} shape={person.shape} color={person.color} image={person.image} state={state} size={dimensions[size] ?? 44} interactive={interactive} onClick={onClick} />;
+  return <HaneAvatar agentId={person.name} name={person.name} shape={person.shape} color={person.color} image={person.image} state={state} size={dimensions[size] ?? 44} interactive={interactive} decorative={!interactive} onClick={onClick} />;
+}
+
+function missionPerson(mission,role) {
+  const binding=mission?.executionPlan?.roles?.[role];
+  return binding ? {...roles[role],name:binding.name,job:roles[role].job+' · '+binding.providerLabel+' / '+binding.model} : roles[role];
 }
 
 function Stack({ mission, currentRole }) {
-  return <span className="agent-stack">{ROLE_ORDER.map((role) => <Avatar key={role} person={roles[role]} size="xs" state={avatarStateFromMission({ mission, role, currentRole })} />)}</span>;
+  return <span className="agent-stack">{ROLE_ORDER.map((role) => <Avatar key={role} person={missionPerson(mission,role)} size="xs" state={avatarStateFromMission({ mission, role, currentRole })} />)}</span>;
 }
 
 function Status({ kind, children }) {
@@ -170,10 +177,11 @@ function PanelEmpty({ children }) {
 }
 
 function auditSummary(entry) {
-  const role = entry.detail?.role ? `${roles[entry.detail.role]?.name ?? entry.detail.role} · ` : "";
+  const role = entry.detail?.role ? `${entry.detail.agentName ?? roles[entry.detail.role]?.name ?? entry.detail.role} · ` : "";
   if (entry.type === "task_created") return "Execução registrada no armazenamento local.";
   if (entry.type === "state_changed") return `${role}estado: ${entry.detail?.nextStatus ?? "atualizado"}.`;
   if (entry.type === "provider_call_reserved") return `${role}chamada ${entry.detail?.providerCall ?? ""} reservada.`;
+  if (entry.type === "agent_handoff") return `${role}recebeu a saída de ${entry.detail.fromAgentName ?? entry.detail.fromRole}.`;
   if (entry.type === "agent_output_recorded") return `${role}saída persistida (${entry.detail?.characters ?? 0} caracteres).`;
   if (entry.type === "provider_retry") return `${role}nova tentativa: ${entry.detail?.reason ?? "transporte"}.`;
   if (entry.type === "provider_call_failed") return `${role}falha: ${entry.detail?.message ?? "provedor indisponível"}`;
@@ -242,6 +250,10 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const [attachments, setAttachments] = useState([]);
   const [popover, setPopover] = useState(null);
   const [contextDraft, setContextDraft] = useState("");
+  const [pickerBusy, setPickerBusy] = useState(false);
+  const pickerPending = useRef(false);
+  const [attachmentError, setAttachmentError] = useState("");
+  const [composerWorkspaceRoot, setComposerWorkspaceRoot] = useState(null);
   const [capabilityGrants, setCapabilityGrants] = useState([]);
   const [onboarding, setOnboarding] = useState({ github: null, githubAvailable: false });
   const [appearance, setAppearance] = useState(() => {
@@ -259,6 +271,9 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const [editingAgentId,setEditingAgentId] = useState(null);
   const activeAgent=library.agents.find(a=>a.id===activeAgentId);
   const [activeGroupId, setActiveGroupId] = useState(null);
+  const [executionMode,setExecutionMode]=useState('standard');
+  const [roleAssignments,setRoleAssignments]=useState({planner:'',executor:'',reviewer:''});
+  useEffect(()=>{setExecutionMode('standard');setRoleAssignments({planner:'',executor:'',reviewer:''});},[activeGroupId]);
   const activeGroup = library.groups.find(group => group.id === activeGroupId);
   // Conversa and Missão are two entries, not one derived state: opening an agent
   // must not hide the composer, and choosing Missão keeps the group as the
@@ -272,6 +287,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   // Root owned by the server itself (GET /api/workspace). Unknown until fetched,
   // and a missing route stays "unavailable" rather than optimistic.
   const [serverWorkspace, setServerWorkspace] = useState({ available: false, root: null, loaded: false });
+  const composerWorkspace = { ...serverWorkspace, root:composerWorkspaceRoot ?? serverWorkspace.root, available:Boolean(composerWorkspaceRoot || serverWorkspace.available) };
   const [createError, setCreateError] = useState("");
   const [githubDevice, setGitHubDevice] = useState(null);
   const [onboardingBusy, setOnboardingBusy] = useState(null);
@@ -316,6 +332,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const searchRef = useRef(null);
   const messagesRef = useRef(null);
   const contextRef = useRef(null);
+  const attachChoiceRef = useRef(null);
   const gearRef = useRef(null);
   const formRef = useRef(null);
   const panelTriggerRef = useRef(null);
@@ -511,7 +528,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   }, [toast]);
 
   useEffect(() => {
-    if (popover === "attach") contextRef.current?.focus();
+    if (popover === "attach") attachChoiceRef.current?.focus();
     if (popover === "mention") composerRef.current?.focus();
   }, [popover]);
 
@@ -607,6 +624,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
 
   function togglePopover(kind) {
     setContextDraft("");
+    setAttachmentError("");
     setPopover((current) => (current === kind ? null : kind));
   }
 
@@ -617,6 +635,27 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     setContextDraft("");
     setPopover(null);
     notify("Contexto anexado · viaja junto com o objetivo");
+  }
+
+  async function attachWorkspace(kind) {
+    if (pickerPending.current || sending) return;
+    pickerPending.current = true;
+    setPickerBusy(true);
+    setAttachmentError('');
+    try {
+      const {selection} = await selectWorkspaceItem(kind, composerWorkspace.root);
+      if (!selection) return;
+      const hasWorkspaceItems = attachments.some(item => item.scope) || capabilityGrants.some(grant => grant.name.startsWith('workspace.'));
+      if (hasWorkspaceItems && selection.root !== composerWorkspace.root) throw new Error('Escolha um item da mesma raiz ou remova os anexos e permissões de workspace antes de trocar de pasta.');
+      const item = {...selection, id:crypto.randomUUID()};
+      const next = attachments.some(existing => existing.root === item.root && existing.scope === item.scope) ? attachments : [...attachments,item];
+      attachmentGrants(next, capabilityGrants);
+      setComposerWorkspaceRoot(selection.root);
+      setAttachments(next);
+      setPopover(null);
+      notify(selection.kind === 'directory' ? 'Pasta anexada · leitura restrita à pasta escolhida' : 'Arquivo anexado · leitura restrita ao arquivo escolhido');
+    } catch(error) { setAttachmentError(error.message || 'Não foi possível selecionar este item.'); }
+    finally { pickerPending.current = false; setPickerBusy(false); }
   }
 
   function removeAttachment(id) {
@@ -631,7 +670,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   }
 
   function toggleCapability(option) {
-    if (!isCapabilityEnabled(option, serverWorkspace)) return;
+    if (!isCapabilityEnabled(option, composerWorkspace)) return;
     setCapabilityGrants((current) => current.some((grant) => grant.name === option.name && grant.scope === option.scope)
       ? current.filter((grant) => grant.name !== option.name || grant.scope !== option.scope)
       : [...current, { name: option.name, scope: option.scope }]);
@@ -663,6 +702,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   async function send(event) {
     event.preventDefault();
     if (sending) return;
+    if (pickerPending.current) return;
     if (activeGroup?.archivedAt) { setCreateError("Este grupo está arquivado. Abra outro grupo para criar uma execução."); return; }
     const objective = composeObjective(draft.trim(), attachments);
     if (objective.length < 3) {
@@ -674,19 +714,25 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       notify("Contexto grande demais · remova anexos antes de enviar.");
       return;
     }
+    if (executionMode==='team-preset' && (!activeGroup || new Set(Object.values(roleAssignments)).size!==3 || Object.values(roleAssignments).some(id=>!activeGroup.members.includes(id)))) { setCreateError('Escolha três integrantes diferentes para este preset.'); return; }
     setSending(true);
     setCreateError("");
     try {
-      const created = await createMission(objective, chosenProvider || general.defaultProvider, capabilityPayload(capabilityGrants), { maxProviderCalls: general.maxProviderCalls, maxToolCalls: general.maxToolCalls, teamId: activeGroup?.id });
+      const created = await createMission(objective, chosenProvider || general.defaultProvider, attachmentGrants(attachments, capabilityPayload(capabilityGrants)), { workspaceRoot:composerWorkspaceRoot, maxProviderCalls: general.maxProviderCalls, maxToolCalls: general.maxToolCalls, teamId: activeGroup?.id, ...(executionMode==='team-preset' ? {roleAssignments} : {}) });
 
       setDraft("");
       setAttachments([]);
+      setComposerWorkspaceRoot(null);
       setCapabilityGrants([]);
       setPopover(null);
       setOffline(false);
       setSelectedId(created.id);
       setMission(null);
-      setMissions((items) => [toSummary({ ...created, providerCalls: 0, updatedAt: new Date().toISOString() }), ...(items ?? []).filter((item) => item.id !== created.id)]);
+      setMissions((items) => {
+        // SSE may already have delivered completed outputs before the 202 resolves.
+        const existing=items?.find(item=>item.id===created.id);
+        return [existing ?? toSummary({ ...created, providerCalls: 0, updatedAt: new Date().toISOString() }), ...(items ?? []).filter(item=>item.id!==created.id)];
+      });
       pop(sendRef.current);
       notify("Execução criada · a equipe assumiu o trabalho");
     } catch (error) {
@@ -771,9 +817,9 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       {personalProfile && <ProfileMenu profile={personalProfile} onSection={openSection} onLock={onLockProfile}/>}</footer>
     </aside>
 
-    {showConversation ? <AgentConversation key={activeGroup?.id||activeAgent?.id} agent={activeAgent} group={activeGroup} library={library} providers={providers} personalProfile={personalProfile} onEditAgent={editAgent} onEditGroup={()=>openSection("agents")} serverWorkspace={serverWorkspace}/> : <section className="conversation-view">
-      <header className="conversation-header">{showOnboarding ? <Avatar person={onboardingAgent} size="sm" state="thinking" /> : <Stack mission={mission} currentRole={currentRole} />}<span className="conversation-title"><strong>{activeGroup?.name ?? mission?.objective ?? (showOnboarding ? "Hane" : missions?.length ? "Selecione uma execução" : "Descreva uma execução abaixo")}</strong><small><i /> {mission ? `${selectedLabel} · ${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : showOnboarding ? "guia para configurar e usar o Hane" : "equipe: planejador, executor, revisor"}</small></span>{mission && <Status kind={selectedChip}>{selectedLabel}</Status>}{activeGroup && <button className="icon-button" aria-label="Configurar grupo" onClick={() => openSection("agents")}><GearSix/></button>}</header>
-      <div className="messages" ref={messagesRef}>{libraryError && <p className="composer-error" role="alert">{libraryError} <button onClick={()=>setRetryTick(v=>v+1)}>Tentar novamente</button></p>}{(legacy?.agents?.length>0 || legacy?.groups?.length>0) && <p className="settings-description">Há uma biblioteca antiga neste navegador. <button onClick={()=>openSection('agents')}>Revisar importação</button></p>}{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && <div className="group-context"><strong>{activeGroup.description || "Grupo local"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder desejado":""}</span>)}</div><small>Execução atual: planejador → executor → revisor. Perfis e liderança personalizados ainda não são executados pelo runtime.</small></div>}
+    {showConversation ? <AgentConversation key={activeGroup?.id||activeAgent?.id} agent={activeAgent} group={activeGroup} library={library} providers={providers} personalProfile={personalProfile} onEditAgent={editAgent} onEditGroup={()=>openSection("agents")} serverWorkspace={serverWorkspace} onStartExecution={focusComposer}/> : <section className="conversation-view">
+      <header className="conversation-header">{showOnboarding ? <Avatar person={onboardingAgent} size="sm" state="thinking" /> : <Stack mission={mission} currentRole={currentRole} />}<span className="conversation-title"><strong>{activeGroup?.name ?? mission?.objective ?? (showOnboarding ? "Hane" : missions?.length ? "Selecione uma execução" : "Descreva uma execução abaixo")}</strong><small><i /> {mission ? `${selectedLabel} · ${mission.providerCalls}/${mission.maxProviderCalls} chamadas` : showOnboarding ? "guia para configurar e usar o Hane" : "equipe: planejador, executor, revisor"}</small></span>{mission && <Status kind={selectedChip}>{selectedLabel}</Status>}{activeGroup && <button type="button" onClick={()=>setViewMode('conversa')}>Conversar</button>}{activeGroup && <button className="icon-button" aria-label="Configurar grupo" onClick={() => openSection("agents")}><GearSix/></button>}</header>
+      <div className="messages" ref={messagesRef}>{libraryError && <p className="composer-error" role="alert">{libraryError} <button onClick={()=>setRetryTick(v=>v+1)}>Tentar novamente</button></p>}{(legacy?.agents?.length>0 || legacy?.groups?.length>0) && <p className="settings-description">Há uma biblioteca antiga neste navegador. <button onClick={()=>openSection('agents')}>Revisar importação</button></p>}{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && <div className="group-context"><strong>{activeGroup.description || "Grupo local"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder":""}</span>)}</div><small>Escolha abaixo um preset de execução. Nas conversas, cada integrante responde com sua identidade. A liderança não atribui etapas automaticamente.</small></div>}
         {loaded && !mission && !selectedId && !showOnboarding && <EmptyStage Icon={Sparkle} title={activeGroup ? activeGroup.name : personalProfile ? `Bem-vindo, ${personalProfile.displayName}.` : "Seu espaço para colaborar"} action={{ label: activeGroup ? "Escrever objetivo" : "Criar grupo", onClick: activeGroup ? focusComposer : () => openSection("agents") }}>Organize agentes em grupos, configure um provedor e descreva o próximo objetivo. Você decide quando começar.</EmptyStage>}
         {missions === null && <EmptyStage Icon={CircleNotch} title="Consultando o Hane…">Lendo o arquivo de execuções local para montar a trilha.</EmptyStage>}
         {offline && <EmptyStage Icon={Plugs} title="API do Hane indisponível" commands={["hane serve --port 7788"]} action={{ label: "Tentar de novo", onClick: reload }} onCopy={copyNotice}>
@@ -781,9 +827,9 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         </EmptyStage>}
         {loaded && mission && <>
           <div className="day-divider"><span>Hoje</span></div>
-          <RiseIn className="user-message" key={`objective-${mission.id}`}><small>{personalProfile && <PersonalAvatar profile={personalProfile}/>} {personalProfile?.displayName || "Você"} · {clock(mission.audit?.at(-1)?.at)}{mission.providerLabel ? ` · agente ${mission.providerLabel}` : ""}</small><p>{mission.objective}</p></RiseIn>
+          <RiseIn className="user-message" key={`objective-${mission.id}`}><small>{personalProfile && <PersonalAvatar profile={personalProfile}/>} {personalProfile?.displayName || "Você"} · {clock(mission.audit?.at(-1)?.at)}{mission.providerLabel ? ` · ${mission.executionPlan ? "preset do grupo" : "provedor "+mission.providerLabel}` : ""}</small><p>{mission.objective}</p></RiseIn>
           {ROLE_ORDER.map((role) => {
-            const person = roles[role];
+            const person = missionPerson(mission,role);
             const output = mission.outputs?.[role];
             const failed = mission.audit?.find((entry) => entry.type === "provider_call_failed" && entry.detail?.role === role);
             const avatarState = avatarStateFromMission({ mission, role, currentRole });
@@ -792,7 +838,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
             if (isActive(mission.status) && role === currentRole) return <article className="message" data-output={role} key={`${mission.id}-${role}`}><Avatar person={person} state={avatarState} /><div className="message-content"><header><strong>{person.name}</strong><small>{person.job}</small><Status kind="running">Trabalhando</Status></header><p><Spinner /> Gerando a saída de {person.job.toLowerCase()}…</p></div></article>;
             return null;
           })}
-          {["completed", "needs_attention", "failed", "awaiting_approval"].includes(mission.status) && <div className="handoff-card"><span><Avatar person={roles.reviewer} size="xs" /><CaretRight /><Avatar person={{ name: "Você", job: "", tone: "pink", Icon: Check }} size="xs" /></span><span><strong>{selectedLabel}</strong><small>{verdictEntry ? `Veredito do revisor: ${verdictEntry.detail.verdict}` : mission.status === "needs_attention" ? "Orçamento esgotado ou revisão pendente de atenção." : "Acompanhe os artefatos no painel direito."}</small></span><Status kind={selectedChip}>{selectedLabel}</Status></div>}
+          {["completed", "needs_attention", "failed", "awaiting_approval"].includes(mission.status) && <div className="handoff-card"><span><Avatar person={missionPerson(mission,"reviewer")} size="xs" /><CaretRight /><Avatar person={{ name: "Você", job: "", tone: "pink", Icon: Check }} size="xs" /></span><span><strong>{selectedLabel}</strong><small>{verdictEntry ? `Veredito do revisor: ${verdictEntry.detail.verdict}` : mission.status === "needs_attention" ? "Orçamento esgotado ou revisão pendente de atenção." : "Acompanhe os artefatos no painel direito."}</small></span><Status kind={selectedChip}>{selectedLabel}</Status></div>}
         </>}
         {loaded && !mission && selectedId && <EmptyStage Icon={Warning} title="Esta execução não está no arquivo" commands={[`hane mission ${selectedId}`]} action={{ label: "Recarregar", onClick: reload }} onCopy={copyNotice}>
           Pode ter sido removida do SQLite local. Recarregue para sincronizar a lista.
@@ -802,10 +848,18 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
 
       {popover && <div className="pop-backdrop" onClick={() => setPopover(null)} />}
       {popover === "attach" && <div className="pop" role="dialog" aria-label="Anexar contexto">
-        <header><strong>Anexar contexto</strong><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
-        <p>Cole o contexto que a equipe deve ler: trechos, logs, requisitos ou um link. Nada é lido do disco — o texto segue no objetivo da execução.</p>
+        <header><strong>Anexar ao workspace</strong><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
+        <p>Escolha um arquivo ou pasta no seu computador. O item ficará disponível para leitura nesta execução.</p>
+        <button ref={attachChoiceRef} type="button" className="pop-row" disabled={pickerBusy || sending || offline} onClick={() => attachWorkspace('file')}><span className="setting-icon"><FileText /></span><span><strong>Escolher arquivo</strong><small>Ler somente o arquivo selecionado</small></span><CaretRight /></button>
+        <button type="button" className="pop-row" disabled={pickerBusy || sending || offline} onClick={() => attachWorkspace('directory')}><span className="setting-icon"><FolderOpen /></span><span><strong>Escolher pasta</strong><small>Ler a pasta e seus arquivos</small></span><CaretRight /></button>
+        {pickerBusy && <p role="status">Aguardando o seletor do sistema… cancele na janela para voltar.</p>}
+        {attachmentError && <p className="attachment-error" role="alert">{attachmentError}</p>}
+        {offline && <p role="status">Conecte ao servidor local para escolher arquivos.</p>}
+        {composerWorkspace.root && <p className="pop-root"><FolderOpen /> Raiz da execução: <code title={composerWorkspace.root}>{composerWorkspace.root}</code></p>}
+        <p className="pop-note">Anexar autoriza leitura ao enviar. Arquivos sensíveis continuam protegidos. No preset de equipe, o executor também precisa da capacidade de leitura.</p>
+        <details className="attachment-text"><summary>Colar texto como contexto</summary>
         <textarea ref={contextRef} value={contextDraft} maxLength={MAX_CONTEXT_CHARS} placeholder="Cole aqui o contexto…" onChange={(event) => setContextDraft(event.target.value)} />
-        <footer><small>{contextDraft.length} / {MAX_CONTEXT_CHARS}</small><button type="button" className="pop-primary" disabled={contextDraft.trim().length < 3} onClick={addContext}><Plus weight="bold" /> Anexar à execução</button></footer>
+        <footer><small>{contextDraft.length} / {MAX_CONTEXT_CHARS}</small><button type="button" className="pop-primary" disabled={pickerBusy || contextDraft.trim().length < 3} onClick={addContext}><Plus weight="bold" /> Anexar à execução</button></footer></details>
       </div>}
       {popover === "mention" && <div className="pop" role="dialog" aria-label="Mencionar">
         <header><strong>Mencionar</strong><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
@@ -823,8 +877,8 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       {popover === "capabilities" && <div className="pop pop-wide" role="dialog" aria-label="Perexecuções da execução">
         <header><strong>Perexecuções da execução</strong><span className="pop-count">{capabilityGrants.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
         <p>Você está definindo o teto de acesso desta execução. A leitura de arquivos é aplicada pelo runtime dentro da raiz concedida; escrita, comandos e acesso externo não são executados.</p>
-        <p className="pop-scope">O escopo <code>.</code> é a raiz que o servidor concede à execução; o navegador nunca envia um caminho absoluto.</p>
-        {serverWorkspace.available && serverWorkspace.root && <p className="pop-root"><FolderOpen weight="fill" /> Raiz deste servidor: <code>{serverWorkspace.root}</code></p>}
+        <p className="pop-scope">O escopo <code>.</code> permite ler toda a raiz indicada abaixo. Anexar um arquivo ou pasta concede apenas o escopo escolhido.</p>
+        {composerWorkspace.available && composerWorkspace.root && <p className="pop-root"><FolderOpen weight="fill" /> Raiz da execução: <code>{composerWorkspace.root}</code></p>}
         {CAPABILITY_OPTIONS.map((option) => {
           const selectable = isCapabilityEnabled(option, serverWorkspace);
           const enabled = capabilityGrants.some((grant) => grant.name === option.name && grant.scope === option.scope);
@@ -832,7 +886,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
             <span className="setting-icon"><ShieldCheck weight={enabled ? "fill" : "regular"} /></span><span><strong>{option.label}</strong><small>{selectable ? option.detail : WORKSPACE_ROW_HINT}</small></span>{enabled ? <Check weight="bold" /> : <CaretRight />}
           </button>;
         })}
-        {!serverWorkspace.available && <p className="pop-note">{serverWorkspace.loaded ? WORKSPACE_DISABLED_HINT : "Consultando /api/workspace… enquanto o servidor não confirma uma raiz, leitura e escrita ficam desativadas."}</p>}
+        {!composerWorkspace.available && <p className="pop-note">{serverWorkspace.loaded ? WORKSPACE_DISABLED_HINT : "Consultando /api/workspace… enquanto o servidor não confirma uma raiz, leitura e escrita ficam desativadas."}</p>}
       </div>}
       {popover === "providers" && <div className="pop pop-wide" role="dialog" aria-label="Provedores configurados">
         <header><strong>Provedores</strong><span className="pop-count">{providers.length}</span><button type="button" aria-label="Fechar" onClick={() => setPopover(null)}><X /></button></header>
@@ -858,12 +912,18 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         {loaded && noProviders && <div className="composer-warning"><Warning /> Nenhum agente · as execuções ficam sem executor até <code>hane provider add</code> <button type="button" className="link-action" onClick={() => setPopover("providers")}>ver detalhes</button></div>}
         {(attachments.length > 0 || chosenProvider || capabilityGrants.length > 0) && <div className="chip-row">
           {chosenProvider && <span className="chip"><At weight="bold" />{chosenProvider}<button type="button" aria-label="Liberar provedor" onClick={() => setChosenProvider(null)}><X /></button></span>}
-          {attachments.map((item, index) => <span className="chip" key={item.id}><Paperclip />Contexto {index + 1} · {item.text.length} car.<button type="button" aria-label="Remover contexto" onClick={() => removeAttachment(item.id)}><X /></button></span>)}
+          {attachments.map((item, index) => <span className="chip" key={item.id} title={item.path || undefined}>{item.scope ? item.kind === "directory" ? <FolderOpen /> : <FileText /> : <Paperclip />}{item.scope ? <><span className="attachment-name">{item.name}</span> · leitura</> : <>Contexto {index + 1} · {item.text.length} car.</>}<button type="button" aria-label={item.scope ? `Remover ${item.name}` : "Remover contexto"} onClick={() => removeAttachment(item.id)}><X /></button></span>)}
           {capabilityGrants.map((grant) => <span className="chip" key={`${grant.name}-${grant.scope}`}><ShieldCheck weight="bold" />{CAPABILITY_OPTIONS.find((item) => item.name === grant.name)?.label ?? grant.name}<button type="button" aria-label={`Remover ${grant.name}`} onClick={() => setCapabilityGrants((current) => current.filter((item) => item.name !== grant.name || item.scope !== grant.scope))}><X /></button></span>)}
         </div>}
         {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Execução não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
-        <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma execução para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da execução" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar execução" disabled={sending || Boolean(activeGroup?.archivedAt)}><PaperPlaneRight weight="fill" /></button></div></div>
-        <small>{activeGroup?.archivedAt ? "Grupo arquivado. O histórico permanece disponível; novas execuções estão bloqueadas." : <>Cada envio cria uma execução real de planejador, executor e revisor{activeGroup ? " vinculada a este grupo." : "."}</>}</small>
+        {activeGroup && <details className="execution-preset-wrap" open={!mission}><summary>Configurar próxima execução</summary><fieldset className="execution-preset" disabled={sending || Boolean(activeGroup.archivedAt)}>
+          <legend>Preset da próxima execução</legend>
+          <label>Modo<select aria-label="Modo de execução" value={executionMode} onChange={e=>setExecutionMode(e.target.value)}><option value="standard">Etapas padrão</option><option value="team-preset" disabled={activeGroup.members.length<3}>Integrantes do grupo · três etapas</option></select></label>
+          {executionMode==='team-preset' && <>{ROLE_ORDER.map(role=><label key={role}>{roles[role].job}<select aria-label={roles[role].job+' do preset'} value={roleAssignments[role]} onChange={e=>setRoleAssignments(v=>({...v,[role]:e.target.value}))}><option value="">Escolher integrante</option>{library.agents.filter(a=>activeGroup.members.includes(a.id)).map(a=><option key={a.id} value={a.id} disabled={ROLE_ORDER.some(r=>r!==role && roleAssignments[r]===a.id)}>{a.name} · {a.providerLabel || chosenProvider || general.defaultProvider || 'provedor da execução'}</option>)}</select></label>)}<p>Somente os três escolhidos executam: planejamento → execução → revisão. Instruções e provedores ficam registrados; apenas o executor pode ler arquivos, com capacidade e permissão explícitas.</p></>}
+          {activeGroup.members.length<3 && <p>Este preset precisa de três integrantes diferentes. A conversa individual ou de grupo continua disponível.</p>}
+        </fieldset></details>}
+        <div className="composer"><textarea ref={composerRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder="Descreva uma execução para a equipe Hane..." /><div><span className="composer-tools"><button type="button" className={popover === "attach" ? "on" : ""} aria-label="Anexar contexto" aria-expanded={popover === "attach"} onClick={() => togglePopover("attach")}><Paperclip /></button><button type="button" className={popover === "mention" ? "on" : ""} aria-label="Mencionar papel ou agente" aria-expanded={popover === "mention"} onClick={() => togglePopover("mention")}><At /></button><button type="button" className={popover === "capabilities" ? "on" : ""} aria-label="Definir permissões da execução" aria-expanded={popover === "capabilities"} onClick={() => togglePopover("capabilities")}><ShieldCheck /></button></span><small>{sending ? "enviando…" : `${MOD_KEY} Enter`}</small><button ref={sendRef} className="send-button" aria-label="Criar execução" disabled={sending || pickerBusy || Boolean(activeGroup?.archivedAt)}><PaperPlaneRight weight="fill" /></button></div></div>
+        <small>{activeGroup?.archivedAt ? "Grupo arquivado. O histórico permanece disponível; novas execuções estão bloqueadas." : <>Cada envio inicia o preset escolhido: planejamento, execução e revisão{activeGroup ? " vinculada a este grupo." : "."}</>}</small>
       </form>
       <button ref={panelTriggerRef} type="button" className={`panel-reopen ${panelOpen ? "" : "visible"}`} aria-controls="hane-mission-context" aria-label="Mostrar painel de contexto" aria-expanded={panelOpen} title="Mostrar painel (Ctrl + \)" tabIndex={panelOpen ? -1 : 0} onClick={() => setPanelOpen(true)}><CaretLeft /></button>
     </section>}
@@ -876,7 +936,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
           <div className="evidence-list">
             <header><strong>Evidências de ferramentas</strong><span>{evidence.length} registro{evidence.length === 1 ? "" : "s"}</span></header>
             {evidence.length ? evidence.map((row) => {
-              const roleName = row.role ? roles[row.role]?.name ?? row.role : null;
+              const roleName = row.role ? missionPerson(mission,row.role)?.name ?? row.role : null;
               return <div className={`evidence-row ${row.kind}`} key={row.id}>
                 <span className="evidence-icon">{row.kind === "denied" ? <X weight="bold" /> : row.kind === "read" ? <FileText /> : row.kind === "listing" ? <FolderOpen /> : <Warning />}</span>
                 <span className="evidence-copy"><strong>{row.label}</strong>{row.path && <code title={row.path}>{row.path}</code>}{row.meta && <span className="evidence-meta">{row.meta}</span>}{row.marker && <em className="evidence-flag">{row.marker}</em>}{roleName && <em className="evidence-role">{roleName}</em>}</span>
@@ -888,7 +948,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         </div>
       </section>
       <section className="panel-section active-agents"><div className="panel-title"><strong>{showOnboarding ? "Guia de início" : "Etapas da equipe"}</strong><span>{showOnboarding ? "primeira vez" : mission ? selectedLabel : "—"}</span></div>{showOnboarding ? <div className="active-agent"><Avatar person={onboardingAgent} size="sm" state="thinking" /><span><strong>Hane</strong><small>Pronto para orientar você</small></span><i className="ready-dot" /></div> : ROLE_ORDER.map((role) => {
-        const person = roles[role];
+        const person = missionPerson(mission,role);
         const done = mission?.outputs?.[role] !== undefined;
         const working = mission && isActive(mission.status) && role === currentRole;
         return <div className="active-agent" key={role}><Avatar person={person} size="sm" state={avatarStateFromMission({ mission, role, currentRole })} /><span><strong>{person.name}</strong><small>{done ? "Saída registrada" : working ? "Trabalhando agora" : mission ? "Sem saída ainda" : "Aguardando execução"}</small></span>{working && <i />}</div>;
@@ -909,7 +969,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       </section>
       <section className="panel-section artifacts"><div className="panel-title"><strong>Artefatos gerados</strong><span>{outputs.length} saída{outputs.length === 1 ? "" : "s"}</span></div>
         {outputs.length === 0 && <PanelEmpty>{mission ? "Nenhum papel registrou saída nesta execução até agora." : "Os artefatos dos papéis técnicos aparecem aqui quando a execução roda."}</PanelEmpty>}
-        {outputs.map((role) => <Artifact key={role} type={role === "planner" ? "doc" : role === "executor" ? "json" : "secure"} title={`${roles[role].name} · ${roles[role].job}`} meta={`${mission.outputs[role].length} caracteres · abrir na trilha`} onOpen={() => focusOutput(role)} />)}
+        {outputs.map((role) => <Artifact key={role} type={role === "planner" ? "doc" : role === "executor" ? "json" : "secure"} title={`${missionPerson(mission,role).name} · ${missionPerson(mission,role).job}`} meta={`${mission.outputs[role].length} caracteres · abrir na trilha`} onOpen={() => focusOutput(role)} />)}
       </section>
       <section className="approval-card"><div><span>{mission?.status === "completed" ? <Check /> : mission?.status === "needs_attention" || mission?.status === "failed" ? <Warning /> : <Sparkle />}</span><span><strong>{mission ? selectedLabel : "Nenhuma execução"}</strong><small>{mission?.status === "completed" ? "O veredito do revisor encerrou a execução." : mission?.status === "awaiting_approval" ? "O revisor pediu revisão humana. Aprovar custa mais 2 chamadas." : mission?.status === "needs_attention" ? "Atenção: veredito sinalizado ou orçamento esgotado." : mission?.status === "failed" ? "Uma etapa falhou. Refazer continua de onde parou." : mission?.status === "cancelled" ? "A execução foi cancelada e o histórico foi preservado." : mission ? "Acompanhe os eventos auditáveis da execução." : offline ? "Sem conexão com o hane serve." : noProviders ? "Sem agente configurado para executar execuções." : "Envie uma execução para começar."}</small></span></div>{mission?.status === "awaiting_approval" ? <button ref={approvalRef} disabled={actionBusy} onClick={() => act("approve")}>{actionBusy ? <Spinner /> : <Check />} Revisar e aprovar</button> : cancellable ? <button disabled={actionBusy} onClick={() => act("cancel")}>{actionBusy ? <Spinner /> : <Warning />}{actionBusy ? " Cancelando…" : " Cancelar execução"}</button> : retryable ? <button disabled={actionBusy} onClick={() => act("retry")}>{actionBusy ? <Spinner /> : <Sparkle />}{actionBusy ? " Refazendo…" : " Refazer etapa"}</button> : <Status kind={mission ? selectedChip : "queued"}>{mission ? selectedLabel : "ociosa"}</Status>}</section>
     </div></aside>

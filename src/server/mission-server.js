@@ -1,3 +1,4 @@
+import { createWorkspacePicker } from './workspace-picker.js';
 import { handleInstructionFile } from './instruction-files-api.js';
 import { createConversationsApi } from './conversations-api.js';
 import { DEFAULT_UI_ORIGINS } from './ui-origins.js';
@@ -7,6 +8,7 @@ import { SqliteTeamStore } from '../storage/sqlite-team-store.js';
 import { assertId, TeamError } from '../teams/domain.js';
 import { createProfileApi } from "./profile-api.js";
 import { createServer } from 'node:http';
+import { buildExecutionPlan, resolveExecutionProviders, assertPlanUnchanged } from '../teams/execution-plan.js';
 import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
 import { assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot } from '../capabilities.js';
@@ -64,9 +66,10 @@ const NOT_DETECTED_MACHINE = Object.freeze({
  *           clients. A server that was never told assumes `127.0.0.1`.
  * @returns {import('node:http').Server}
  */
-export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, detectMachine = null, profileStore = null, agentStore = null, teamStore = null, allowedOrigins = DEFAULT_UI_ORIGINS, avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
+export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, pickWorkspace, detectMachine = null, profileStore = null, agentStore = null, teamStore = null, allowedOrigins = DEFAULT_UI_ORIGINS, avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
   agentStore ??= repository.database ? new SqliteAgentStore({database:repository.database}) : null;
   teamStore ??= repository.database ? new SqliteTeamStore({database:repository.database}) : null;
+  const workspacePicker = createWorkspacePicker({pick:pickWorkspace, defaultRoot:defaultWorkspaceRoot, readJsonBody, respondJson});
   const conversationsApi = createConversationsApi({database:repository.database,agentStore,teamStore,providerConfigStore,credentialManager,createProvider,defaultProvider,defaultWorkspaceRoot,readJsonBody,respondJson});
   const teamsApi = createTeamsApi({agentStore,teamStore,readJsonBody,respondJson});
   const guard = createRequestGuard({ allowedOrigins, allowAnyHost: !isLoopbackHost(bindHost), requireExplicitRequest: Boolean(profileStore) });
@@ -121,10 +124,11 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
       if (profileApi && await profileApi.handle(request, response)) return;
       const isAuthorized = () => !profileApi || profileApi.authenticated(request);
       if (!initialAgentEnsured && profileStore?.get() && isAuthorized() && agentStore) { agentStore.ensureInitial(); initialAgentEnsured = true; }
+      if (await workspacePicker({request,response,isAuthorized})) return;
       if (await handleInstructionFile({request,response,isAuthorized,readJsonBody,respondJson})) return;
       if (await conversationsApi.handle({request,response,isAuthorized})) return;
       if (await teamsApi({request,response,isAuthorized})) return;
-      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, teamStore, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
+      return handle({ isAuthorized: () => !profileApi || profileApi.authenticated(request), request, response, repository, agentStore, teamStore, providerConfigStore, onboardingStore, skillStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, machineReport, githubClientId, githubFlow, pendingGitHubAuthorizations, sseClients, broadcast, running });
     })
       .catch((error) => {
         if (!response.headersSent) {
@@ -251,7 +255,7 @@ async function pollGitHubAuthorization({ response, authorizationId, githubClient
   }
 }
 
-async function startMission({ request, response, repository, teamStore, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running, isAuthorized = () => true }) {
+async function startMission({ request, response, repository, agentStore, teamStore, providerConfigStore, credentialManager, createProvider, defaultProvider, defaultWorkspaceRoot, broadcast, running, isAuthorized = () => true }) {
   let body;
   try {
     body = await readJsonBody(request);
@@ -293,9 +297,18 @@ async function startMission({ request, response, repository, teamStore, provider
 
   let provider;
   let providerLabel;
+  let executionPlan = null, roleProviders = null;
   try {
-    ({ provider, label: providerLabel } = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? defaultProvider }));
+    if (body?.roleAssignments !== undefined) {
+      executionPlan = buildExecutionPlan({teamId,roleAssignments:body.roleAssignments,teamStore,agentStore,providerConfigStore,fallbackProvider:body?.provider ?? defaultProvider});
+      roleProviders = await resolveExecutionProviders({executionPlan,providerConfigStore,credentialManager,createProvider});
+      assertPlanUnchanged(executionPlan,{teamStore,agentStore,providerConfigStore,fallbackProvider:body?.provider ?? defaultProvider});
+      provider = roleProviders.planner;
+      providerLabel = executionPlan.roles.planner.providerLabel;
+    } else ({ provider, label: providerLabel } = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? defaultProvider }));
   } catch (error) {
+    if (error instanceof TeamError) return respondJson(response,error.status,{error:error.message});
+    if (error instanceof TypeError) return respondJson(response,400,{error:error.message});
     if (error instanceof UnknownProviderError) return respondJson(response, 404, { error: error.message });
     if (error instanceof CredentialMissingError || error instanceof ProviderConfigError) return respondJson(response, 409, { error: error.message });
     throw error;
@@ -307,15 +320,15 @@ async function startMission({ request, response, repository, teamStore, provider
     catch (error) { return respondJson(response,400,{error:error.message}); }
   }
   const missionId = crypto.randomUUID();
-  const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
+  const orchestrator = new Orchestrator({ provider, roleProviders, agentCapabilityCheck:agentStore ? (id,capability)=>agentStore.get(id)?.capabilities.includes(capability) === true : null, repository, idFactory: () => missionId });
   const onEvent = (event) => broadcast({ ...event, missionId });
 
-  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, maxToolCalls, capabilityGrants, workspaceRoot, ...(teamId ? {teamId} : {}) });
+  respondJson(response, 202, { id: missionId, objective, status: 'queued', maxProviderCalls, maxToolCalls, capabilityGrants, workspaceRoot, ...(executionPlan ? {executionPlan} : {}), ...(teamId ? {teamId} : {}) });
 
   const controller = new AbortController();
   running.set(missionId, controller);
   try {
-    await orchestrator.start({ objective, teamId, maxProviderCalls, maxToolCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
+    await orchestrator.start({ objective, teamId, executionPlan, maxProviderCalls, maxToolCalls, providerLabel, capabilityGrants, workspaceRoot, signal: controller.signal, onEvent });
   } catch (error) {
     broadcast({ type: 'server_error', missionId, message: error instanceof Error ? error.message : 'Unknown failure.' });
   } finally {
@@ -333,7 +346,7 @@ async function resolveProvider({ providerConfigStore, credentialManager, createP
   return { provider: await createProvider({ config, credentialManager }), label: config.label };
 }
 
-async function resumeMission({ request, response, repository, providerConfigStore, credentialManager, createProvider, defaultProvider, broadcast, running, id, action, isAuthorized = () => true }) {
+async function resumeMission({ request, response, repository, agentStore, providerConfigStore, credentialManager, createProvider, defaultProvider, broadcast, running, id, action, isAuthorized = () => true }) {
   let body = {};
   try {
     body = await readJsonBody(request);
@@ -369,17 +382,23 @@ async function resumeMission({ request, response, repository, providerConfigStor
     return respondJson(response, 400, { error: error instanceof Error ? error.message : 'Invalid mission action.' });
   }
 
-  let provider;
+  let provider, roleProviders = null;
   try {
-    ({ provider } = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? mission.providerLabel ?? defaultProvider }));
+    if (task.executionPlan) {
+      if (body?.provider !== undefined || body?.roleAssignments !== undefined) throw new TypeError('A resumed preset retains its recorded agents and providers.');
+      roleProviders = await resolveExecutionProviders({executionPlan:task.executionPlan,providerConfigStore,credentialManager,createProvider});
+      provider = roleProviders.planner;
+    } else ({ provider } = await resolveProvider({ providerConfigStore, credentialManager, createProvider, requestedLabel: body?.provider ?? mission.providerLabel ?? defaultProvider }));
   } catch (error) {
+    if (error instanceof TypeError) return respondJson(response,400,{error:error.message});
     if (error instanceof UnknownProviderError) return respondJson(response, 404, { error: error.message });
     if (error instanceof CredentialMissingError || error instanceof ProviderConfigError) return respondJson(response, 409, { error: error.message });
     throw error;
   }
 
   if (!isAuthorized()) return respondJson(response,401,{error:"Seu Hane está bloqueado."});
-  const orchestrator = new Orchestrator({ provider, repository });
+  if (running.has(id)) return respondJson(response,409,{error:'Mission is already running.'});
+  const orchestrator = new Orchestrator({ provider, roleProviders, agentCapabilityCheck:agentStore ? (id,capability)=>agentStore.get(id)?.capabilities.includes(capability) === true : null, repository });
   const onEvent = (event) => broadcast({ ...event, missionId: id });
 
   respondJson(response, 202, { id, objective: mission.objective, status: 'resuming', maxProviderCalls: task.maxProviderCalls, maxToolCalls: task.maxToolCalls });

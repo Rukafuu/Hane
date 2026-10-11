@@ -1,6 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { SqliteAgentStore } from '../storage/sqlite-agent-store.js';
+import { resolveExecutionProviders } from '../teams/execution-plan.js';
 import { Orchestrator } from '../orchestrator.js';
 import { ROLE_SEQUENCE, TASK_STATUS, assertPositiveInteger } from '../contracts.js';
 import { TaskRun } from '../task-run.js';
@@ -135,9 +137,13 @@ function openContext({ values, dependencies }) {
 }
 
 async function resumeMission({ task, context, values, stdout, dependencies }) {
-  const config = resolveProviderConfig(dependencies.createProviderConfigStore(context.database), values.provider, task.providerLabel);
-  const provider = await dependencies.createProvider({ config, credentialManager: dependencies.credentialManager });
-  const orchestrator = new Orchestrator({ provider, repository: context.repository });
+  const providerConfigStore=dependencies.createProviderConfigStore(context.database);
+  if (task.executionPlan && values.provider !== undefined) throw new TypeError('A resumed preset retains its recorded providers.');
+  const roleProviders=task.executionPlan ? await resolveExecutionProviders({executionPlan:task.executionPlan,providerConfigStore,credentialManager:dependencies.credentialManager,createProvider:dependencies.createProvider}) : null;
+  const config = resolveProviderConfig(providerConfigStore, roleProviders ? task.executionPlan.roles.planner.providerLabel : values.provider, task.providerLabel);
+  const provider = roleProviders?.planner ?? await dependencies.createProvider({ config, credentialManager: dependencies.credentialManager });
+  const agentStore=new SqliteAgentStore({database:context.database});
+  const orchestrator = new Orchestrator({ provider, roleProviders, agentCapabilityCheck:(id,capability)=>agentStore.get(id)?.capabilities.includes(capability) === true, repository: context.repository });
 
   if (!values.json) {
     stdout.write(`hane · mission ${task.id}\n`);

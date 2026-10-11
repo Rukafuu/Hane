@@ -1,3 +1,5 @@
+import { buildExecutionPlan, resolveExecutionProviders, assertPlanUnchanged } from '../teams/execution-plan.js';
+import { SqliteAgentStore } from '../storage/sqlite-agent-store.js';
 import { SqliteTeamStore } from '../storage/sqlite-team-store.js';
 import { assertId } from '../teams/domain.js';
 import { mkdirSync } from 'node:fs';
@@ -17,6 +19,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
     options: {
       provider: { type: 'string' },
       team: { type: 'string' },
+      planner: { type: 'string' }, executor: { type: 'string' }, reviewer: { type: 'string' },
       'max-calls': { type: 'string' },
       'max-tool-calls': { type: 'string' },
       db: { type: 'string' },
@@ -53,12 +56,17 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
   const teamId = values.team == null ? null : assertId(values.team,'teamId');
   const teamStore = teamId ? new SqliteTeamStore({database}) : null;
   if (teamId) teamStore.requireActive(teamId);
-  const config = resolveProviderConfig(providerConfigStore, values.provider);
-  const provider = await dependencies.createProvider({ config, credentialManager: dependencies.credentialManager });
+  const assignments = Object.fromEntries(['planner','executor','reviewer'].filter(role=>values[role]!==undefined).map(role=>[role,values[role]]));
+  const planContext={teamId,teamStore,agentStore:new SqliteAgentStore({database}),providerConfigStore,fallbackProvider:values.provider};
+  const executionPlan = Object.keys(assignments).length ? buildExecutionPlan({...planContext,roleAssignments:assignments}) : null;
+  const roleProviders = executionPlan ? await resolveExecutionProviders({executionPlan,providerConfigStore,credentialManager:dependencies.credentialManager,createProvider:dependencies.createProvider}) : null;
+  const config = resolveProviderConfig(providerConfigStore, executionPlan?.roles.planner.providerLabel ?? values.provider);
+  const provider = roleProviders?.planner ?? await dependencies.createProvider({ config, credentialManager: dependencies.credentialManager });
+  if (executionPlan) assertPlanUnchanged(executionPlan,planContext);
 
   if (teamId) teamStore.requireActive(teamId);
   const missionId = crypto.randomUUID();
-  const orchestrator = new Orchestrator({ provider, repository, idFactory: () => missionId });
+  const orchestrator = new Orchestrator({ provider, roleProviders, agentCapabilityCheck:(id,capability)=>planContext.agentStore.get(id)?.capabilities.includes(capability) === true, repository, idFactory: () => missionId });
 
   let savedRoles = 0;
   const onEvent = values.json ? null : (event) => {
@@ -86,6 +94,7 @@ export async function runMissionCommand({ args, stdout, stderr, dependencies }) 
   const task = await orchestrator.start({
     objective,
     teamId,
+    executionPlan,
     maxProviderCalls,
     providerLabel: config.label,
     capabilityGrants,

@@ -42,7 +42,7 @@ commands:
   provider set-secret <label>
   skills install <directory> [--db <path>]
   skills list [--db <path>]
-  run "<objective>" [--team <uuid>] [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--workspace <dir>] [--capability <name>=<scope>] [--json]
+  run "<objective>" [--team <uuid>] [--planner <agent-id> --executor <agent-id> --reviewer <agent-id>] [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--workspace <dir>] [--capability <name>=<scope>] [--json]
   missions [--db <path>]
   mission <id> [--db <path>] [--json]
   retry <id> [--provider <label>] [--max-calls N] [--max-tool-calls N] [--db <path>] [--json]

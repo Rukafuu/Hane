@@ -45,9 +45,9 @@ export class OpenAICompatibleProvider {
    * answer. It stays a thin wrapper over the same transport so a role that has
    * not grown tools still gets the identical retry and audit behaviour.
    */
-  async complete({ role, objective, instruction, priorOutputs, onRetry, signal = null } = {}) {
+  async complete({ role, objective, instruction, priorOutputs, referenceDocuments = [], onRetry, signal = null } = {}) {
     const outcome = await this.#run({
-      messages: buildRoleMessages({ role, objective, instruction, priorOutputs }),
+      messages: buildRoleMessages({ role, objective, instruction, priorOutputs, referenceDocuments }),
       tools: null,
       signal,
       onRetry,
@@ -170,10 +170,11 @@ export class OpenAICompatibleProvider {
  * builds its own message list in the orchestrator, because there the untrusted
  * bytes arrive one message at a time rather than in one payload.
  */
-function buildRoleMessages({ role, objective, instruction, priorOutputs }) {
+function buildRoleMessages({ role, objective, instruction, priorOutputs, referenceDocuments = [] }) {
   return [
     { role: 'system', content: `You are the ${role} in a bounded multi-agent task. ${instruction}` },
     { role: 'user', content: JSON.stringify({ objective, priorOutputs }) },
+    ...(referenceDocuments.length ? [{role:'user',content:JSON.stringify({untrustedReferenceDocuments:referenceDocuments})}] : []),
   ];
 }
 
