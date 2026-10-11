@@ -849,3 +849,28 @@ test('the same non-loopback Host is refused when the server was told it binds lo
   assert.equal(refused.status, 403);
   assert.match(refused.text, /is not the address this server binds/);
 });
+
+test('a storage fault while reaching a stream closes that client instead of ending the process', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let locked = false;
+  // No profile means every request is authorized here, so the stream mounts;
+  // arming the store afterwards reproduces the lock the heartbeat used to hit.
+  const profileStore = { get() { if (locked) throw new Error('database is locked'); return null; } };
+  const harness = createHarness({ serverOptions: { profileStore } });
+  t.after(async () => { await harness.close(); });
+  const port = await portOf(harness);
+
+  const opened = wire({ port, path: '/api/events' });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  locked = true;
+
+  // The heartbeat is a setInterval callback that runs outside any request: an error
+  // escaping it had no response to answer and took the whole serve process down.
+  t.mock.timers.tick(25_000);
+  const closed = await Promise.race([
+    opened,
+    new Promise((resolve) => setTimeout(() => resolve(null), 1500)),
+  ]);
+  assert.ok(closed, 'the unreadable stream must be closed, not left hanging');
+  assert.equal(closed.status, 200);
+});

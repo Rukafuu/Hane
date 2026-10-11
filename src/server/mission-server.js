@@ -91,14 +91,26 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
   // finds a profile. Serving every later request used to re-read that row.
   let initialAgentEnsured = false;
   const pendingGitHubAuthorizations = new Map();
-  const heartbeat = setInterval(() => {
-    for (const response of sseClients) { if (profileApi && !profileApi.authenticated(streamRequests.get(response))) { response.end(); sseClients.delete(response); } else response.write(': ping\n\n'); }
-  }, SSE_HEARTBEAT_MS);
+  // Reaching one stream is that stream's problem: a storage fault or a socket that
+  // died mid-write closes that client and keeps the serve process alive, because an
+  // uncaught error here arrives outside any request and ends the process.
+  const forEachStream = (send) => {
+    for (const response of sseClients) {
+      try {
+        if (profileApi && !profileApi.authenticated(streamRequests.get(response))) { response.end(); sseClients.delete(response); continue; }
+        send(response);
+      } catch {
+        try { response.end(); } catch { /* the socket is already gone */ }
+        sseClients.delete(response);
+      }
+    }
+  };
+  const heartbeat = setInterval(() => forEachStream((response) => response.write(': ping\n\n')), SSE_HEARTBEAT_MS);
   heartbeat.unref?.();
 
   const broadcast = (event) => {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const response of sseClients) { if (profileApi && !profileApi.authenticated(streamRequests.get(response))) { response.end(); sseClients.delete(response); } else response.write(payload); }
+    forEachStream((response) => response.write(payload));
   };
 
   const server = createServer((request, response) => {
