@@ -51,7 +51,7 @@ export function rise(targets, { y = 10, duration = 340 } = {}) {
 
 export function toastOut(el) {
   if (!el || reduceMotion()) return Promise.resolve();
-  return animate(el, { opacity: [1, 0], translateY: [0, 8], duration: 180, ease: "inQuad" }).finished;
+  return animate(el, { opacity: [1, 0], translateY: [0, 8], duration: 180, ease: "inQuad" }).then(() => undefined);
 }
 
 export function pop(el) {

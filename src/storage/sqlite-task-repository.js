@@ -1,3 +1,4 @@
+import { assertExecutionPlan } from '../teams/execution-plan.js';
 import { openHaneDatabase } from './sqlite-database.js';
 import { migrate } from './migrations.js';
 
@@ -11,10 +12,12 @@ export class SqliteTaskRepository {
   }
 
   save(task) {
+    const planJson = task.executionPlan == null ? null : JSON.stringify(assertExecutionPlan(task.executionPlan,task.teamId));
     this.database.exec('BEGIN IMMEDIATE');
     try {
-      const stored = this.database.prepare('SELECT provider_calls AS providerCalls, tool_calls AS toolCalls, team_id AS teamId FROM task_runs WHERE id = ?').get(task.id);
+      const stored = this.database.prepare('SELECT provider_calls AS providerCalls, tool_calls AS toolCalls, team_id AS teamId, execution_plan_json AS planJson FROM task_runs WHERE id = ?').get(task.id);
       if (stored && (task.teamId ?? null) !== stored.teamId) throw new Error('cannot change the team of a persisted execution.');
+      if (stored && stored.planJson !== planJson) throw new Error('cannot change the execution plan of a persisted mission.');
       if (stored && task.providerCalls < stored.providerCalls) {
         throw new Error(`cannot persist a task with fewer provider calls (${task.providerCalls}) than already stored (${stored.providerCalls}).`);
       }
@@ -22,8 +25,8 @@ export class SqliteTaskRepository {
         throw new Error(`cannot persist a task with fewer tool calls (${task.toolCalls}) than already stored (${stored.toolCalls}).`);
       }
       this.database.prepare(`
-        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json, workspace_root, max_tool_calls, tool_calls, team_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO task_runs (id, objective, status, max_provider_calls, provider_calls, provider_label, capability_grants_json, workspace_root, max_tool_calls, tool_calls, team_id, execution_plan_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           objective = excluded.objective,
           status = excluded.status,
@@ -34,7 +37,8 @@ export class SqliteTaskRepository {
           workspace_root = excluded.workspace_root,
           max_tool_calls = excluded.max_tool_calls,
           tool_calls = excluded.tool_calls,
-          team_id = excluded.team_id
+          team_id = excluded.team_id,
+          execution_plan_json = excluded.execution_plan_json
       `).run(
         task.id,
         task.objective,
@@ -47,6 +51,7 @@ export class SqliteTaskRepository {
         task.maxToolCalls ?? 24,
         task.toolCalls ?? 0,
         task.teamId ?? null,
+        planJson,
       );
       const outputStatement = this.database.prepare('INSERT OR REPLACE INTO task_outputs (task_id, role, content) VALUES (?, ?, ?)');
       for (const [role, content] of Object.entries(task.outputs)) outputStatement.run(task.id, role, content);
@@ -65,7 +70,7 @@ export class SqliteTaskRepository {
 
   list() {
     return this.database.prepare(`
-      SELECT r.id, r.objective, r.status, r.team_id AS teamId,
+      SELECT r.id, r.objective, r.status, r.team_id AS teamId, r.execution_plan_json AS planJson,
              r.max_provider_calls AS maxProviderCalls,
              r.provider_calls AS providerCalls,
              COALESCE(MAX(a.at), '') AS updatedAt
@@ -73,20 +78,30 @@ export class SqliteTaskRepository {
       LEFT JOIN task_audit_entries a ON a.task_id = r.id
       GROUP BY r.id
       ORDER BY updatedAt DESC, r.id DESC
-    `).all().map(row => { if (row.teamId === null) delete row.teamId; return row; });
+    `).all().map(row => {
+      if (row.planJson !== null) {
+        const plan=assertExecutionPlan(JSON.parse(row.planJson),row.teamId);
+        row.executionPlan={version:plan.version,kind:plan.kind,teamId:plan.teamId,roles:Object.fromEntries(Object.entries(plan.roles).map(([role,{agentId,name,providerLabel,model}])=>[role,{agentId,name,providerLabel,model}]))};
+      }
+      delete row.planJson;
+      if (row.teamId === null) delete row.teamId;
+      return row;
+    });
   }
 
   findById(id) {
     const task = this.database.prepare(`
       SELECT id, objective, status, max_provider_calls AS maxProviderCalls, provider_calls AS providerCalls,
              provider_label AS providerLabel, capability_grants_json AS capabilityGrantsJson,
-             workspace_root AS workspaceRoot, max_tool_calls AS maxToolCalls, tool_calls AS toolCalls, team_id AS teamId
+             workspace_root AS workspaceRoot, max_tool_calls AS maxToolCalls, tool_calls AS toolCalls, team_id AS teamId, execution_plan_json AS planJson
       FROM task_runs WHERE id = ?
     `).get(id);
     if (!task) return null;
     const outputs = Object.fromEntries(this.database.prepare('SELECT role, content FROM task_outputs WHERE task_id = ? ORDER BY role').all(id).map(({ role, content }) => [role, content]));
     const audit = this.database.prepare('SELECT at, type, detail_json AS detailJson FROM task_audit_entries WHERE task_id = ? ORDER BY ordinal').all(id)
       .map(({ at, type, detailJson }) => ({ at, type, detail: JSON.parse(detailJson) }));
+    if (task.planJson != null) task.executionPlan = assertExecutionPlan(JSON.parse(task.planJson),task.teamId);
+    delete task.planJson;
     if (task.teamId === null) delete task.teamId;
     return { ...task, capabilityGrants: parseCapabilityGrants(task.capabilityGrantsJson), outputs, audit };
   }

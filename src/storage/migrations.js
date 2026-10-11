@@ -185,6 +185,9 @@ const MIGRATIONS = Object.freeze([
   Object.freeze({ id: 15, name: 'agent_instruction_documents', statements: Object.freeze([
     "ALTER TABLE agents ADD COLUMN instruction_files_json TEXT NOT NULL DEFAULT '[]';",
   ]) }),
+  Object.freeze({ id: 17, name: 'execution_agent_snapshot', statements: Object.freeze([
+    'ALTER TABLE task_runs ADD COLUMN execution_plan_json TEXT;',
+  ]) }),
   // Id 16 is reserved for the per-execution backend choice (mission sandbox
   // selection). Take a later id, or claim 16 explicitly, instead of colliding.
 ]);

@@ -1,3 +1,4 @@
+import { assertExecutionPlan } from './teams/execution-plan.js';
 import { assertId } from './teams/domain.js';
 import { assertObjective, assertPositiveInteger, ROLE_SEQUENCE, TASK_STATUS } from './contracts.js';
 import { assertCapabilityGrants } from './capabilities.js';
@@ -28,12 +29,13 @@ export class TaskRun {
   #calls = 0;
   #toolCalls = 0;
 
-  constructor({ id, objective, teamId = null, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = DEFAULT_MAX_TOOL_CALLS, now = () => new Date().toISOString() }) {
+  constructor({ id, objective, teamId = null, executionPlan = null, maxProviderCalls = DEFAULT_MAX_PROVIDER_CALLS, providerLabel = null, capabilityGrants = [], workspaceRoot = null, maxToolCalls = DEFAULT_MAX_TOOL_CALLS, now = () => new Date().toISOString() }) {
     if (typeof id !== 'string' || id.length === 0) throw new TypeError('id is required.');
     if (providerLabel !== null && (typeof providerLabel !== 'string' || providerLabel.trim().length === 0)) {
       throw new TypeError('providerLabel must be a non-empty string or null.');
     }
     this.teamId = teamId === null ? null : assertId(teamId,'teamId');
+    this.executionPlan = executionPlan === null ? null : assertExecutionPlan(executionPlan,this.teamId);
     this.id = id;
     this.objective = assertObjective(objective);
     this.maxProviderCalls = assertPositiveInteger(maxProviderCalls, 'maxProviderCalls');
@@ -47,6 +49,7 @@ export class TaskRun {
     this.now = now;
     this.record('task_created', {
       ...(this.teamId ? { teamId: this.teamId } : {}),
+      ...(this.executionPlan ? { executionMode: 'team-preset' } : {}),
       objective: this.objective,
       maxProviderCalls: this.maxProviderCalls,
       providerLabel,
@@ -66,6 +69,7 @@ export class TaskRun {
       ...(this.teamId ? { teamId: this.teamId } : {}),
       objective: this.objective,
       status: this.status,
+      ...(this.executionPlan ? {executionPlan:this.executionPlan} : {}),
       maxProviderCalls: this.maxProviderCalls,
       providerCalls: this.#calls,
       providerLabel: this.providerLabel,
@@ -79,6 +83,8 @@ export class TaskRun {
   }
 
   record(type, detail = {}) {
+    const binding = ROLE_SEQUENCE.includes(detail.role) ? this.executionPlan?.roles[detail.role] : null;
+    if (binding) detail = {...detail,agentId:binding.agentId,agentName:binding.name,providerLabel:binding.providerLabel,model:binding.model};
     this.audit.push(Object.freeze({ at: this.now(), type, detail: Object.freeze({ ...detail }) }));
   }
 
@@ -160,6 +166,7 @@ export class TaskRun {
     const task = new TaskRun({
       id: snapshot.id,
       teamId: snapshot.teamId ?? null,
+      executionPlan: snapshot.executionPlan ?? null,
       objective: snapshot.objective,
       maxProviderCalls: snapshot.maxProviderCalls,
       providerLabel: snapshot.providerLabel ?? null,

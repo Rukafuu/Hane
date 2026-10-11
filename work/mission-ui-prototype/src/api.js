@@ -7,7 +7,7 @@ export class ApiError extends Error {
   }
 }
 
-async function json(response) {
+export async function json(response) {
   if (!response.ok) {
     if (response.status === 401 && typeof window !== "undefined") window.dispatchEvent(new Event("hane-session-expired"));
     let detail = "";
@@ -41,6 +41,10 @@ export async function fetchWorkspace() {
   }
 }
 
+export const selectWorkspaceItem = (kind, root = null) => fetch('/api/workspace/select', {
+  method:'POST', headers:{'content-type':'application/json','x-hane-request':'1'}, body:JSON.stringify({kind,root}),
+}).then(json);
+
 export const fetchOnboarding = () => fetch("/api/onboarding").then(json);
 
 export const startGitHubAuthorization = () => fetch("/api/onboarding/github/device", { method: "POST", headers: { "x-hane-request": "1" } }).then(json);
@@ -58,7 +62,7 @@ export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/dev
 export const createMission = (objective, provider, capabilities = [], limits = {}) => fetch("/api/missions", {
   method: "POST",
   headers: { "content-type": "application/json", "x-hane-request": "1" },
-  body: JSON.stringify({ objective, ...(limits.maxProviderCalls ? { maxProviderCalls: limits.maxProviderCalls } : {}), ...(limits.maxToolCalls ? { maxToolCalls: limits.maxToolCalls } : {}), ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
+  body: JSON.stringify({ objective, ...(limits.workspaceRoot ? {workspaceRoot:limits.workspaceRoot} : {}), ...(limits.roleAssignments ? {roleAssignments:limits.roleAssignments} : {}), ...(limits.teamId ? { teamId: limits.teamId } : {}), ...(limits.maxProviderCalls ? { maxProviderCalls: limits.maxProviderCalls } : {}), ...(limits.maxToolCalls ? { maxToolCalls: limits.maxToolCalls } : {}), ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
 }).then(json);
 
 const missionAction = (id, action, body = {}) => fetch(`/api/missions/${encodeURIComponent(id)}/${action}`, {
