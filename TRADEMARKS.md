@@ -1,6 +1,6 @@
 # Política de marca do Hane
 
-Copyright 2026 Lucas Frischeisen · contato: lucas.frischeisen@gmail.com
+Copyright 2026 Lucas Frischeisen · contato: devreskyume@gmail.com
 
 ## O que a licença de código não faz
 
