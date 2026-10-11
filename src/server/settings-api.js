@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { SqliteSettingsStore } from '../storage/sqlite-settings-store.js';
 import { assertProviderConfig } from '../providers/provider-config.js';
 import { connectMcp } from '../integrations/mcp-http.js';
+import { createOpenRouterApi } from './openrouter-api.js';
 export function createSettingsApi({database,repository,providerConfigStore,credentialManager,readJsonBody,respondJson,fetchImpl=fetch}) {
  const store=database?new SqliteSettingsStore(database):null;
  if(store)database.prepare("UPDATE settings_mcp_calls SET status='interrupted',finished_at=? WHERE status='running'").run(new Date().toISOString());
  const pending=new Set();
+ const openrouter=createOpenRouterApi({database,providerConfigStore,credentialManager,fetchImpl,respondJson});
  const reply=(r,status,data)=>{respondJson(r,status,data);return true;};
  return async ({request,response,isAuthorized})=>{
   const path=new URL(request.url,'http://127.0.0.1').pathname;
@@ -16,6 +18,7 @@ export function createSettingsApi({database,repository,providerConfigStore,crede
   try {
    const body=['POST','PUT','DELETE'].includes(method)?await readJsonBody(request):{};
    if(!isAuthorized())return reply(response,401,{error:'Sessão encerrada.'});
+   if(await openrouter({path,method,body,response,isAuthorized}))return true;
    if(path==='/api/settings/providers'&&method==='PUT') {
     const previous=providerConfigStore.findByLabel(body.label);
     const config=assertProviderConfig({label:body.label,baseUrl:body.baseUrl,model:body.model,maxTokens:body.maxTokens,credentialReference:previous?.credentialReference||'local-agent-orchestrator/'+body.label});

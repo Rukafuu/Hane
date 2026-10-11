@@ -1,0 +1,19 @@
+.openrouter-panel { border: 0; padding: 0; margin: 0; min-width: 0; }
+.openrouter-connection, .openrouter-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.openrouter-connection p, .openrouter-toolbar span { color: var(--muted); font-size: 13px; }
+.openrouter-toolbar { margin: 20px 0 12px; }
+.openrouter-filters { display: flex; gap: 18px; align-items: end; flex-wrap: wrap; }
+.openrouter-filters > label:first-child { display: grid; gap: 8px; flex: 1; min-width: 200px; }
+.openrouter-filters input[type=search] { width: 100%; }
+.openrouter-check { display: flex; align-items: center; gap: 8px; padding-bottom: 9px; font-size: 13px; }
+.openrouter-catalog { max-height: 440px; overflow: auto; border: 1px solid var(--line); border-radius: 14px; margin-top: 14px; }
+.openrouter-catalog > p { padding: 16px; }
+.openrouter-model { display: flex; align-items: center; gap: 12px; padding: 16px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.openrouter-model:last-child { border-bottom: 0; }
+.openrouter-model.is-selected { background: var(--pink-soft); }
+.openrouter-model > input { flex-shrink: 0; accent-color: var(--pink-deep); }
+.openrouter-model > div { display: grid; gap: 5px; min-width: 0; flex: 1; }
+.openrouter-model strong { font-size: 14px; overflow-wrap: anywhere; }
+.openrouter-model small, .openrouter-model span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.openrouter-model em { color: var(--pink-deep); font-size: 12px; font-style: normal; }
+.openrouter-panel a { color: var(--pink-deep); }
