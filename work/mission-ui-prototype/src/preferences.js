@@ -47,4 +47,16 @@ export function validateLibrary(data) {
   if (agents.some(a => a.groupId && !groupIds.has(a.groupId)) || groups.some(g => g.members.some(id => agents.find(a => a.id === id)?.groupId && agents.find(a => a.id === id).groupId !== g.id))) throw new Error('Integrante exclusivo pertence a outro grupo.');
   return { agents, groups };
 }
-export const appearanceStyle = a => ({ '--user-accent': a.accent, '--user-font': a.font === 'mono' ? 'var(--font-mono)' : a.font === 'hane' ? '"Hane Sans", "Segoe UI", system-ui' : '"Segoe UI Variable Text", "Segoe UI", system-ui', '--reading-width': a.width === 'wide' ? '1100px' : '760px', '--reading-weight': a.weight === 'medium' ? 500 : 400 });
+export function accentText(accent) {
+  const luminance = hex => {
+    const channels = hex.match(/[0-9a-f]{2}/gi).map(c=>parseInt(c,16)/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);
+    return channels[0]*.2126+channels[1]*.7152+channels[2]*.0722;
+  };
+  const background = luminance(accent);
+  for (const ink of ['#10151c','#ffffff','#000000']) {
+    const foreground = luminance(ink);
+    if ((Math.max(background,foreground)+.05)/(Math.min(background,foreground)+.05)>=4.5) return ink;
+  }
+  return '#000000';
+}
+export const appearanceStyle = a => ({ '--user-accent': a.accent, '--accent-ink': accentText(a.accent), '--user-font': a.font === 'mono' ? 'var(--font-mono)' : a.font === 'hane' ? '"Hane Sans", "Segoe UI", system-ui' : '"Segoe UI Variable Text", "Segoe UI", system-ui', '--reading-width': a.width === 'wide' ? '1100px' : '760px', '--reading-weight': a.weight === 'medium' ? 500 : 400 });

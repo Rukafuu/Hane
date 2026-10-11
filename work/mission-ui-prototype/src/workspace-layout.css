@@ -1,0 +1,132 @@
+/* Workspace geometry has one owner, including all sidebar combinations. */
+.app-shell {
+  --navigation-width:clamp(220px,18vw,260px); --context-expanded-width:clamp(280px,23vw,336px);
+  --context-width:var(--context-expanded-width); --workspace-gutter:24px; --workspace-scale:1;
+  --type-stage:calc(22px * var(--workspace-scale)); --type-heading:calc(15px * var(--workspace-scale));
+  --type-column:calc(13px * var(--workspace-scale)); --type-body:max(12px,calc(12.5px * var(--workspace-scale)));
+  --type-meta:calc(11px * var(--workspace-scale)); --type-micro:max(9px,calc(9.5px * var(--workspace-scale)));
+  grid-template-columns:var(--navigation-width) minmax(0,1fr) var(--context-width);min-width:0;height:100dvh;
+}
+.app-shell.nav-collapsed {--navigation-width:72px}
+.app-shell.panel-collapsed {--context-width:0px}
+.app-shell[data-text-size=compact] {--workspace-scale:.96}
+.app-shell[data-text-size=large] {--workspace-scale:1.12}
+.app-shell[data-hane-theme] {--ink:var(--theme-text,#20272d);--muted-on-shell:var(--muted)}
+.app-shell[data-hane-theme=paper] {--muted:#59616e;--muted-on-shell:#59616e;--theme-text:#20272d;--surface:#f5f6f8;--soft:#ffffff;--inset:#ffffff;--theme-hover:#e9ecf1;--theme-elevated:#fff;--line:rgba(38,47,62,.18)}
+.app-shell[data-hane-theme=paper] :is(.left-sidebar,.right-panel) {background:#fff}
+.app-shell[data-hane-theme=paper] :is(.conversation-view,.messages,.conversation-header,.composer-wrap) {background:var(--surface)}
+
+/* Six reading roles, carried through workspace and configurable reading size. */
+.app-shell[data-hane-theme] .left-sidebar {--nav-copy:var(--type-body);--nav-meta:var(--type-meta)}
+.app-shell[data-hane-theme] :is(.conversation-title strong,.chat-title strong) {font-size:var(--type-heading);font-weight:600}
+.app-shell[data-hane-theme] :is(.empty-stage>strong) {font-size:var(--type-stage);font-weight:600}
+.app-shell[data-hane-theme] :is(.right-panel>header strong,.message-content>header strong,.approval-card strong) {font-size:var(--type-column);font-weight:600}
+.app-shell[data-hane-theme] :is(.panel-title strong,.agent-chat-link strong,.sidebar-footer strong,.conversation-copy strong,.empty-action,.team-header-edit,.composer textarea,.message-content>p,.user-message p,.empty-stage p,.panel-section p,.panel-empty,.context-idle-summary p,.approval-card small,.preview-caption span,.evidence-empty,.evidence-copy,.composer-content>small,.composer-warning,.composer-error,.pop p,.pop-row small,.handoff-card small) {font-size:var(--type-body);line-height:1.55}
+.app-shell[data-hane-theme] :is(.right-panel>header small,.conversation-title small,.message-content>header small,.sidebar-footer small,.conversation-copy small,.conversation-row time,.panel-title>span,.progress-meta,.composer>div>small,.window-bar small,.evidence-list>header,.context-idle-summary small,.workspace-folder strong) {font-size:var(--type-meta);font-weight:450;line-height:1.4;color:var(--muted)}
+.app-shell[data-hane-theme] :is(.section-head,.day-divider,.search-box kbd) {font-size:var(--type-micro);font-weight:600;color:var(--muted)}
+.app-shell[data-hane-theme] .team-header-edit {color:var(--ink);background:var(--inset)}
+.app-shell[data-hane-theme] .conversation-header {padding:0 var(--workspace-gutter);min-width:0;gap:12px}
+.app-shell[data-hane-theme] .conversation-title {min-width:0;flex:1}
+.app-shell[data-hane-theme] .conversation-title strong {max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* Search ink and shortcut surface follow the selected theme. */
+.app-shell[data-hane-theme] .left-sidebar .search-box {background:var(--theme-inset,#eef0f4);box-shadow:none;border:1px solid transparent;color:var(--muted);gap:6px}
+.app-shell[data-hane-theme] .left-sidebar .search-box input {color:var(--ink);font-size:var(--type-body);min-width:0}
+.app-shell[data-hane-theme] .left-sidebar .search-box kbd {flex:none;padding:3px 5px;background:var(--soft);color:var(--muted);box-shadow:none;white-space:nowrap}
+.app-shell[data-hane-theme] .left-sidebar .search-box:focus-within {border-color:var(--pink);outline:2px solid var(--pink-soft);background:var(--theme-inset,#eef0f4)}
+.app-shell .left-sidebar button.rail-search {display:none}
+.app-shell.nav-collapsed .left-sidebar .rail-search {display:grid;align-self:center}
+.app-shell .left-sidebar .brand-row {margin-bottom:8px}
+.app-shell .left-sidebar .new-chat {margin-bottom:16px}
+.app-shell[data-hane-theme=paper]:not(.nav-collapsed) .left-sidebar button.new-chat {background:var(--pink);color:var(--accent-ink,#161b23)}
+.app-shell[data-hane-theme=paper]:not(.nav-collapsed) .left-sidebar .new-chat .nav-create-icon {color:inherit}
+
+/* Agents stay editable by avatar and conversational by name, without repeated subtitles. */
+.app-shell .left-sidebar .nav-agent-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;min-width:0}
+.app-shell .left-sidebar .nav-agent-grid .agent-nav {display:flex;flex-direction:column;align-items:center;gap:4px;min-height:0;width:100%}
+.app-shell .left-sidebar .nav-agent-grid .agent-chat-link {min-height:28px;width:100%;max-width:100%;padding:3px 2px;text-align:center;align-items:center}
+.app-shell[data-hane-theme] .left-sidebar .nav-agent-grid .agent-chat-link strong {font-size:var(--type-meta);font-weight:600}
+.app-shell.nav-collapsed .left-sidebar .nav-agent-grid {grid-template-columns:40px}
+.app-shell.nav-collapsed .left-sidebar .nav-agent-grid .agent-nav {height:40px;min-height:40px;gap:0}
+.app-shell.nav-collapsed .left-sidebar .nav-agent-grid .agent-chat-link {display:none}
+
+/* Reading and writing share an axis even with either auxiliary column closed. */
+.app-shell[data-hane-theme] .messages {padding:24px var(--workspace-gutter);min-width:0;overflow-x:hidden;overscroll-behavior:contain}
+.app-shell[data-hane-theme] .messages> :is(.message,.user-message,.group-context,.handoff-card,.day-divider) {width:100%;max-width:var(--reading-width,760px);margin-inline:auto;min-width:0}
+.app-shell[data-hane-theme] .user-message p {max-width:100%;overflow-wrap:anywhere}
+.app-shell[data-hane-theme] .message-content {min-width:0;overflow-wrap:anywhere}
+.app-shell[data-hane-theme] .workspace-empty .messages {display:flex;flex-direction:column}
+.app-shell[data-hane-theme] .workspace-empty .empty-stage {flex:none;margin:auto;width:100%;max-width:560px;padding:24px 0}
+.app-shell[data-hane-theme] .empty-stage p {max-width:48ch;color:var(--muted)}
+.app-shell[data-hane-theme] .composer-wrap {padding:12px var(--workspace-gutter) 16px;min-width:0;background:var(--surface);border-top:1px solid var(--line)}
+.app-shell .composer-content,.app-shell .agent-conversation .composer-form {width:100%;max-width:var(--reading-width,760px);margin-inline:auto;min-width:0}
+.app-shell .agent-conversation .composer-form {padding:12px var(--workspace-gutter);box-sizing:border-box;max-width:calc(var(--reading-width,760px) + 2 * var(--workspace-gutter))}
+.app-shell[data-hane-theme] .composer {border:1px solid var(--line);background:var(--theme-inset,#fff);box-shadow:none;padding:12px;border-radius:16px;gap:8px;grid-template-rows:minmax(44px,auto) 32px}
+.app-shell[data-hane-theme] .composer:focus-within {border-color:var(--pink);box-shadow:0 0 0 2px var(--pink-soft)}
+.app-shell[data-hane-theme] .composer textarea {min-height:44px;padding:0;color:var(--ink);font-weight:450}
+.app-shell[data-hane-theme] .composer textarea::placeholder {color:var(--muted);opacity:1}
+.app-shell .composer-content>small {display:block;margin-top:8px;text-align:center;color:var(--muted)}
+.app-shell[data-hane-theme] .workspace-folder {min-height:44px;margin:0 0 8px;padding:4px 0;gap:8px;border:0;border-radius:0;background:transparent;box-shadow:none;flex-wrap:nowrap}
+.app-shell .workspace-folder>svg {width:20px;height:20px}
+.app-shell .workspace-folder>span {display:flex;align-items:center;gap:8px;min-width:0}
+.app-shell .workspace-folder strong {font-weight:450;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
+.app-shell .workspace-folder small {display:none}
+.app-shell .workspace-folder>button {min-height:36px;margin:0;padding:4px 8px;font-size:var(--type-meta);border-color:transparent;color:var(--muted)}
+.app-shell .workspace-folder>button:hover:not(:disabled) {background:var(--theme-hover,var(--inset));color:var(--ink)}
+.app-shell[data-hane-theme] .handoff-card {background:var(--theme-elevated,#fff);color:var(--ink);border-color:var(--line)}
+.app-shell[data-hane-theme] .handoff-card strong {font-size:var(--type-column);color:var(--ink)}
+.app-shell[data-hane-theme] .handoff-card small {color:var(--muted)}
+.app-shell[data-hane-theme] .user-message p {background:var(--pink-soft);color:var(--ink)}
+
+/* Panel content keeps its width while the grid column collapses. */
+.app-shell .right-panel {display:grid;position:relative;width:auto;min-width:0;overflow:hidden;grid-template-rows:70px minmax(0,1fr)}
+.app-shell .right-panel>header,.app-shell .right-panel>.panel-scroll {width:var(--context-expanded-width);box-sizing:border-box;min-width:0;transition:opacity .18s ease,transform .34s cubic-bezier(.33,.05,.15,1)}
+.app-shell.panel-collapsed .right-panel>header,.app-shell.panel-collapsed .right-panel>.panel-scroll {transform:translateX(100%)}
+.app-shell .right-panel>header {padding:0 16px;border-bottom:1px solid var(--line);gap:12px;align-items:center}
+.app-shell .right-panel>header>span {min-width:0;display:grid;gap:4px}
+.app-shell .right-panel>header button {flex:none;width:40px;height:40px;border-radius:12px;color:var(--ink);background:transparent}
+.app-shell .right-panel>header button svg {width:20px;height:20px}
+.app-shell .right-panel .panel-title {height:auto;min-height:32px;gap:8px;align-items:center;flex-wrap:wrap}
+.app-shell .right-panel .panel-title strong {font-weight:600;color:var(--ink)}
+.app-shell .right-panel .panel-title>span {min-width:0;line-height:1.4}
+.app-shell .right-panel .panel-scroll {padding:16px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.app-shell .right-panel .panel-section {padding:12px 0;border-bottom:1px solid var(--line)}
+.app-shell .right-panel details.panel-section>summary {cursor:pointer;display:flex;list-style:none;color:var(--ink)}
+.app-shell .right-panel details.panel-section>summary::-webkit-details-marker {display:none}
+.app-shell .right-panel details.panel-section>summary:after {content:'+';margin-left:auto;font-size:var(--type-column);color:var(--muted)}
+.app-shell .right-panel details.panel-section[open]>summary:after {content:'−'}
+.app-shell .right-panel summary:focus-visible {outline:2px solid var(--pink);outline-offset:2px;border-radius:8px}
+.app-shell .right-panel .panel-empty {border:0;color:var(--muted)}
+.app-shell .right-panel .context-idle-summary {padding:8px 0;line-height:1.55}
+.app-shell .right-panel .context-idle-summary strong {display:block;font-size:var(--type-column);font-weight:600}
+.app-shell .right-panel .context-idle-summary p {margin:8px 0 12px;color:var(--muted)}
+.app-shell .right-panel .preview-caption {display:grid;gap:8px;padding:12px}
+.app-shell .right-panel .window-body {height:112px}
+.app-shell .right-panel .approval-card {margin:16px 0;background:var(--theme-elevated,#fff);border-color:var(--line);color:var(--ink)}
+.app-shell .right-panel .approval-card small {color:var(--muted)}
+.app-shell .right-panel .workspace-state {font-size:var(--type-meta);color:var(--muted);overflow-wrap:anywhere}
+.app-shell .right-panel .secondary-action {min-height:36px;font-size:var(--type-meta);color:var(--ink);background:var(--theme-inset,#fff)}
+.app-shell .panel-reopen {top:15px;right:12px;width:40px;height:40px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);box-shadow:none}
+.app-shell .panel-reopen svg {width:20px;height:20px}
+.app-shell.panel-collapsed .conversation-header {padding-right:64px}
+.app-shell .panel-reopen:focus-visible {outline:2px solid var(--pink);outline-offset:2px}
+@media(max-width:1240px) {
+  .app-shell {--context-expanded-width:min(336px,calc(100vw - 32px));grid-template-columns:var(--navigation-width) minmax(0,1fr)}
+  .app-shell .right-panel {position:fixed;z-index:30;inset:0 0 0 auto;width:var(--context-expanded-width);height:100dvh;border-left:1px solid var(--line);box-shadow:-18px 0 44px rgba(18,25,36,.22);transform:translateX(0);visibility:visible}
+  .app-shell.panel-collapsed .right-panel {transform:translateX(102%);visibility:hidden;transition:transform .28s ease,visibility 0s linear .28s}
+  .app-shell .right-panel {transition:transform .28s ease,visibility 0s}
+  .app-shell .right-panel>header,.app-shell .right-panel>.panel-scroll,.app-shell.panel-collapsed .right-panel>header,.app-shell.panel-collapsed .right-panel>.panel-scroll {transform:none;opacity:1}
+  .app-shell .panel-reopen {display:grid}
+}
+@media(max-width:980px) {.app-shell {--navigation-width:220px;--workspace-gutter:18px}.app-shell.nav-collapsed {--navigation-width:72px}.app-shell .search-box kbd {display:none}}
+@media(max-width:560px) {.app-shell {--workspace-gutter:12px;--navigation-width:200px}.app-shell.nav-collapsed {--navigation-width:60px}.app-shell .workspace-folder>span {flex-basis:auto}.app-shell .workspace-folder button:first-of-type {margin-left:0}.app-shell .left-sidebar .nav-agent-grid {grid-template-columns:repeat(3,minmax(0,1fr))}.app-shell.nav-collapsed .left-sidebar .nav-agent-grid {grid-template-columns:40px}}
+@media(prefers-reduced-motion:reduce) {.app-shell,.app-shell .right-panel,.app-shell .right-panel>header,.app-shell .right-panel>.panel-scroll,.app-shell .panel-reopen {transition:none}}
+.app-shell[data-motion=none],.app-shell[data-motion=none] .right-panel,.app-shell[data-motion=none] .right-panel>header,.app-shell[data-motion=none] .right-panel>.panel-scroll,.app-shell[data-motion=none] .panel-reopen {transition:none}
+
+.app-shell[data-hane-theme] :is(.empty-action,.send-button,.approval-card>button,.onboarding-action.primary) {color:var(--accent-ink,#161b23);background:var(--pink)}
+
+.app-shell[data-hane-theme] {--blue:#355b80;--green:#2c614b;--amber:#74591f}
+.app-shell[data-hane-theme] .status {font-size:var(--type-meta);font-weight:600}
+.app-shell .right-panel .progress-track i {max-width:100%}
+/* Column heading is distinct from secondary section labels. */
+.app-shell[data-hane-theme] .right-panel .panel-title strong {font-size:var(--type-meta);font-weight:600}

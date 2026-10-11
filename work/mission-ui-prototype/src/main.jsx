@@ -4,6 +4,8 @@ import { HaneApp } from "./HaneApp.jsx";
 import ProfileGate from "./PersonalProfile.jsx";
 import { AvatarPlayground } from "./AvatarPlayground.jsx";
 import "./hane.css";
+import "./sidebar.css";
+import "./workspace-layout.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

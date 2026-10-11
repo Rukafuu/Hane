@@ -1,0 +1,113 @@
+/* One navigation variant per state; dimensions do not depend on hidden copy. */
+.app-shell .left-sidebar {
+  --nav-control:40px; --nav-icon:20px; --nav-gap:8px; --nav-group-gap:16px;
+  --nav-radius:12px; --nav-copy:12px; --nav-meta:10px; --nav-duration:180ms;
+  display:flex; flex-direction:column; gap:var(--nav-gap); padding:16px 12px 12px;
+  min-width:0; min-height:0; overflow:visible;
+}
+.app-shell[data-text-size=compact] .left-sidebar {--nav-copy:11px;--nav-meta:9px}
+.app-shell[data-text-size=large] .left-sidebar {--nav-copy:14px;--nav-meta:11px}
+.app-shell .left-sidebar .brand-row {flex:none;height:40px;gap:var(--nav-gap);margin:0 0 var(--nav-gap);padding:0}
+.app-shell .left-sidebar .brand-wordmark {max-width:112px;min-width:0;object-fit:contain}
+.app-shell .left-sidebar .brand-compact-mark {display:none}
+.app-shell .left-sidebar :is(.icon-button,.nav-section-actions button) {width:var(--nav-control);height:var(--nav-control);min-width:var(--nav-control);padding:0;margin:0;display:grid;place-items:center;flex:none}
+.app-shell .left-sidebar :is(.icon-button,.nav-section-actions button,.nav-section-toggle,.all-runs,.new-chat,.conversation-row,.agent-chat-link,.hane-avatar,.sidebar-footer>button,.personal-profile-trigger) {
+  border-radius:var(--nav-radius);color:inherit;transition:background-color var(--nav-duration),border-color var(--nav-duration),box-shadow var(--nav-duration);box-shadow:none;
+}
+.app-shell .left-sidebar button:focus-visible {outline:2px solid var(--pink);outline-offset:2px}
+.app-shell .left-sidebar button:disabled {opacity:.45;cursor:default}
+.app-shell .left-sidebar :is(.icon-button,.nav-section-actions button,.nav-section-toggle,.all-runs,.new-chat,.conversation-row,.agent-chat-link,.hane-avatar,.sidebar-footer>button,.personal-profile-trigger):hover:not(:disabled) {background:var(--theme-hover,var(--inset));color:inherit;transform:none}
+.app-shell .left-sidebar button:active:not(:disabled) {background:var(--pink-soft)}
+.app-shell .left-sidebar :is(.icon-button,.nav-section-actions button,.all-runs)>svg,
+.app-shell .left-sidebar .nav-create-icon>svg,
+.app-shell .left-sidebar .sidebar-footer>button>svg:first-child {width:var(--nav-icon);height:var(--nav-icon);margin:0;flex:none}
+.app-shell .left-sidebar .search-box {flex:none;min-width:0;margin:0;height:40px}
+.app-shell .left-sidebar .search-box input {min-width:0}
+.app-shell .left-sidebar .new-chat {flex:none;min-height:var(--nav-control);height:var(--nav-control);margin:0 0 var(--nav-gap);padding:0 8px;grid-template-columns:var(--nav-icon) minmax(0,1fr) 16px;gap:var(--nav-gap);background:var(--pink-soft);border:1px solid transparent;box-shadow:none;font-size:var(--nav-copy)}
+.app-shell .left-sidebar .new-chat .nav-create-icon {width:var(--nav-icon);height:var(--nav-icon);display:grid;place-items:center;background:transparent;color:var(--pink);border-radius:0}
+.app-shell .left-sidebar .new-chat .nav-create-label {display:block;width:auto;height:auto;background:transparent;color:inherit;border-radius:0;white-space:nowrap}
+.app-shell .left-sidebar .sidebar-scroll {flex:1;min-height:0;min-width:0;width:100%;display:flex;flex-direction:column;gap:var(--nav-group-gap);padding:4px;overflow:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--line) transparent;overscroll-behavior:contain}
+.app-shell .left-sidebar .nav-section {display:flex;flex-direction:column;gap:var(--nav-gap);min-width:0;flex:none;width:100%}
+.app-shell .left-sidebar .section-head {display:flex;align-items:center;justify-content:space-between;gap:var(--nav-gap);height:auto;min-height:var(--nav-control);margin:0;padding:0;color:var(--muted);font-size:var(--nav-meta);font-weight:600;letter-spacing:.05em}
+.app-shell .left-sidebar .nav-section-actions {display:flex;gap:var(--nav-gap);flex:none}
+.app-shell .left-sidebar .nav-section-toggle {display:flex;align-items:center;gap:var(--nav-gap);width:auto;height:var(--nav-control);padding:0 4px;background:transparent;font:inherit;color:inherit}
+.app-shell .left-sidebar .nav-section-toggle svg {width:14px;height:14px;flex:none}
+.app-shell .left-sidebar .nav-section-toggle[aria-expanded=false] svg {transform:rotate(-90deg)}
+.app-shell .left-sidebar .all-runs {display:flex;align-items:center;gap:var(--nav-gap);align-self:flex-start;min-height:var(--nav-control);padding:0 12px;background:transparent;font-size:var(--nav-copy);font-weight:500}
+.app-shell .left-sidebar .all-runs[aria-pressed=true] {background:var(--pink-soft);color:inherit;box-shadow:inset 2px 0 var(--pink)}
+.app-shell .left-sidebar .agent-nav {display:grid;grid-template-columns:40px minmax(0,1fr);gap:var(--nav-gap);min-height:48px;margin:0;padding:0;width:100%;background:transparent;border-radius:var(--nav-radius)}
+.app-shell .left-sidebar .agent-nav>.hane-avatar {justify-self:center;padding:3px;background:transparent}
+.app-shell .left-sidebar .agent-chat-link {min-width:0;min-height:48px;padding:var(--density-padding,8px) 8px;display:flex;flex-direction:column;justify-content:center;gap:4px;text-align:left;background:transparent}
+.app-shell .left-sidebar .agent-chat-link :is(strong,small) {width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-shell .left-sidebar :is(.agent-chat-link,.conversation-copy) strong {font-size:var(--nav-copy);font-weight:600;line-height:1.4}
+.app-shell .left-sidebar :is(.agent-chat-link,.conversation-copy) small {font-size:var(--nav-meta);color:var(--muted);line-height:1.4}
+.app-shell .left-sidebar .agent-chat-link[aria-current=page],
+.app-shell .left-sidebar .conversation-row.selected {background:var(--pink-soft);border-color:transparent;box-shadow:inset 2px 0 var(--pink)}
+.app-shell .left-sidebar .conversation-row {grid-template-columns:48px minmax(0,1fr) auto;gap:var(--nav-gap);padding:var(--density-padding,8px) 8px;min-height:56px;width:100%;background:transparent;border:1px solid transparent}
+.app-shell .left-sidebar .team-row {grid-template-columns:20px minmax(0,1fr)}
+.app-shell .left-sidebar .group-dot {justify-self:center}
+.app-shell .left-sidebar .agent-stack {width:48px;display:flex;align-items:center;justify-content:center;gap:0}
+.app-shell .left-sidebar .agent-stack>.hane-avatar {flex:none;width:24px;height:24px;padding:0;background:transparent;pointer-events:none}
+.app-shell .left-sidebar .agent-stack>.hane-avatar+.hane-avatar {margin-left:-12px}
+.app-shell .left-sidebar .conversation-copy {gap:4px;min-width:0;overflow:hidden}
+.app-shell .left-sidebar .conversation-copy :is(strong,small) {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-shell .left-sidebar .conversation-row time {align-self:start;min-width:5ch;flex:none;margin:3px 0 0;font-size:var(--nav-meta);font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+.app-shell .left-sidebar .execution-state {color:var(--muted)}
+.app-shell .left-sidebar [data-run-state=running] .execution-state {color:var(--blue)}
+.app-shell .left-sidebar [data-run-state=done] .execution-state {color:var(--green)}
+.app-shell .left-sidebar [data-run-state=attention] .execution-state {color:var(--amber)}
+.app-shell[data-hane-theme=midnight] .left-sidebar,.app-shell[data-hane-theme=forest] .left-sidebar {--blue:#9cc4ef;--green:#a8d8c0;--amber:#edcc8b}
+.app-shell .left-sidebar .sidebar-footer {flex:none;display:flex;flex-direction:column;gap:var(--nav-gap);margin:0;padding-top:var(--nav-gap);border-top:1px solid var(--line);min-width:0}
+.app-shell .left-sidebar .sidebar-footer>button {width:100%;height:48px;min-width:0;margin:0;padding:4px 8px;gap:var(--nav-gap);background:transparent}
+.app-shell .left-sidebar .sidebar-footer>button>span {min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+.app-shell .left-sidebar .sidebar-footer :is(strong,small) {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.app-shell .left-sidebar .sidebar-footer strong {font-size:var(--nav-copy);font-weight:600}
+.app-shell .left-sidebar .sidebar-footer small {font-size:var(--nav-meta);color:var(--muted)}
+.app-shell .left-sidebar .personal-profile-footer {margin:0;padding-top:var(--nav-gap);border:0;width:100%}
+.app-shell .left-sidebar .personal-profile-trigger {height:48px;min-height:40px;padding:4px 8px;background:transparent}
+.app-shell .left-sidebar .personal-profile-menu {max-height:calc(100dvh - 80px);overflow:auto;scrollbar-width:thin}
+
+/* Explicit compact anatomy; hidden labels have no box or keyboard target. */
+.app-shell.nav-collapsed .left-sidebar {align-items:center;padding:16px 8px 12px}
+.app-shell.nav-collapsed .left-sidebar .brand-row {height:auto;width:100%;flex-direction:column;margin-bottom:var(--nav-gap);gap:var(--nav-gap)}
+.app-shell.nav-collapsed .left-sidebar .brand-compact-mark {display:block;flex:none;width:32px;height:36px;object-fit:contain;filter:none;margin-bottom:var(--nav-gap)}
+.app-shell.nav-collapsed .left-sidebar :is(.brand-wordmark,.search-box,.nav-create-label,.new-chat>svg,.nav-section-label,.agent-chat-link,.empty-mini,.panel-note,.conversation-copy,.conversation-row time,.all-runs>span,.sidebar-footer>button>span,.sidebar-footer>button>svg:not(:first-child),.personal-profile-trigger>span:not(.personal-avatar),.personal-profile-trigger>svg) {display:none}
+.app-shell.nav-collapsed .left-sidebar :is(.new-chat,.nav-section-toggle,.all-runs,.conversation-row,.sidebar-footer>button,.personal-profile-trigger) {width:var(--nav-control);height:var(--nav-control);min-height:var(--nav-control);padding:0;margin:0;display:grid;grid-template-columns:minmax(0,1fr);place-items:center;gap:0;flex:none}
+.app-shell.nav-collapsed .left-sidebar .new-chat {background:transparent;border:0;box-shadow:none;margin-bottom:var(--nav-gap)}
+.app-shell.nav-collapsed .left-sidebar .new-chat:hover {background:var(--theme-hover,var(--inset))}
+.app-shell.nav-collapsed .left-sidebar .sidebar-scroll {padding:4px;align-items:center}
+.app-shell.nav-collapsed .left-sidebar .nav-section {align-items:center}
+.app-shell.nav-collapsed .left-sidebar .section-head {flex-direction:column;gap:var(--nav-gap);min-height:var(--nav-control)}
+.app-shell.nav-collapsed .left-sidebar .nav-section-toggle svg {width:var(--nav-icon);height:var(--nav-icon)}
+.app-shell.nav-collapsed .left-sidebar .agent-nav {width:var(--nav-control);height:var(--nav-control);min-height:var(--nav-control);grid-template-columns:minmax(0,1fr);gap:0}
+.app-shell.nav-collapsed .left-sidebar .agent-nav>.hane-avatar {width:var(--nav-control);height:var(--nav-control);padding:3px}
+.app-shell.nav-collapsed .left-sidebar .agent-nav[aria-current=page]>.hane-avatar {background:var(--pink-soft);box-shadow:inset 2px 0 var(--pink)}
+.app-shell.nav-collapsed .left-sidebar .conversation-row .agent-stack {width:24px}
+.app-shell.nav-collapsed .left-sidebar .conversation-row .agent-stack>:not(:first-child) {display:none}
+.app-shell.nav-collapsed .left-sidebar .sidebar-footer {width:100%;align-items:center;padding-top:var(--nav-gap)}
+.app-shell.nav-collapsed .left-sidebar .personal-profile-footer {padding:0}
+.app-shell.nav-collapsed .left-sidebar .personal-profile-trigger {margin-inline:auto}
+.app-shell.nav-collapsed .left-sidebar .personal-profile-menu {left:0;width:230px}
+@media(max-height:650px) {
+  .app-shell .left-sidebar {padding-block:8px;--nav-gap:4px;--nav-group-gap:12px}
+  .app-shell.nav-collapsed .left-sidebar {padding-block:8px}
+  .app-shell .left-sidebar .sidebar-footer>button {height:40px}
+}
+@media(prefers-reduced-motion:reduce) {
+  .app-shell .left-sidebar {--nav-duration:0ms}
+  .app-shell {transition:none}
+}
+.app-shell[data-motion=none] .left-sidebar {--nav-duration:0ms}
+.app-shell[data-motion=none] {transition:none}
+/* Timestamps reserve their own column; status can use the full second line. */
+.app-shell .left-sidebar .execution-row {grid-template-rows:auto auto;column-gap:var(--nav-gap);row-gap:4px}
+.app-shell .left-sidebar .execution-row .agent-stack {grid-column:1;grid-row:1 / 3}
+.app-shell .left-sidebar .execution-row .conversation-copy {display:contents}
+.app-shell .left-sidebar .execution-row .conversation-copy>strong {grid-column:2;grid-row:1;min-width:0}
+.app-shell .left-sidebar .execution-row .conversation-copy>small {grid-column:2 / 4;grid-row:2;display:flex;min-width:0}
+.app-shell .left-sidebar .execution-state {flex:none}
+.app-shell .left-sidebar .execution-budget {min-width:0;overflow:hidden;text-overflow:ellipsis}
+.app-shell .left-sidebar .execution-row time {grid-column:3;grid-row:1}
+.app-shell.nav-collapsed .left-sidebar .execution-row {grid-template-rows:minmax(0,1fr)}
+.app-shell.nav-collapsed .left-sidebar .execution-row .agent-stack {grid-row:1;grid-column:1}
+.app-shell.nav-collapsed .left-sidebar .execution-row .conversation-copy {display:none}

@@ -1,11 +1,11 @@
-import {reduceMotion} from './motion.js';
+import {avatarPersonalization,reduceMotion} from './motion.js';
 import {useEffect, useRef, useState} from 'react';
 import {ArrowLeft, ArrowRight, Check, UploadSimple, FileText, X, Sparkle, ShieldCheck, Plugs, Plus} from '@phosphor-icons/react';
 import {HaneAvatar} from './HaneAvatar.jsx';
 import {libraryRequest} from './library-api.js';
 
 const COLORS = [['#ed799a','Rosa'],['#a99add','Lilás'],['#83b6dd','Azul'],['#8dbc9e','Verde'],['#e6bf78','Mel'],['#e3987c','Pêssego']];
-const SHAPES = [['pebble','Seixo'],['cloud','Nuvem'],['diamond','Cristal'],['triangle','Triângulo']];
+const SHAPES = [['pebble','Dango'],['cloud','Nuvem'],['diamond','Cristal'],['triangle','Triângulo']];
 const STARTERS = [
  {name:'Organizar',description:'Transformar ideias soltas em próximos passos.',instructions:'Ajude a organizar ideias, prioridades e próximos passos. Faça perguntas quando faltar contexto, proponha caminhos simples e mantenha as decisões com o usuário.'},
  {name:'Criar',description:'Explorar possibilidades e dar forma a ideias.',instructions:'Ajude a explorar e desenvolver ideias com curiosidade. Ofereça alternativas concretas, preserve a voz do usuário e refine a proposta a partir do seu feedback.'},
@@ -24,6 +24,9 @@ export default function AgentEditor({draft, onChange, onSave, onCancel, existing
  const studioRoot=useRef(null), nameInput=useRef(null), alive=useRef(true), initial=useRef(JSON.stringify(draft));
  const [fileBusy,setFileBusy]=useState(''),[fileError,setFileError]=useState('');
  useEffect(()=>{alive.current=true;studioRoot.current?.scrollIntoView({block:'start',behavior:'instant'});nameInput.current?.focus({preventScroll:true});return()=>{alive.current=false;};},[]);
+ const preview=useRef(null), previousVisual=useRef({shape:draft.shape,color:draft.color});
+ useEffect(()=>{const previous=previousVisual.current;previousVisual.current={shape:draft.shape,color:draft.color};if(previous.shape===draft.shape&&previous.color===draft.color)return;const runs=avatarPersonalization(preview.current,{shapeChanged:previous.shape!==draft.shape,colorChanged:previous.color!==draft.color});return()=>runs.forEach(run=>run.revert());},[draft.shape,draft.color]);
+ const hasAccess=name=>Boolean(draft.capabilities?.includes(name));
  const patch=values=>onChange(current=>({...current,...values}));
  const dirty=JSON.stringify(draft)!==initial.current;
  const unavailableProvider=draft.provider && !providers.some(p=>p.label===draft.provider);
@@ -48,10 +51,10 @@ export default function AgentEditor({draft, onChange, onSave, onCancel, existing
  }
  return <form ref={studioRoot} className="agent-studio" onSubmit={e=>{e.preventDefault();if(fileBusy||busy)return;const docs=draft.instructionFiles||[];if(docs.some(d=>!d.text.trim())){setFileError('Uma referência está vazia. Preencha o texto ou remova o documento.');return;}if(docs.reduce((n,d)=>n+d.text.length,0)>24000){setFileError('As referências juntas podem ter até 24.000 caracteres.');return;}setFileError('');onSave();}} aria-label={existing?'Editar agente':'Criar agente'}>
   <button type="button" className="studio-back" disabled={busy||Boolean(fileBusy)} onClick={cancel}><ArrowLeft/> Voltar à biblioteca</button>
-  <header className="studio-heading"><span>UM NOVO JEITO DE PENSAR JUNTO</span><h2>{existing?'Um pouco mais do seu jeito.':'Dê vida ao seu próximo agente.'}</h2><p>Um nome, um jeito próprio e espaço para crescer. Você pode ajustar tudo depois.</p></header>
+  <header className="studio-heading"><span>{existing?"O JEITO DE QUEM PENSA COM VOCÊ":"UM NOVO JEITO DE PENSAR JUNTO"}</span><h2>{existing?'Um pouco mais do seu jeito.':'Dê vida ao seu próximo agente.'}</h2><p>{existing?"Ajuste a identidade e os acessos deste agente. As mudanças valem depois de salvar.":"Um nome, um jeito próprio e espaço para crescer. Você pode ajustar tudo depois."}</p></header>
   <fieldset className="studio-layout" disabled={busy||Boolean(fileBusy)}><legend className="sr-only">Personalizar agente</legend>
    <aside className="studio-persona" aria-label="Prévia do agente" style={{'--persona-color':draft.color}}>
-    <div className="studio-avatar"><HaneAvatar reducedMotion={reduceMotion()} agentId={draft.id} name={draft.name||'Seu agente'} shape={draft.shape} color={draft.color} image={draft.image} size={110} interactive/></div>
+    <div ref={preview} className="studio-avatar"><span className="studio-avatar-glitter" aria-hidden="true">{[0,1,2,3,4].map(i=><i key={i}>✦</i>)}</span><div className="studio-avatar-motion"><HaneAvatar reducedMotion={reduceMotion()} agentId={draft.id} name={draft.name||'Seu agente'} shape={draft.shape} color={draft.color} image={draft.image} size={110} decorative/></div></div>
     <strong>{draft.name.trim()||'Ainda sem nome'}</strong><p>{draft.description.trim()||'Um lugar para a sua próxima ideia.'}</p>
     <span className="studio-preview-note">A prévia muda com você.</span>
     <fieldset className="studio-shapes"><legend>Um formato seu</legend>{SHAPES.map(([shape,label])=><button type="button" key={shape} aria-label={'Formato '+label} aria-pressed={draft.shape===shape} onClick={()=>patch({shape,image:null})}><HaneAvatar reducedMotion={reduceMotion()} name={label} shape={shape} color={draft.color} size={30} decorative/><small>{label}</small></button>)}</fieldset>
@@ -71,9 +74,9 @@ export default function AgentEditor({draft, onChange, onSave, onCancel, existing
      {(draft.instructionFiles||[]).map(document=><details className="studio-document" key={document.id}><summary><FileText/>{document.name}</summary><textarea aria-label={'Texto de '+document.name} maxLength={12000} value={document.text} onChange={e=>patch({instructionFiles:draft.instructionFiles.map(d=>d.id===document.id?{...d,text:e.target.value}:d)})}/><button type="button" onClick={()=>patch({instructionFiles:draft.instructionFiles.filter(d=>d.id!==document.id)})}><X/> Remover referência</button></details>)}
      <p>Documentos ajudam a dar contexto. Eles não liberam ferramentas nem substituem suas orientações.</p>
     </div></details>
-    <details className="studio-extra"><summary><ShieldCheck/><span>Acessos e participação<small>Você decide o que esse agente poderá receber.</small></span></summary><div>
-     {CAPABILITIES.map(([name,label,detail])=><label className="studio-capability" key={name}><input type="checkbox" checked={draft.capabilities?.includes(name)||false} onChange={e=>patch({capabilities:e.target.checked?[...(draft.capabilities||[]),name]:(draft.capabilities||[]).filter(v=>v!==name)})}/><span><strong>{label}</strong><small>{detail}</small></span></label>)}
-     <p>Capacidades não liberam acesso sozinhas: cada execução precisa da sua autorização. Escrita e código dependem da caixa Linux. Rede não está disponível.</p>
+    <details className="studio-extra"><summary><ShieldCheck/><span>Acessos e participação<small>Capacidades do perfil; acesso real exige autorização.</small><span className="studio-access-summary"><span>{hasAccess("workspace.read")?"Leitura: pode solicitar":"Leitura: desativada"}</span><span>{hasAccess("workspace.write")?"Escrita: pode solicitar":"Escrita: desativada"}</span><span>{hasAccess("process.run")?"Código: pode solicitar":"Código: desativado"}</span><span>Rede: indisponível</span></span></span></summary><div>
+     {CAPABILITIES.map(([name,label,detail])=><label className="studio-capability" key={name}><input type="checkbox" checked={draft.capabilities?.includes(name)||false} onChange={e=>patch({capabilities:e.target.checked?[...(draft.capabilities||[]),name]:(draft.capabilities||[]).filter(v=>v!==name)})}/><span><strong>{label}</strong><small>{detail}</small>{name!=="workspace.read"&&<em className="studio-access-risk">Altera arquivos ou executa comandos · desativado em novos agentes</em>}</span></label>)}
+     <p className="studio-access-environment"><strong>Ambiente de execução: </strong>caixa Linux, quando disponível e escolhida para a execução. Nenhum ambiente ou pasta é autorizado ao salvar este perfil.</p><p>Capacidades não liberam acesso sozinhas: cada execução precisa da sua autorização. Escrita e código dependem da caixa Linux. Rede não está disponível.</p>
      <label className="studio-capability"><input type="checkbox" checked={Boolean(draft.exclusive)} onChange={e=>patch({exclusive:e.target.checked})}/><span><strong>Participar de um único grupo</strong><small>Desmarcado, ele pode colaborar em diferentes grupos.</small></span></label>
     </div></details>
    </div>

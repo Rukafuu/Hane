@@ -181,3 +181,12 @@ export function driveGarden(root, controller, behaviour, reduced) {
     caption.textContent='';
   };
 }
+
+// Personalization is visual only; callers revert on change/unmount (StrictMode).
+export function avatarPersonalization(root,{shapeChanged,colorChanged}) {
+ if(!root||reduceMotion())return [];
+ const runs=[];const avatar=root.querySelector('.studio-avatar-motion');
+ if(shapeChanged&&avatar)runs.push(animate(avatar,{rotateY:[-100,0],rotate:[-10,0],scale:[.78,1],opacity:[.35,1],duration:520,ease:'outCubic'}));
+ if(colorChanged){const stars=root.querySelectorAll('.studio-avatar-glitter i');runs.push(animate(stars,{opacity:[0,1,0],scale:[.3,1.2,.6],translateY:[8,-14],duration:650,delay:stagger(45),ease:'outQuad'}));}
+ return runs;
+}
