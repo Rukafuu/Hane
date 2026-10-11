@@ -253,7 +253,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const [pickerBusy, setPickerBusy] = useState(false);
   const pickerPending = useRef(false);
   const [attachmentError, setAttachmentError] = useState("");
-  const [composerWorkspaceRoot, setComposerWorkspaceRoot] = useState(null);
+  const [composerWorkspaceRoot, setComposerWorkspaceRoot] = useState(() => {const root=readPreference("hane-mission-workspace-root",null);return typeof root==="string"?root:null;});
   const [capabilityGrants, setCapabilityGrants] = useState([]);
   const [onboarding, setOnboarding] = useState({ github: null, githubAvailable: false });
   const [appearance, setAppearance] = useState(() => {
@@ -427,6 +427,10 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       }
       if (!event.task) return;
       setOffline(false);
+      const prefs=readPreference('hane-general',{});
+      if(prefs.desktopNotifications&&document.hidden&&'Notification' in window&&Notification.permission==='granted'&&['completed','failed','awaiting_approval','needs_attention','cancelled'].includes(event.task.status)) {
+        try {const notification=new Notification('Hane · '+({completed:'Missão concluída',failed:'Falha na missão',awaiting_approval:'Revisão necessária',needs_attention:'Atenção necessária',cancelled:'Missão cancelada'}[event.task.status]),{body:'Uma missão mudou de estado. Abra o Hane para consultar.',tag:event.missionId});notification.onclick=()=>{window.focus();notification.close();};} catch { /* Browser support can change during a session. */ }
+      }
       const summary = toSummary(event.task);
       setMissions((items) => [summary, ...(items ?? []).filter((item) => item.id !== summary.id)]);
       if (event.missionId === selectedRef.current) setMission(event.task);
@@ -459,9 +463,9 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   // A grant whose scope the server cannot enforce is dropped rather than sent:
   // the chips say "unavailable", so the payload has to agree with them.
   useEffect(() => {
-    if (!serverWorkspace.loaded || serverWorkspace.available) return;
+    if (!serverWorkspace.loaded || composerWorkspace.available) return;
     setCapabilityGrants((current) => current.filter((grant) => !CAPABILITY_OPTIONS.find((option) => option.name === grant.name)?.requiresServerRoot));
-  }, [serverWorkspace]);
+  }, [serverWorkspace, composerWorkspaceRoot]);
 
   useEffect(() => {
     const onKeydown = (event) => {
@@ -723,7 +727,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
 
       setDraft("");
       setAttachments([]);
-      setComposerWorkspaceRoot(null);
+      setComposerWorkspaceRoot(() => {const root=readPreference("hane-mission-workspace-root",null);return typeof root==="string"?root:null;});
       setCapabilityGrants([]);
       setPopover(null);
       setOffline(false);
@@ -783,7 +787,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   function openGroup(id) { setActiveAgentId(null); setActiveGroupId(id); setSelectedId(null); setViewMode('conversa'); setOnboardingDismissed(true); backToWorkspace(); }
   function editAgent(id) { setEditingAgentId(id); openSection('agents'); }
   function openAgent(id) { setActiveGroupId(null);setActiveAgentId(id);setSelectedId(null);setViewMode('conversa');backToWorkspace(); }
-  if (showSettings) return <SettingsCenter editingAgentId={editingAgentId} onOpenAgent={openAgent} renderProfile={() => <ProfileSettings profile={personalProfile} onProfileChange={onPersonalProfileChange} onLock={onLockProfile} limits={profileLimits} onRecoveryCode={onRecoveryCode}/>} appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} library={library} onLibraryChange={setLibrary} libraryReady={libraryReady} libraryBusy={libraryBusy} libraryError={libraryError} legacyLibrary={legacy} onImportLibrary={importLibrary} onReloadLibrary={() => setRetryTick(v=>v+1)} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveAgentId(null);setActiveGroupId(null); setSelectedId(id); setViewMode('missao'); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id !== "mcp").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
+  if (showSettings) return <SettingsCenter editingAgentId={editingAgentId} onOpenAgent={openAgent} renderProfile={() => <ProfileSettings profile={personalProfile} onProfileChange={onPersonalProfileChange} onLock={onLockProfile} limits={profileLimits} onRecoveryCode={onRecoveryCode}/>} appearance={appearance} general={general} onAppearanceChange={setAppearance} onGeneralChange={setGeneral} providers={providers} onProvidersChange={setProviders} selectedWorkspaceRoot={composerWorkspaceRoot} onWorkspaceSelected={selection=>{const root=selection?.root??null;setComposerWorkspaceRoot(root);setAttachments(items=>items.filter(item=>!item.path));setCapabilityGrants([]);if(!writePreference("hane-mission-workspace-root",root))setPersistenceError("Não foi possível salvar a raiz de workspace.");}} library={library} onLibraryChange={setLibrary} libraryReady={libraryReady} libraryBusy={libraryBusy} libraryError={libraryError} legacyLibrary={legacy} onImportLibrary={importLibrary} onReloadLibrary={() => setRetryTick(v=>v+1)} panelOpen={panelOpen} onPanelChange={setPanelOpen} onBack={backToWorkspace} onOpenGroup={openGroup} onOpenRun={id => { setActiveAgentId(null);setActiveGroupId(null); setSelectedId(id); setViewMode('missao'); backToWorkspace(); }} missions={missions ?? []} offline={offline} workspace={workspace} serverWorkspace={serverWorkspace} busy={onboardingBusy} onRequestWorkspace={requestWorkspacePermission} persistenceError={persistenceError} renderConnectors={() => <SettingsSection title="Conectores" note="Estado consultado no servidor; ferramentas só podem atuar com escopo e aprovação apropriados.">{CONNECTOR_CATALOG.filter(c => c.id === "github").map(connector => connector.id === "github" ? <GitHubConnector key={connector.id} connector={connector} github={onboarding.github} device={githubDevice} available={onboarding.githubAvailable} busy={onboardingBusy} onConnect={connectGitHub} onCheck={checkGitHubAuthorization} /> : <div className="settings-row" key={connector.id}><span><strong>{connector.name}</strong><small>{connector.detail}</small></span><em>{connector.status}</em></div>)}</SettingsSection>} />;
 
 
   return <main className={`app-shell ${panelOpen && !showConversation ? "" : "panel-collapsed"}`} ref={rootRef} {...appearanceProps}>
@@ -881,7 +885,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         <p className="pop-scope">O escopo <code>.</code> permite ler toda a raiz indicada abaixo. Anexar um arquivo ou pasta concede apenas o escopo escolhido.</p>
         {composerWorkspace.available && composerWorkspace.root && <p className="pop-root"><FolderOpen weight="fill" /> Raiz da execução: <code>{composerWorkspace.root}</code></p>}
         {CAPABILITY_OPTIONS.map((option) => {
-          const selectable = isCapabilityEnabled(option, serverWorkspace);
+          const selectable = isCapabilityEnabled(option, composerWorkspace);
           const enabled = capabilityGrants.some((grant) => grant.name === option.name && grant.scope === option.scope);
           return <button type="button" className={`pop-row ${enabled ? "on" : ""} ${selectable ? "" : "is-off"}`} key={option.name} disabled={!selectable} aria-disabled={!selectable} title={selectable ? undefined : WORKSPACE_DISABLED_HINT} onClick={() => toggleCapability(option)}>
             <span className="setting-icon"><ShieldCheck weight={enabled ? "fill" : "regular"} /></span><span><strong>{option.label}</strong><small>{selectable ? option.detail : WORKSPACE_ROW_HINT}</small></span>{enabled ? <Check weight="bold" /> : <CaretRight />}

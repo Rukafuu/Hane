@@ -84,3 +84,13 @@ test('revoking an agent capability while inference is pending prevents the subse
  release({content:null,toolCalls:[{id:'read',name:'read_file',arguments:{path:'secret.txt'},source:'native'}]});const done=await h.settle(c.id);
  assert.equal(done.turns[0].toolCalls,0);assert.equal(done.turns[0].audit.find(e=>e.type==='tool_result').detail.reason,'capability_not_granted');assert.doesNotMatch(JSON.stringify(h.calls[1].messages),/Must not read after revocation/);
 });
+
+test('saved conversation memories reach only the selected identity as untrusted context',async t=>{
+ const h=await harness(t);const a=h.agent({name:'Remembering'}),b=h.agent({name:'Other'});
+ await h.request('/api/settings/memory','PUT',{scope:'shared',content:'Shared note'});
+ await h.request('/api/settings/memory','PUT',{scope:'agent',targetId:a.id,content:'Only first agent'});
+ await h.request('/api/settings/memory','PUT',{scope:'agent',targetId:b.id,content:'Must stay private'});
+ const conversation=(await h.request('/api/conversations','POST',{agentId:a.id})).body;
+ await h.request('/api/conversations/'+conversation.id+'/messages','POST',{content:'Recall our context'});await h.settle(conversation.id);
+ const serialized=JSON.stringify(h.calls[0].messages);assert.ok(serialized.includes('Shared note'));assert.ok(serialized.includes('Only first agent'));assert.ok(serialized.includes('untrusted context'));assert.equal(serialized.includes('Must stay private'),false);
+});

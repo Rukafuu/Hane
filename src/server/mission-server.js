@@ -1,3 +1,4 @@
+import { createSettingsApi } from './settings-api.js';
 import { createWorkspacePicker } from './workspace-picker.js';
 import { handleInstructionFile } from './instruction-files-api.js';
 import { createConversationsApi } from './conversations-api.js';
@@ -69,6 +70,7 @@ const NOT_DETECTED_MACHINE = Object.freeze({
 export function createMissionServer({ repository, providerConfigStore, onboardingStore, skillStore = null, credentialManager, createProvider, defaultProvider = null, defaultWorkspaceRoot = null, pickWorkspace, detectMachine = null, profileStore = null, agentStore = null, teamStore = null, allowedOrigins = DEFAULT_UI_ORIGINS, avatarLimits, bindHost = '127.0.0.1', githubClientId = null, githubFlow = { start: startGitHubDeviceAuthorization, poll: pollGitHubDeviceAuthorization } }) {
   agentStore ??= repository.database ? new SqliteAgentStore({database:repository.database}) : null;
   teamStore ??= repository.database ? new SqliteTeamStore({database:repository.database}) : null;
+  const settingsApi = createSettingsApi({database:repository.database,repository,providerConfigStore,credentialManager,readJsonBody,respondJson});
   const workspacePicker = createWorkspacePicker({pick:pickWorkspace, defaultRoot:defaultWorkspaceRoot, readJsonBody, respondJson});
   const conversationsApi = createConversationsApi({database:repository.database,agentStore,teamStore,providerConfigStore,credentialManager,createProvider,defaultProvider,defaultWorkspaceRoot,readJsonBody,respondJson});
   const teamsApi = createTeamsApi({agentStore,teamStore,readJsonBody,respondJson});
@@ -124,6 +126,7 @@ export function createMissionServer({ repository, providerConfigStore, onboardin
       if (profileApi && await profileApi.handle(request, response)) return;
       const isAuthorized = () => !profileApi || profileApi.authenticated(request);
       if (!initialAgentEnsured && profileStore?.get() && isAuthorized() && agentStore) { agentStore.ensureInitial(); initialAgentEnsured = true; }
+      if (await settingsApi({request,response,isAuthorized})) return;
       if (await workspacePicker({request,response,isAuthorized})) return;
       if (await handleInstructionFile({request,response,isAuthorized,readJsonBody,respondJson})) return;
       if (await conversationsApi.handle({request,response,isAuthorized})) return;

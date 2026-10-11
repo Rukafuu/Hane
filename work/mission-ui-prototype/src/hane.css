@@ -661,6 +661,16 @@ html[data-hane-theme="paper"],body[data-hane-theme="paper"],#root[data-hane-them
 .attachment-text footer{display:flex;align-items:center;gap:9px;margin-top:9px}
 .attachment-text footer small{font-size:10px;color:var(--muted-on-shell);font-variant-numeric:tabular-nums}
 
+.runtime-settings{border:0;padding:0;margin:0;min-width:0;display:grid;gap:18px}
+.runtime-form{display:grid;gap:12px;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.runtime-form label{display:grid;gap:7px;font-size:13px;color:inherit}
+.runtime-form input,.runtime-form select,.runtime-form textarea{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--theme-border,var(--line));border-radius:10px;background:var(--theme-inset,var(--surface));color:inherit;font:inherit}
+.runtime-form textarea{min-height:110px;resize:vertical}
+.runtime-form .runtime-consent{display:flex;align-items:flex-start;line-height:1.5}.runtime-consent input{width:auto;margin-top:4px}
+.runtime-settings pre{max-width:100%;max-height:360px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border:1px solid var(--line);border-radius:10px;font:12px/1.6 var(--font-mono);background:var(--theme-inset,var(--surface))}
+.runtime-settings .card-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.runtime-settings .preference-row>span{min-width:0}.runtime-settings .preference-row small{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:700px){.runtime-settings .preference-row{align-items:flex-start;flex-direction:column;gap:12px}.runtime-settings .card-actions{justify-content:flex-start}}
+
 /* Agent creation shares Hane's typography, palette and living avatars. */
 .settings-content-inner:has(.agent-studio)>.settings-page-heading{display:none}
 .settings-content:has(.agent-studio){padding-top:32px}

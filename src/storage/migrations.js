@@ -188,6 +188,13 @@ const MIGRATIONS = Object.freeze([
   Object.freeze({ id: 17, name: 'execution_agent_snapshot', statements: Object.freeze([
     'ALTER TABLE task_runs ADD COLUMN execution_plan_json TEXT;',
   ]) }),
+  Object.freeze({ id: 18, name: 'settings_memory_and_mcp', statements: Object.freeze([
+    "CREATE TABLE settings_memory (id TEXT PRIMARY KEY, scope TEXT NOT NULL CHECK(scope IN ('shared','agent','team')), target_id TEXT, content TEXT NOT NULL, updated_at TEXT NOT NULL) STRICT;",
+    'CREATE TABLE settings_mcp (id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL) STRICT;',
+  ]) }),
+  Object.freeze({ id: 19, name: 'manual_mcp_call_audit', statements: Object.freeze([
+    'CREATE TABLE settings_mcp_calls (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, server_name TEXT NOT NULL, tool TEXT NOT NULL, status TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT) STRICT;',
+  ]) }),
   // Id 16 is reserved for the per-execution backend choice (mission sandbox
   // selection). Take a later id, or claim 16 explicitly, instead of colliding.
 ]);

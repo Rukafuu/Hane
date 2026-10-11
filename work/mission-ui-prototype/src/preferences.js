@@ -1,5 +1,5 @@
 // Storage boundary: browser data only. A desktop adapter can implement this contract.
-export const DEFAULT_GENERAL = Object.freeze({ startup: 'welcome', confirmDestructive: true, notifications: true, maxProviderCalls: 3, maxToolCalls: 8, defaultProvider: '' });
+export const DEFAULT_GENERAL = Object.freeze({ startup: 'welcome', confirmDestructive: true, notifications: true, desktopNotifications: false, maxProviderCalls: 3, maxToolCalls: 8, defaultProvider: '' });
 // The backend owns these ceilings (src/server/mission-server.js and
 // src/server/conversations-api.js). The UI mirrors them so a stored preference
 // cannot be a value the server would refuse; a call budget is not the
@@ -25,7 +25,7 @@ export function normalizeGeneral(value = {}) {
   if (!value || typeof value !== "object") value = {};
   const next = { ...DEFAULT_GENERAL };
   if (['welcome','latest'].includes(value.startup)) next.startup = value.startup;
-  for (const key of ['confirmDestructive','notifications']) if (typeof value[key] === 'boolean') next[key] = value[key];
+  for (const key of ['confirmDestructive','notifications','desktopNotifications']) if (typeof value[key] === 'boolean') next[key] = value[key];
   for (const key of ['maxProviderCalls','maxToolCalls']) if (Number.isInteger(value[key]) && value[key] >= 1 && value[key] <= BUDGET_LIMITS[key]) next[key] = value[key];
   if (typeof value.defaultProvider === 'string') next.defaultProvider = value.defaultProvider;
   return next;
