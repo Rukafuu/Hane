@@ -1,4 +1,5 @@
 import { processAvatar } from '../profile/avatar.js';
+import { decodeAvatarDataUrl } from '../image-data-url.js';
 import { ProfileError } from '../profile/local-auth.js';
 import { importLibrary } from '../teams/import-library.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -16,8 +17,9 @@ export function createTeamsApi({ agentStore, teamStore, readJsonBody, respondJso
     const [,kind,id,action,memberId] = match || [], method=request.method, store=kind==='agents'?agentStore:teamStore;
     async function prepareAgent(body,existing=null) {
       if(body.visual?.image && body.visual.image!==existing?.visual?.image) {
-        if(typeof body.visual.image!=='string'||body.visual.image.length>7000000||!/^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(body.visual.image))throw new TeamError(400,'Invalid avatar image.');
-        const output=await processAvatar(Buffer.from(body.visual.image.split(',')[1],'base64'));
+        const source=decodeAvatarDataUrl(body.visual.image);
+        if(!source)throw new TeamError(400,'Invalid avatar image.');
+        const output=await processAvatar(source);
         body.visual={...body.visual,image:'data:image/webp;base64,'+output.toString('base64')};
       }
       if(!isAuthorized())throw new TeamError(401,'Local session is locked.');

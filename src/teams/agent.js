@@ -1,4 +1,5 @@
 import { KNOWN_CAPABILITIES } from '../capabilities.js';
+import { decodeAvatarDataUrl } from '../image-data-url.js';
 import { assertId, assertObject, text, TeamError } from './domain.js';
 export function assertAgent(candidate) {
   assertObject(candidate);
@@ -15,6 +16,6 @@ export function assertAgent(candidate) {
   assertObject(visual);
   if (visual.color !== undefined && !/^#[a-f0-9]{6}$/i.test(visual.color)) throw new TeamError(400,'Invalid avatar color.');
   if (visual.shape !== undefined && !['pebble','diamond','triangle','cloud'].includes(visual.shape)) throw new TeamError(400,'Invalid avatar shape.');
-  if (visual.image != null && (typeof visual.image !== 'string' || visual.image.length > 7000000 || !/^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(visual.image))) throw new TeamError(400,'Invalid avatar image.');
+  if (visual.image != null && !decodeAvatarDataUrl(visual.image)) throw new TeamError(400,'Invalid avatar image.');
   return Object.freeze({ instructionFiles:documents, capabilities: Object.freeze([...capabilities]), visual: {color:visual.color||'#ed799a',shape:visual.shape||'pebble',image:visual.image||null}, isInitial: candidate.isInitial === true, id: assertId(candidate.id), name: text(candidate.name,'name',80,2), description: text(candidate.description ?? '','description',1000), instructions: text(candidate.instructions ?? '','instructions',12000), providerLabel, exclusive: candidate.exclusive ?? false });
 }
