@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { migrate, latestMigrationId } from '../src/storage/migrations.js';
@@ -108,4 +111,44 @@ test('a failing migration rolls back and names itself', () => {
 
 test('latestMigrationId reports the newest migration', () => {
   assert.equal(latestMigrationId(), 15);
+});
+
+test('a file database reads while a second connection writes', async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hane-wal-'));
+  const file = path.join(directory, 'hane.sqlite');
+  // Windows keeps the -wal and -shm sidecars briefly after the last close, so the
+  // temp directory needs a retry before it will go away.
+  t.after(async () => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try { fs.rmSync(directory, { recursive: true, force: true }); return; }
+      catch { await new Promise((resolve) => setTimeout(resolve, 60)); }
+    }
+  });
+
+  const database = openHaneDatabase(file);
+  assert.equal(database.prepare('PRAGMA journal_mode').get().journal_mode, 'wal');
+  assert.equal(database.prepare('PRAGMA busy_timeout').get().timeout, 5000);
+  database.prepare('INSERT INTO provider_configs (label, base_url, model, credential_reference) VALUES (?, ?, ?, ?)')
+    .run('openrouter', 'https://openrouter.ai/api/v1', 'gpt-test', 'local-agent-orchestrator/openrouter');
+
+  const writer = openHaneDatabase(file);
+  writer.exec('BEGIN IMMEDIATE');
+  writer.prepare('INSERT INTO provider_configs (label, base_url, model, credential_reference) VALUES (?, ?, ?, ?)')
+    .run('local', 'http://127.0.0.1:8787/v1', 'gpt-other', 'local-agent-orchestrator/local');
+  // The open transaction used to make every read on the live connection throw
+  // "database is locked"; the serve process must keep answering while it commits.
+  const labels = () => database.prepare('SELECT label FROM provider_configs ORDER BY label').all().map((row) => row.label);
+  assert.deepEqual(labels(), ['openrouter']);
+  writer.exec('COMMIT');
+  assert.deepEqual(labels(), ['local', 'openrouter']);
+  writer.close();
+  database.close();
+});
+
+test('an in-memory database keeps its journal and still applies the schema', () => {
+  const database = openHaneDatabase(':memory:');
+  assert.equal(database.prepare('PRAGMA journal_mode').get().journal_mode, 'memory');
+  assert.equal(database.prepare('PRAGMA busy_timeout').get().timeout, 5000);
+  assert.deepEqual(appliedIds(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+  database.close();
 });
