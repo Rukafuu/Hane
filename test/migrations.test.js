@@ -149,6 +149,9 @@ test('an in-memory database keeps its journal and still applies the schema', () 
   const database = openHaneDatabase(':memory:');
   assert.equal(database.prepare('PRAGMA journal_mode').get().journal_mode, 'memory');
   assert.equal(database.prepare('PRAGMA busy_timeout').get().timeout, 5000);
-  assert.deepEqual(appliedIds(database), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+  // The exact id list belongs to the tests above. This one only proves the
+  // migration pass ran on a fresh in-memory file, so it must not name the newest
+  // id: an id is added every time the schema grows.
+  assert.ok(appliedIds(database).includes(latestMigrationId()));
   database.close();
 });
