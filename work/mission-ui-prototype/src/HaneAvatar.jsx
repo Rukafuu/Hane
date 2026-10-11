@@ -46,6 +46,10 @@ function contour(shape, squash, wobble) {
   // Deliberately preserve hard edges where the silhouette needs to read at
   // 24px. The softer quadratic contour below made the former hexagon look
   // like another rounded blob.
+  if (shape === "diamond" || shape === "triangle") {
+    const vertices = shape === "diamond" ? [[50, 10], [84, 50], [50, 90], [16, 50]] : [[50, 12], [86, 83], [14, 83]];
+    return `M ${vertices.map(([x, y]) => `${(50 + (x - 50) * (1 + squash)).toFixed(2)} ${(50 + (y - 50) * (1 - squash * 0.35)).toFixed(2)}`).join(" L ")} Z`;
+  }
   if (shape === "hexagon") {
     const scaleX = 1 + squash;
     const scaleY = 1 - squash * 0.35;

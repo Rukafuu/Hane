@@ -309,6 +309,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       const result=await changeLibrary(library,typeof value==='function'?value(library):value);
       setLibraryState(result.library);
       if (!result.visualSaved) setPersistenceError('Agentes e grupos salvos no servidor. Não foi possível salvar as cores e avatares neste navegador.');
+      return result.library;
     } finally { libraryWriting.current=false; setLibraryBusy(false); }
   }
   async function importLibrary(source) {
