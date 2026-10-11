@@ -39,6 +39,16 @@ jobs:
             package-lock.json
             work/mission-ui-prototype/package-lock.json
 
+      # Measured on the first run of this workflow: npm 10, which ships with Node 22,
+      # runs every install script, and argon2's is a node-gyp build that node-gyp 11
+      # cannot configure on the runner ("gyp ERR! find VS: unknown version "undefined"
+      # found at C:\Program Files\Microsoft Visual Studio\18\Enterprise"). npm 11 leaves
+      # that script unapproved and argon2 loads its bundled NAPI binary instead — the
+      # 24.x leg ran green that way. One installer for both legs keeps the floor a claim
+      # about the runtime API, not about whether CI can compile a native module.
+      - name: Use one installer for both Node legs
+        run: npm install --global npm@11
+
       - name: Install the runtime dependencies
         run: npm ci
 
