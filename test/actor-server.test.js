@@ -176,6 +176,26 @@ test('POST with executionMode actor runs the booked plan and the windows read it
   assert.equal(caught.body.events[0].ordinal, trail.body.events[2].ordinal, 'after= picks up where the client stopped reading');
 });
 
+test('the actor mode books a crew-sized budget and the number the user sent still wins', async (t) => {
+  const world = createHarness({ scripts: { 'model-ana': { turns: ['Li o arquivo.', 'Concluí a leitura.'] } } });
+  t.after(() => world.close());
+
+  const crew = await world.mission(actorBody(plan(['t1', 'Ler o código', ANA])));
+  assert.equal(crew.status, 202);
+  // Three teammates holding a six-call share cannot get a turn on the sequential
+  // ten, so the actor mode has its own default — and it is a default, not a floor.
+  assert.equal(crew.body.maxProviderCalls, 24, 'a crew is not booked on a solo budget');
+
+  const authorized = await world.mission({ ...actorBody(plan(['t1', 'Ler o código', ANA])), maxProviderCalls: 12 });
+  assert.equal(authorized.status, 202);
+  assert.equal(authorized.body.maxProviderCalls, 12, 'what the user authorized is the ceiling');
+
+  const solo = await world.mission({ objective: 'Uma missão sequencial.' });
+  assert.equal(solo.status, 202);
+  assert.equal(solo.body.executionMode, 'sequential');
+  assert.equal(solo.body.maxProviderCalls, 10, 'the preset nobody changed stayed where it was');
+});
+
 test('a message the user posts reaches the teammate on its next task', async (t) => {
   const gate = deferred();
   const world = createHarness({

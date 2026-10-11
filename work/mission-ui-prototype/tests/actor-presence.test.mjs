@@ -5,6 +5,7 @@ import {
   ACTOR_TASK_STATUS_LABELS,
   activeActorCount,
   activeActorsLabel,
+  actorConversationRows,
   actorEvidenceRows,
   actorWorkPoints,
 } from "../src/workspace-evidence.js";
@@ -135,4 +136,26 @@ test("the live computer reads the event trail the server wrote", () => {
   assert.deepEqual(live.map((row) => [row.label, row.text]), [["começou", "Ler o módulo"]]);
 
   assert.deepEqual(actorEvidenceRows(null), []);
+});
+
+test("the actor conversation shows only what the board holds, and the plan says who is still writing", () => {
+  const crew = { actors: [
+    { agentId: ana, name: "Ana", tasks: [{ id: "t1", title: "Ler o módulo", status: "completed", note: null, attempts: 1, resultKey: "task:t1" }] },
+    { agentId: beto, name: "Beto", tasks: [{ id: "t2", title: "Rodar os testes", status: "running", note: null, attempts: 1, resultKey: null }] },
+  ] };
+  const board = { revisionOf: [
+    { key: "task:t1", revision: 2, writerAgentId: ana, updatedAt: "2026-10-11T12:00:02.000Z", value: { taskId: "t1", agentId: ana, title: "Ler o módulo", content: "A fila é FIFO." } },
+    { key: "task:t9", revision: 1, writerAgentId: beto, updatedAt: "2026-10-11T12:00:01.000Z", value: null },
+    { key: "run:notes", revision: 1, writerAgentId: ana, updatedAt: "2026-10-11T12:00:03.000Z", value: { content: "estado que nenhuma tarefa escreveu" } },
+  ] };
+  const turns = actorConversationRows(crew, board);
+  assert.deepEqual(turns.map((turn) => [turn.agentId, turn.title, turn.running]), [[ana, "Ler o módulo", false], [beto, "Rodar os testes", true]]);
+  assert.equal(turns[0].text, "A fila é FIFO.");
+  assert.equal(turns[0].revision, 2, "a second revision is not a second result");
+  assert.equal(turns[0].at, "2026-10-11T12:00:02.000Z");
+  assert.equal(turns[1].text, null, "a task still running has no text to invent");
+  assert.equal(JSON.stringify(turns).includes("nenhuma tarefa"), false);
+
+  // A crew the server has not answered for is not an empty crew.
+  assert.deepEqual(actorConversationRows(null, null), []);
 });

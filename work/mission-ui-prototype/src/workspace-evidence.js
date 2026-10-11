@@ -272,3 +272,40 @@ export function actorEvidenceRows(events = []) {
     })
     .filter((row) => row !== null);
 }
+
+/**
+ * What each teammate actually delivered, in the order they delivered it. The plan
+ * names the owner of a task; only the versioned board carries its text, so a row
+ * here exists exactly when that actor committed it. A task still running has no
+ * text to show, and inventing one would put words in a colleague's mouth.
+ */
+export function actorConversationRows(actorsPayload, statePayload) {
+  const points = actorWorkPoints(actorsPayload);
+  const written = (Array.isArray(statePayload?.revisionOf) ? statePayload.revisionOf : [])
+    .map((entry) => {
+      const key = typeof entry?.key === "string" ? entry.key : "";
+      if (!key.startsWith("task:")) return null;
+      const value = entry.value ?? {};
+      const text = trailText(value.content);
+      if (text === null) return null;
+      const taskId = trailText(value.taskId) ?? key.slice("task:".length);
+      const point = points.find((item) => item.taskId === taskId) ?? null;
+      return {
+        id: `${taskId}:${entry.revision ?? 1}`,
+        taskId,
+        agentId: trailText(value.agentId) ?? trailText(entry.writerAgentId) ?? point?.agentId ?? null,
+        agentName: point?.agentName ?? null,
+        title: trailText(value.title) ?? point?.title ?? taskId,
+        text,
+        revision: Number.isInteger(entry.revision) ? entry.revision : null,
+        at: trailText(entry.updatedAt) ?? null,
+        running: false,
+      };
+    })
+    .filter((row) => row !== null)
+    .sort((left, right) => String(left.at ?? "").localeCompare(String(right.at ?? "")));
+  const working = points
+    .filter((point) => point.status === "running" && !written.some((row) => row.taskId === point.taskId))
+    .map((point) => ({ id: `working:${point.id}`, taskId: point.taskId, agentId: point.agentId, agentName: point.agentName, title: point.title, text: null, revision: null, at: null, running: true }));
+  return [...written, ...working];
+}

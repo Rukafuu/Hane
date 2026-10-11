@@ -639,7 +639,8 @@ com o código e qual fica com o modelo.
   módulo segura transação aberta enquanto espera provedor. Delegação dinâmica — ator criando,
   removendo ou reatribuindo tarefa — continua fora do escopo.
 - **Orçamento é do backend e sobrevive ao processo.** Teto global da missão (`maxProviderCalls`,
-  default 10, teto de servidor 64), fatia por ator (`maxProviderCallsPerActor`, default 6),
+  default 10 no preset sequencial e 24 em atores, teto de servidor 64), fatia por ator
+  (`maxProviderCallsPerActor`, default 6),
   ferramentas (default 24, teto de servidor 24). Os limites de conversa entre agentes são hop 3,
   4 mensagens por par ordenado e 12 absorvidas por ator, e todos são checados **antes** de gastar
   chamada de provedor. `mode` e a fatia por ator têm coluna própria em `task_runs` (migrações 20 e

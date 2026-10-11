@@ -823,3 +823,13 @@ html[data-hane-theme="paper"],body[data-hane-theme="paper"],#root[data-hane-them
 /* Expanded buttons align to text; the compact rail owns the whole icon cell. */
 .settings-center.settings-nav-collapsed .settings-navigation :is(.settings-category button,.back-workspace,.settings-navigation-toggle){justify-content:center;grid-template-columns:minmax(0,1fr);gap:0}
 .settings-center.settings-nav-collapsed .settings-navigation :is(.settings-category button,.back-workspace,.settings-navigation-toggle)>svg{justify-self:center;align-self:center;margin:0;flex-shrink:0}
+/* Actor crew: one face per task the schedule booked, plus the persisted trail of
+   what the teammates actually wrote. States stay in the operational tokens. */
+.evidence-row.task .evidence-icon{background:var(--blue-soft);color:var(--blue)}
+.evidence-row.done .evidence-icon{background:var(--green-soft);color:var(--green)}
+.evidence-row.error .evidence-icon{background:color-mix(in srgb,#b95565 10%,transparent);color:#b95565}
+.evidence-row.message .evidence-icon{background:var(--pink-soft);color:var(--pink-deep)}
+.evidence-list.actor-trail{margin-top:6px}
+.actor-stack{width:24px;justify-content:center;color:#68707e}
+.actor-stack svg{width:15px;height:15px}
+.turns-empty{margin:14px auto 0;max-width:760px;font-size:10px;line-height:1.55;color:var(--muted)}

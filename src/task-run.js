@@ -14,6 +14,13 @@ export const DEFAULT_MAX_TOOL_CALLS = 24;
  */
 export const DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR = 6;
 
+/**
+ * A concurrent crew cannot live on a sequential budget: three teammates holding
+ * six calls each need more than ten to ever get a turn. The actor mode has its
+ * own global default, and an explicit `maxProviderCalls` still wins.
+ */
+export const DEFAULT_ACTOR_MAX_PROVIDER_CALLS = 24;
+
 export const EXECUTION_MODES = Object.freeze(['sequential', 'actor']);
 
 /**

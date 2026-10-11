@@ -62,7 +62,7 @@ export const pollGitHubAuthorization = (id) => fetch(`/api/onboarding/github/dev
 export const createMission = (objective, provider, capabilities = [], limits = {}) => fetch("/api/missions", {
   method: "POST",
   headers: { "content-type": "application/json", "x-hane-request": "1" },
-  body: JSON.stringify({ objective, ...(limits.workspaceRoot ? {workspaceRoot:limits.workspaceRoot} : {}), ...(limits.roleAssignments ? {roleAssignments:limits.roleAssignments} : {}), ...(limits.teamId ? { teamId: limits.teamId } : {}), ...(limits.maxProviderCalls ? { maxProviderCalls: limits.maxProviderCalls } : {}), ...(limits.maxToolCalls ? { maxToolCalls: limits.maxToolCalls } : {}), ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
+  body: JSON.stringify({ objective, ...(limits.workspaceRoot ? {workspaceRoot:limits.workspaceRoot} : {}), ...(limits.roleAssignments ? {roleAssignments:limits.roleAssignments} : {}), ...(limits.teamId ? { teamId: limits.teamId } : {}), ...(limits.executionMode ? { executionMode: limits.executionMode } : {}), ...(limits.maxProviderCalls ? { maxProviderCalls: limits.maxProviderCalls } : {}), ...(limits.maxToolCalls ? { maxToolCalls: limits.maxToolCalls } : {}), ...(provider ? { provider } : {}), ...(capabilities.length > 0 ? { capabilities } : {}) }),
 }).then(json);
 
 const missionAction = (id, action, body = {}) => fetch(`/api/missions/${encodeURIComponent(id)}/${action}`, {
@@ -76,6 +76,26 @@ export const approveMission = (id) => missionAction(id, "approve");
 export const retryMission = (id, options) => missionAction(id, "retry", options);
 
 export const cancelMission = (id) => missionAction(id, "cancel");
+
+/**
+ * The crew of an actor run: which teammate holds which task and where each task
+ * stands. A sequential mission answers 409 here, so this is only asked for a run
+ * the payload already named `mode: "actor"`.
+ */
+export const fetchMissionActors = (id) => fetch(`/api/missions/${encodeURIComponent(id)}/actors`).then(json);
+
+/**
+ * The persisted trail of one execution, oldest first — the same rows the live
+ * stream writes, so a page that missed the stream still reads the same past.
+ */
+export const fetchMissionTrail = (id) => fetch(`/api/mission-events?missionId=${encodeURIComponent(id)}`).then(json);
+
+/**
+ * The versioned board of an actor run: every key with its revision, author and
+ * value. This is the only place the text a teammate delivered is kept, so it is
+ * what the conversation reads — the plan says who owns a task, not what it said.
+ */
+export const fetchMissionState = (id) => fetch(`/api/missions/${encodeURIComponent(id)}/state`).then(json);
 
 export function openMissionEvents(onEvent) {
   // ?noevents lets headless screenshot tooling settle the page; SSE never closes on its own.

@@ -14,7 +14,7 @@ import { Orchestrator } from '../orchestrator.js';
 import { TASK_STATUS, assertObjective, assertPositiveInteger } from '../contracts.js';
 import { assertCapabilityGrants, assertEnforceableScopes, grantsNeedWorkspaceRoot } from '../capabilities.js';
 import { resolveWorkspaceRoot } from '../workspace-scope.js';
-import { TaskRun, DEFAULT_MAX_PROVIDER_CALLS, DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR, EXECUTION_MODES } from '../task-run.js';
+import { TaskRun, DEFAULT_ACTOR_MAX_PROVIDER_CALLS, DEFAULT_MAX_PROVIDER_CALLS, DEFAULT_MAX_PROVIDER_CALLS_PER_ACTOR, EXECUTION_MODES } from '../task-run.js';
 import { ActorOrchestrator } from '../actors/orchestrator.js';
 import { assertActorDag } from '../actors/dag.js';
 import { resolveActorRoster } from '../actors/roster-providers.js';
@@ -344,6 +344,10 @@ async function startMission({ request, response, repository, agentStore, teamSto
       if (body?.provider !== undefined && !providerConfigStore.findByLabel(body.provider)) {
         throw new UnknownProviderError(`Unknown provider "${body.provider}". hint: hane provider list`);
       }
+      // A crew cannot live on a sequential budget: three teammates with a six-call
+      // share each need more than ten calls to ever get a turn. An explicit
+      // `maxProviderCalls` in the request is the user's authorization and wins.
+      if (body?.maxProviderCalls === undefined) maxProviderCalls = DEFAULT_ACTOR_MAX_PROVIDER_CALLS;
       if (maxProviderCallsPerActor > maxProviderCalls) {
         throw new TypeError(`maxProviderCallsPerActor (${maxProviderCallsPerActor}) cannot exceed the mission's maxProviderCalls (${maxProviderCalls}).`);
       }

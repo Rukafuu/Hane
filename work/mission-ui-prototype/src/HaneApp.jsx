@@ -16,12 +16,12 @@ import {
 import {
   approvePop, entrance, flash, growBar, pop, pulseLoop, reduceMotion, rise, spinLoop, spinOnce, staggerIn, toastOut,
 } from "./motion.js";
-import { approveMission, cancelMission, createMission, fetchMission, fetchMissions, fetchOnboarding, fetchProviders, fetchWorkspace, selectWorkspaceItem, openMissionEvents, pollGitHubAuthorization, retryMission, startGitHubAuthorization } from "./api.js";
+import { approveMission, cancelMission, createMission, fetchMission, fetchMissionActors, fetchMissionState, fetchMissionTrail, fetchMissions, fetchOnboarding, fetchProviders, fetchWorkspace, selectWorkspaceItem, openMissionEvents, pollGitHubAuthorization, retryMission, startGitHubAuthorization } from "./api.js";
 import { HaneAvatar } from "./HaneAvatar.jsx";
 import {HaneGarden,useGardenInteraction} from './HaneGarden.jsx';
-import { avatarStateFromMission } from "./avatar-runtime.js";
+import { actorPresenceFromEvents, avatarStateFromMission } from "./avatar-runtime.js";
 import { loadLocalWorkspace, requestLocalWorkspace } from "./local-workspace.js";
-import { CAPABILITY_OPTIONS, GATED_CAPABILITIES_NOTE, WORKSPACE_DISABLED_HINT, WORKSPACE_ROW_HINT, capabilityPayload, evidenceRows, grantDisplay, isCapabilityEnabled, toolUsageLabel, workspaceRootLabel } from "./workspace-evidence.js";
+import { CAPABILITY_OPTIONS, GATED_CAPABILITIES_NOTE, WORKSPACE_DISABLED_HINT, WORKSPACE_ROW_HINT, activeActorCount, activeActorsLabel, actorConversationRows, actorEvidenceRows, actorWorkPoints, capabilityPayload, evidenceRows, grantDisplay, isCapabilityEnabled, toolUsageLabel, workspaceRootLabel } from "./workspace-evidence.js";
 
 // The mission roles deliberately retain the real planner → executor → reviewer
 // contract.  `face` only changes their presentation to the Figma Make avatar
@@ -70,6 +70,16 @@ const statusInfo = (status) => ({
 
 const isActive = (status) => ["planned", "executing", "reviewing"].includes(status);
 
+// Who holds work only changes when the scheduler opens, closes or refuses a task,
+// and what they wrote only changes when a revision lands, so the crew panel
+// re-reads `GET /api/missions/:id/actors` and `/state` on these and on nothing
+// else — a teammate messaging a teammate moves a face, not the roster.
+const CREW_EVENT_TYPES = new Set(["actor_started", "actor_task_completed", "actor_stopped", "actor_refused", "actor_state_committed"]);
+
+// A face still has to come from a fact when the trail has said nothing about that
+// teammate yet, and the row the store itself marks `running` is a fact.
+const ACTOR_TASK_AVATAR_STATE = Object.freeze({ pending: "waiting", ready: "waiting", running: "working", completed: "done", failed: "error", blocked: "blocked" });
+
 const clock = (iso) => {
   if (!iso) return "";
   const date = new Date(iso);
@@ -88,6 +98,9 @@ function toSummary(task) {
     ...(task.executionPlan ? {executionPlan:{...task.executionPlan,roles:Object.fromEntries(Object.entries(task.executionPlan.roles).map(([role,{agentId,name,providerLabel,model}])=>[role,{agentId,name,providerLabel,model}]))}} : {}),
     objective: task.objective,
     status: task.status,
+    // The row has to say which engine ran it: a crew of four teammates is not a
+    // planner-executor-reviewer band, and the list must not draw one anyway.
+    mode: task.mode === "actor" ? "actor" : "sequential",
     maxProviderCalls: task.maxProviderCalls,
     providerCalls: task.providerCalls ?? 0,
     updatedAt: task.updatedAt ?? task.audit?.at(-1)?.at ?? null,
@@ -119,6 +132,21 @@ function Avatar({ person, size = "md", state = "idle", interactive = false, onCl
 function missionPerson(mission,role) {
   const binding=mission?.executionPlan?.roles?.[role];
   return binding ? {...roles[role],name:binding.name,job:roles[role].job+' · '+binding.providerLabel+' / '+binding.model} : roles[role];
+}
+
+function actorPerson(libraryAgents, agentId, name) {
+  const saved = libraryAgents.find((agent) => agent.id === agentId) ?? null;
+  return {
+    // An appearance the user never saved is not mine to invent; without a stored
+    // shape the avatar falls back to a plain icon and says nothing about a face.
+    name: name ?? saved?.name ?? "Colega sem nome",
+    job: "Ator desta execução",
+    tone: "lilac",
+    shape: saved?.shape ?? null,
+    color: saved?.color ?? null,
+    image: saved?.image ?? null,
+    Icon: UsersThree,
+  };
 }
 
 function Stack({ mission, currentRole }) {
@@ -251,6 +279,13 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const [offline, setOffline] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [mission, setMission] = useState(null);
+  // Three reads back the crew of an actor run: the persisted task rows (who holds
+  // what), the versioned board (what each one wrote) and the trail (what happened).
+  // All stay null while unread — an empty crew and an unread crew are different
+  // answers, and the panel says so.
+  const [actorCrew, setActorCrew] = useState(null);
+  const [actorBoard, setActorBoard] = useState(null);
+  const [actorTrail, setActorTrail] = useState([]);
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -382,6 +417,18 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
   const sessionEvents = mission?.audit?.slice(-4).map((entry) => `${clock(entry.at)}  ${auditSummary(entry)}`) ?? [];
   const evidence = useMemo(() => evidenceRows(mission), [mission]);
   const toolUsage = toolUsageLabel(mission);
+  const isActorRun = mission?.mode === "actor";
+  const actorPresence = useMemo(() => actorPresenceFromEvents(actorTrail), [actorTrail]);
+  const actorPoints = useMemo(() => actorWorkPoints(actorCrew), [actorCrew]);
+  const actorRows = useMemo(() => actorEvidenceRows(actorTrail), [actorTrail]);
+  const actorTurns = useMemo(() => actorConversationRows(actorCrew, actorBoard), [actorCrew, actorBoard]);
+  const actorNames = useMemo(() => new Map((actorCrew?.actors ?? []).map((actor) => [actor.agentId, actor.name ?? "Colega sem nome"])), [actorCrew]);
+  const liveActorsLabel = isActorRun ? activeActorsLabel(activeActorCount(actorCrew)) : null;
+  // The screen strip shows the trail when there is one, and the mission's own
+  // audit lines otherwise; both are persisted facts, never an animation of work.
+  const computerLines = isActorRun
+    ? actorRows.slice(-4).map((row) => `#${row.ordinal ?? "?"}  ${row.agentId ? `${actorNames.get(row.agentId) ?? row.agentId} · ` : ""}${row.label} ${row.text ?? ""}`.trim())
+    : sessionEvents;
 
   useEffect(() => {
     const runs = entrance(rootRef.current);
@@ -452,10 +499,42 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     if (restoreFocus) requestAnimationFrame(() => panelTriggerRef.current?.focus());
   }
 
+  // The crew is read from the persisted task rows, so a live event only tells the
+  // page to look again. A failed re-read keeps the last crew instead of blanking
+  // the panel: the trail already carries the truth of that moment, and the next
+  // crew event asks again.
+  function refreshActorCrew(missionId) {
+    Promise.all([fetchMissionActors(missionId), fetchMissionState(missionId)])
+      .then(([crew, board]) => { setActorCrew(crew); setActorBoard(board); })
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    setActorCrew(null);
+    setActorBoard(null);
+    setActorTrail([]);
+    if (!selectedId || !isActorRun) return undefined;
+    let alive = true;
+    Promise.all([fetchMissionActors(selectedId), fetchMissionState(selectedId), fetchMissionTrail(selectedId)])
+      .then(([crew, board, trail]) => { if (alive) { setActorCrew(crew); setActorBoard(board); setActorTrail(trail.events ?? []); } })
+      .catch(() => { if (alive) { setActorCrew(null); setActorBoard(null); setActorTrail([]); } });
+    return () => { alive = false; };
+  }, [selectedId, isActorRun]);
+
   useEffect(() => {
     const close = openMissionEvents((event) => {
       if (event.type === "server_error") {
         notify(`Erro no servidor: ${event.message}`);
+        return;
+      }
+      if (typeof event.type === "string" && event.type.startsWith("actor_")) {
+        setOffline(false);
+        // A teammate's event is not a mission snapshot and carries no `task` by
+        // design; dropping it here is how a concurrent run would read as idle.
+        if (event.missionId === selectedRef.current) {
+          setActorTrail((rows) => (Number.isInteger(event.ordinal) && rows.some((row) => row.ordinal === event.ordinal) ? rows : [...rows.slice(-199), event]));
+          if (CREW_EVENT_TYPES.has(event.type)) refreshActorCrew(event.missionId);
+        }
         return;
       }
       if (!event.task) return;
@@ -754,10 +833,19 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     }
     if (activeGroup&&!executionMode) {setCreateError('Escolha uma modalidade para esta execução ou comece pela conversa.');return;}
     if (executionMode==='team-preset'&&!presetState.ready) {setCreateError(presetState.reason);return;}
+    // An actor run names its reviewer through the Team's leadership; the core says
+    // so with a 400, and asking before sending keeps that answer in the composer.
+    if (executionMode==='actors'&&!activeGroup?.leader) {setCreateError('O modo atores revisa pela liderança do Team. Escolha um líder em Editar Team antes de enviar.');return;}
     setSending(true);
     setCreateError("");
     try {
-      const created = await createMission(objective, chosenProvider || general.defaultProvider, attachmentGrants(attachments, capabilityPayload(capabilityGrants)), { workspaceRoot:composerWorkspaceRoot, maxProviderCalls: general.maxProviderCalls, maxToolCalls: general.maxToolCalls, teamId: activeGroup?.id, ...(executionMode==='team-preset' ? {roleAssignments} : {}) });
+      // The general budget is a sequential number: a crew of three teammates with a
+      // six-call share each cannot be booked on three calls, and the core answers 400.
+      // What the user set stands whenever it can hold a crew; below that the actor
+      // mode's own default is what the backend books.
+      const bookedCalls = executionMode === 'actors' && general.maxProviderCalls < 6 ? undefined : general.maxProviderCalls;
+      const selectedProvider = chosenProvider || general.defaultProvider || providers.find((item) => item.label === 'openrouter-free')?.label || null;
+      const created = await createMission(objective, selectedProvider, attachmentGrants(attachments, capabilityPayload(capabilityGrants)), { workspaceRoot:composerWorkspaceRoot, maxProviderCalls: bookedCalls, maxToolCalls: general.maxToolCalls, teamId: activeGroup?.id, ...(executionMode==='team-preset' ? {roleAssignments} : {}), ...(executionMode==='actors' ? {executionMode:'actor'} : {}) });
 
       setDraft("");
       setAttachments([]);
@@ -852,7 +940,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         {runsExpanded && visible.map((item) => {
           const [label, chip] = statusInfo(item.status);
           return <button className={`conversation-row execution-row ${selectedId === item.id ? "selected" : ""}`} key={item.id} aria-current={selectedId === item.id ? "page" : undefined} aria-label={`${item.objective} · ${label}`} data-run-state={item.status === "awaiting_approval" ? "attention" : chip} onClick={() => {setActiveAgentId(null);setActiveGroupId(null);setSelectedId(item.id);setViewMode('missao');}} title={item.objective}>
-            <Stack mission={item.id === mission?.id ? mission : null} currentRole={item.id === mission?.id ? currentRole : null} /><span className="conversation-copy"><strong>{item.objective}</strong><small><span className="execution-state">{label}</span><span className="execution-budget"> · {item.providerCalls}/{item.maxProviderCalls} chamadas</span></small></span><time>{clock(item.updatedAt)}</time>
+            {item.mode === "actor" ? <span className="agent-stack actor-stack" title="Equipe em atores concorrentes"><UsersThree weight="bold" /></span> : <Stack mission={item.id === mission?.id ? mission : null} currentRole={item.id === mission?.id ? currentRole : null} />}<span className="conversation-copy"><strong>{item.objective}</strong><small><span className="execution-state">{label}</span><span className="execution-budget"> · {item.providerCalls}/{item.maxProviderCalls} chamadas</span></small></span><time>{clock(item.updatedAt)}</time>
           </button>;
         })}</section>
         <section className="nav-section" aria-label="Agentes"><NavigationHeading title="AGENTES"><button aria-label="Recarregar dados dos agentes" title="Recarregar agentes" onClick={reload}><ArrowsClockwise /></button></NavigationHeading>
@@ -869,7 +957,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
     </aside>
 
     {showConversation ? <AgentConversation key={activeGroup?.id||activeAgent?.id} agent={activeAgent} group={activeGroup} library={library} providers={providers} personalProfile={personalProfile} onEditAgent={editAgent} onEditGroup={()=>setTeamEditor({team:activeGroup})} preferredProvider={chosenProvider} onProviderChange={setChosenProvider} serverWorkspace={serverWorkspace} onStartExecution={focusComposer} onConfigureProvider={()=>setPopover("providers")}/> : <section className={`conversation-view ${loaded && !mission && !selectedId && !showOnboarding ? "workspace-empty" : ""}`}>
-      <header className="conversation-header">{headerTeam?<span className="team-header-avatars">{library.agents.filter(a=>headerTeam.members.includes(a.id)).slice(0,4).map(a=><HaneAvatar key={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={30} decorative reducedMotion={reduceMotion()}/>)}</span>:<Avatar person={onboardingAgent} size="sm" state="idle"/>}<span className="conversation-title"><strong>{headerTeam?.name || mission?.objective || (showOnboarding?'Hane':'Seu próximo Team')}</strong><small>{mission?selectedLabel+' · '+mission.providerCalls+'/'+mission.maxProviderCalls+' chamadas':headerTeam?headerTeam.members.length+'/8 integrantes · escolha conversa ou execução':'Escolha quem vai pensar junto com você'}</small></span>{mission&&<Status kind={selectedChip}>{selectedLabel}</Status>}{activeGroup&&<button type="button" onClick={()=>setViewMode('conversa')}>Conversar</button>}<button type="button" className="team-header-edit" aria-label={headerTeam?'Editar Team':'Escolher Team'} title={headerTeam?'Editar nome e adicionar integrantes':'Escolher ou criar Team'} onClick={()=>setTeamEditor({team:headerTeam||null,mode:headerTeam?"create":"choose"})}>{headerTeam?<PencilSimple/>:<Plus/>}<span>{headerTeam?'Editar Team':'Escolher Team'}</span></button></header>
+      <header className="conversation-header">{headerTeam?<span className="team-header-avatars">{library.agents.filter(a=>headerTeam.members.includes(a.id)).slice(0,4).map(a=><HaneAvatar key={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={30} decorative reducedMotion={reduceMotion()}/>)}</span>:<Avatar person={onboardingAgent} size="sm" state="idle"/>}<span className="conversation-title"><strong>{headerTeam?.name || mission?.objective || (showOnboarding?'Hane':'Seu próximo Team')}</strong><small>{mission?selectedLabel+' · '+mission.providerCalls+'/'+mission.maxProviderCalls+' chamadas':headerTeam?headerTeam.members.length+'/8 integrantes · escolha conversa ou execução':'Escolha quem vai pensar junto com você'}</small></span>{mission&&<Status kind={selectedChip}>{selectedLabel}</Status>}{liveActorsLabel&&<Status kind="running">{liveActorsLabel}</Status>}{activeGroup&&<button type="button" onClick={()=>setViewMode('conversa')}>Conversar</button>}<button type="button" className="team-header-edit" aria-label={headerTeam?'Editar Team':'Escolher Team'} title={headerTeam?'Editar nome e adicionar integrantes':'Escolher ou criar Team'} onClick={()=>setTeamEditor({team:headerTeam||null,mode:headerTeam?"create":"choose"})}>{headerTeam?<PencilSimple/>:<Plus/>}<span>{headerTeam?'Editar Team':'Escolher Team'}</span></button></header>
       <div className="messages" ref={messagesRef}>{libraryError && <p className="composer-error" role="alert">{libraryError} <button onClick={()=>setRetryTick(v=>v+1)}>Tentar novamente</button></p>}{(legacy?.agents?.length>0 || legacy?.groups?.length>0) && <p className="settings-description">Há uma biblioteca antiga neste navegador. <button onClick={()=>openSection('agents')}>Revisar importação</button></p>}{persistenceError && <p className="composer-error" role="alert">{persistenceError}</p>}{activeGroup && (mission||selectedId) && <div className="group-context"><strong>{activeGroup.description || "Seu Team"}</strong><div>{library.agents.filter(a => activeGroup.members.includes(a.id)).map(a => <span key={a.id}><HaneAvatar agentId={a.id} name={a.name} color={a.color} shape={a.shape} image={a.image} size={28}/>{a.name}{activeGroup.leader===a.id?" · líder":""}</span>)}</div><small>Escolha abaixo um preset de execução. Nas conversas, cada integrante responde com sua identidade. A liderança não atribui etapas automaticamente.</small></div>}
         {loaded && !mission && !selectedId && !showOnboarding && (activeGroup?<div className="team-first-use" aria-labelledby="team-first-use-title"><span className="team-first-use-avatars">{library.agents.filter(a=>activeGroup.members.includes(a.id)).slice(0,8).map(a=><HaneAvatar key={a.id} agentId={a.id} name={a.name} shape={a.shape} color={a.color} image={a.image} size={48} decorative reducedMotion={reduceMotion()}/>)}</span><small>PRÓXIMO PASSO DO SEU TEAM</small><h2 id="team-first-use-title">{activeGroup.runs.length?'Um próximo objetivo para '+activeGroup.name+'.':activeGroup.name+' já tem um lugar por aqui.'}</h2><p>{presetState.compatible?'Converse com os integrantes ou escolha três agentes para planejamento, execução e revisão.':activeGroup.members.length===1?'Comece conversando com seu agente. Para executar as três etapas com seu Team, adicione mais dois integrantes.':presetState.reason+' A conversa já pode ser preparada.'}</p><div className="team-first-actions"><button type="button" className="primary" onClick={()=>setViewMode('conversa')}>Conversar com {activeGroup.members.length===1?'o agente':'o Team'}</button><button type="button" onClick={()=>setTeamEditor({team:activeGroup})}>Adicionar agentes</button><button type="button" onClick={focusComposer}>Configurar próxima execução</button></div>{noProviders&&<p className="team-provider-note">Adicione uma conexão de IA antes de enviar mensagens ou executar. <button type="button" onClick={()=>setPopover('providers')}>Configurar provedor</button></p>}</div>:<EmptyStage Icon={Sparkle} visual={<div className="workspace-welcome-avatar"><HaneGarden controller={welcomeGarden}/></div>} title={personalProfile?`Bem-vindo, ${personalProfile.displayName}.`:"Seu espaço para colaborar"} action={{label:"Criar Team",onClick:()=>setTeamEditor({team:null,mode:'create'})}}>Reúna quem vai pensar junto com você. Depois, escolha sua primeira conversa ou execução.</EmptyStage>)}
         {missions === null && <EmptyStage Icon={CircleNotch} title="Consultando o Hane…">Lendo o arquivo de execuções local para montar a trilha.</EmptyStage>}
@@ -878,8 +966,15 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         </EmptyStage>}
         {loaded && mission && <>
           <div className="day-divider"><span>Hoje</span></div>
-          <RiseIn className="user-message" key={`objective-${mission.id}`}><small>{personalProfile && <PersonalAvatar profile={personalProfile}/>} {personalProfile?.displayName || "Você"} · {clock(mission.audit?.at(-1)?.at)}{mission.providerLabel ? ` · ${mission.executionPlan ? "preset do Team" : "provedor "+mission.providerLabel}` : ""}</small><p>{mission.objective}</p></RiseIn>
-          {ROLE_ORDER.map((role) => {
+          <RiseIn className="user-message" key={`objective-${mission.id}`}><small>{personalProfile && <PersonalAvatar profile={personalProfile}/>} {personalProfile?.displayName || "Você"} · {clock(mission.audit?.at(-1)?.at)}{mission.providerLabel ? ` · ${isActorRun ? "cada integrante com seu provedor" : mission.executionPlan ? "preset do Team" : "provedor "+mission.providerLabel}` : ""}</small><p>{mission.objective}</p></RiseIn>
+          {isActorRun && <>
+            {actorTurns.length === 0 && <p className="turns-empty">{actorCrew === null ? "Lendo a equipe desta execução…" : "Nenhum colega entregou um resultado ainda. A trilha da equipe, à direita, mostra o que eles fazem."}</p>}
+            {actorTurns.map((turn) => {
+              const person = actorPerson(library.agents, turn.agentId, turn.agentName);
+              return <article className="message" data-output="actor" key={turn.id}><Avatar person={person} state={turn.running ? "working" : "done"} /><div className="message-content"><header><strong>{person.name}</strong><small>{turn.title}</small>{turn.running ? <Status kind="running">Trabalhando</Status> : <Status kind="done">Concluído</Status>}{Number.isInteger(turn.revision) && turn.revision > 1 && <Status kind="attention">{`revisão ${turn.revision}`}</Status>}</header>{turn.running ? <p><Spinner /> Escrevendo o resultado no quadro…</p> : <p className="output-text">{turn.text}</p>}</div></article>;
+            })}
+          </>}
+          {!isActorRun && ROLE_ORDER.map((role) => {
             const person = missionPerson(mission,role);
             const output = mission.outputs?.[role];
             const failed = mission.audit?.find((entry) => entry.type === "provider_call_failed" && entry.detail?.role === role);
@@ -953,7 +1048,8 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         {createError && <div className="composer-error" role="alert"><Warning /><span><strong>Execução não enviada</strong><small>{createError}</small></span><button type="button" className="link-action" onClick={() => setCreateError("")}>dispensar</button></div>}
         {activeGroup && <details className="execution-preset-wrap" open={executionConfigOpen} onToggle={e=>setExecutionConfigOpen(e.currentTarget.open)}><summary>Configurar próxima execução</summary><fieldset className="execution-preset" disabled={sending || Boolean(activeGroup.archivedAt)}>
           <legend>Preset da próxima execução</legend>
-          <label>Modo<select aria-label="Modo de execução" value={executionMode} onChange={e=>setExecutionMode(e.target.value)}><option value="" disabled>Escolher modalidade</option><option value="team-preset" disabled={!presetState.compatible}>Três integrantes do Team · sequência</option><option value="standard">Preset padrão · sem usar integrantes do Team</option></select></label>
+          <label>Modo<select aria-label="Modo de execução" value={executionMode} onChange={e=>setExecutionMode(e.target.value)}><option value="" disabled>Escolher modalidade</option><option value="team-preset" disabled={!presetState.compatible}>Três integrantes do Team · sequência</option><option value="actors" disabled={!activeGroup?.leader}>Todos os integrantes · atores concurrentes</option><option value="standard">Preset padrão · sem usar integrantes do Team</option></select></label>
+          {executionMode==='actors'&&<p>O Team inteiro trabalha como equipe de atores: o líder planeja e revisa, e cada integrante executa suas tarefas em paralelo, com {activeGroup?.members?.length ?? 0} agentes na escala. O orçamento por ator e o limite de atores simultâneos continuam sendo do servidor.</p>}
           {executionMode==='team-preset' && <>{ROLE_ORDER.map(role=><label key={role}>{roles[role].job}<select aria-label={roles[role].job+' do preset'} value={roleAssignments[role]} onChange={e=>setRoleAssignments(v=>({...v,[role]:e.target.value}))}><option value="">Escolher integrante</option>{library.agents.filter(a=>activeGroup.members.includes(a.id)).map(a=><option key={a.id} value={a.id} disabled={ROLE_ORDER.some(r=>r!==role && roleAssignments[r]===a.id)}>{a.name} · {a.providerLabel || chosenProvider || general.defaultProvider || 'provedor da execução'}</option>)}</select></label>)}<p>Somente os três escolhidos executam: planejamento → execução → revisão. Instruções e provedores ficam registrados; apenas o executor pode ler arquivos, com capacidade e permissão explícitas.</p></>}
           {executionMode==='standard'?<p>O preset padrão usa os papéis internos do runtime e a conexão escolhida. O histórico fica vinculado ao Team, mas seus integrantes e instruções não são usados.</p>:<p role="status">{presetState.reason} {!presetState.compatible&&<button type="button" onClick={()=>setTeamEditor({team:activeGroup})}>Adicionar agentes</button>}</p>}
           <button type="button" className="link-action" onClick={()=>setPopover('providers')}>Conexão de IA: {chosenProvider||general.defaultProvider||'padrão dos agentes/servidor'}</button>
@@ -976,7 +1072,7 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
       <section className="panel-section live-computer"><div className="panel-title"><strong>Computador ao vivo</strong><span>{GATED_CAPABILITIES_NOTE}</span></div>
         <div className="computer-preview" aria-label="Eventos auditáveis da sessão da execução">
           <div className="window-bar"><span /><span /><span /><small>{mission ? "eventos persistidos da execução" : "sem sessão ativa"}</small></div>
-          <div className="window-body"><div><i /><i /><i /></div><pre>{sessionEvents.length ? sessionEvents.map((line, index) => <span key={`${line}-${index}`}>{line}{"\n"}</span>) : <span>{"Nenhuma sessão de ferramentas disponível.\nOs próximos eventos auditáveis aparecem aqui."}</span>}</pre></div>
+          <div className="window-body"><div><i /><i /><i /></div><pre>{computerLines.length ? computerLines.map((line, index) => <span key={`${line}-${index}`}>{line}{"\n"}</span>) : <span>{isActorRun ? "A trilha desta execução ainda não escreveu eventos.\nOs próximos fatos da equipe aparecem aqui." : "Nenhuma sessão de ferramentas disponível.\nOs próximos eventos auditáveis aparecem aqui."}</span>}</pre></div>
           <div className="evidence-list">
             <header><strong>Evidências de ferramentas</strong><span>{evidence.length} registro{evidence.length === 1 ? "" : "s"}</span></header>
             {evidence.length ? evidence.map((row) => {
@@ -988,6 +1084,14 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
               </div>;
             }) : <p className="evidence-empty">{mission ? "Nenhum acesso a ferramentas registrado nesta execução até agora." : "As leituras reais de arquivos aparecem aqui quando a execução recebe workspace.read."}</p>}
           </div>
+          {isActorRun && <div className="evidence-list actor-trail">
+            <header><strong>Trilha da equipe</strong><span>{actorTrail.length} evento{actorTrail.length === 1 ? "" : "s"} persistido{actorTrail.length === 1 ? "" : "s"}</span></header>
+            {actorRows.length ? actorRows.slice(-10).map((row) => <div className={`evidence-row ${row.kind}`} key={row.id}>
+              <span className="evidence-icon">{row.kind === "done" ? <Check /> : row.kind === "error" ? <Warning /> : row.kind === "denied" || row.kind === "stopped" ? <X weight="bold" /> : row.kind === "message" ? <At /> : row.kind === "state" ? <BracketsCurly /> : <CaretRight />}</span>
+              <span className="evidence-copy"><strong>{row.label}</strong>{row.text && <code title={row.text}>{row.text}</code>}{row.meta && <span className="evidence-meta">{row.meta}</span>}{row.agentId && <em className="evidence-role">{actorNames.get(row.agentId) ?? row.agentId}</em>}</span>
+              <time>{row.at ? clock(row.at) : row.ordinal === null ? "" : `#${row.ordinal}`}</time>
+            </div>) : <p className="evidence-empty">A equipe ainda não escreveu eventos nesta execução.</p>}
+          </div>}
           <div className="preview-caption"><span>A leitura de arquivos funciona sob grant explícito; escrita, comandos e rede não são executados.</span><span>{mission ? `${mission.providerCalls}/${mission.maxProviderCalls} chamadas${toolUsage ? ` · ${toolUsage} ferramentas` : ""}` : "—"}</span></div>
         </div>
       </section>
@@ -999,7 +1103,17 @@ export function HaneApp({personalProfile,onPersonalProfileChange,onLockProfile,p
         <button className="secondary-action" disabled={!mission} onClick={() => { if (mission) { copyText(mission.id).then((ok) => notify(ok ? `ID da execução copiado: ${mission.id.slice(0, 8)}…` : "O navegador bloqueou a área de transferência.")); } }}>Copiar ID da execução <CaretRight /></button>
       </section>
       <section className="approval-card"><div><span>{mission?.status === "completed" ? <Check /> : mission?.status === "needs_attention" || mission?.status === "failed" ? <Warning /> : <Sparkle />}</span><span><strong>{mission ? selectedLabel : "Nenhuma execução"}</strong><small>{mission?.status === "completed" ? "O veredito do revisor encerrou a execução." : mission?.status === "awaiting_approval" ? "O revisor pediu revisão humana. Aprovar custa mais 2 chamadas." : mission?.status === "needs_attention" ? "Atenção: veredito sinalizado ou orçamento esgotado." : mission?.status === "failed" ? "Uma etapa falhou. Refazer continua de onde parou." : mission?.status === "cancelled" ? "A execução foi cancelada e o histórico foi preservado." : mission ? "Acompanhe os eventos auditáveis da execução." : offline ? "Sem conexão com o hane serve." : noProviders ? "Sem agente configurado para executar execuções." : "Envie uma execução para começar."}</small></span></div>{mission?.status === "awaiting_approval" ? <button ref={approvalRef} disabled={actionBusy} onClick={() => act("approve")}>{actionBusy ? <Spinner /> : <Check />} Revisar e aprovar</button> : cancellable ? <button disabled={actionBusy} onClick={() => act("cancel")}>{actionBusy ? <Spinner /> : <Warning />}{actionBusy ? " Cancelando…" : " Cancelar execução"}</button> : retryable ? <button disabled={actionBusy} onClick={() => act("retry")}>{actionBusy ? <Spinner /> : <Sparkle />}{actionBusy ? " Refazendo…" : " Refazer etapa"}</button> : <Status kind={mission ? selectedChip : "queued"}>{mission ? selectedLabel : "ociosa"}</Status>}</section>
-      <details className="panel-section active-agents" open={showOnboarding || undefined}><summary className="panel-title"><strong>{showOnboarding ? "Guia de início" : "Etapas da equipe"}</strong><span>{showOnboarding ? "primeira vez" : mission ? selectedLabel : "—"}</span></summary>{showOnboarding ? <div className="active-agent"><Avatar person={onboardingAgent} size="sm" state="thinking" /><span><strong>Hane</strong><small>Pronto para orientar você</small></span><i className="ready-dot" /></div> : ROLE_ORDER.map((role) => {
+      <details className="panel-section active-agents" open={showOnboarding || undefined}><summary className="panel-title"><strong>{showOnboarding ? "Guia de início" : isActorRun ? "Atores e tarefas" : "Etapas da equipe"}</strong><span>{showOnboarding ? "primeira vez" : liveActorsLabel ?? (mission ? selectedLabel : "—")}</span></summary>{showOnboarding ? <div className="active-agent"><Avatar person={onboardingAgent} size="sm" state="thinking" /><span><strong>Hane</strong><small>Pronto para orientar você</small></span><i className="ready-dot" /></div> : isActorRun ? (actorCrew === null
+        ? <PanelEmpty>A equipe desta execução não foi lida do servidor. Recarregue a execução para consultá-la.</PanelEmpty>
+        : actorPoints.length === 0
+          ? <PanelEmpty>O plano ainda não escreveu tarefas nesta execução.</PanelEmpty>
+          : actorPoints.map((point) => {
+            // The face follows the trail when it has spoken about this teammate, and
+            // the persisted task row when it has not. Neither one is a guess.
+            const state = actorPresence[point.agentId]?.state ?? ACTOR_TASK_AVATAR_STATE[point.status] ?? "idle";
+            return <div className="active-agent" key={point.id}><Avatar person={actorPerson(library.agents, point.agentId, point.agentName)} size="sm" state={state} /><span><strong>{point.agentName ?? point.agentId}</strong><small>{point.title} · {point.label}{point.attempts > 1 ? ` · ${point.attempts}ª tentativa` : ""}</small></span>{point.status === "running" && <i />}</div>;
+          })
+      ) : ROLE_ORDER.map((role) => {
         const person = missionPerson(mission,role);
         const done = mission?.outputs?.[role] !== undefined;
         const working = mission && isActive(mission.status) && role === currentRole;
