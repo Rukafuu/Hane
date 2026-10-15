@@ -33,7 +33,7 @@ commands:
   agent add --name <name> [--provider <label>] [--exclusive] [--db <path>]
   agent list|show|remove [id] [--db <path>] [--json]
   team add --name <name> --member <agent-id> [--member <agent-id>] [--db <path>]
-  team list|show|archive|remove [id] [--db <path>] [--json]
+  team list|show|archive|restore|pin|unpin|remove|events [id] [--db <path>] [--json]
   team member add|remove <team-id> <agent-id> [--db <path>]
   team leader set <team-id> <agent-id|none> [--db <path>]
   provider add --label <name> --base-url <url> --model <id> [--max-tokens N]

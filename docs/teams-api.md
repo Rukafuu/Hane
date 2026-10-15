@@ -24,14 +24,23 @@ Nome: 2–80 caracteres após trim; descrição: até 1000; instruções: até 1
 - GET /api/teams/:id → equipe, membros ordenados e líder opcional.
 - PUT /api/teams/:id → atualização parcial, validada atomicamente.
 - DELETE /api/teams/:id → {removed:true}; histórico de execuções impede exclusão.
-- POST /api/teams/:id/archive → preserva equipe, membros e histórico; define archivedAt.
-- PUT /api/teams/:id/members/:agentId → adiciona um integrante; duplicata é recusada.
-- DELETE /api/teams/:id/members/:agentId → remove integrante; remover líder limpa liderança.
+- POST /api/teams/:id/archive → preserva equipe, membros e histórico; define archivedAt. Recusa enquanto há execução aberta.
+- POST /api/teams/:id/restore → limpa archivedAt; uma equipe ainda ativa é recusada.
+- POST /api/teams/:id/pin e POST /api/teams/:id/unpin → fixam e desafixam a equipe; pinned_at é hora ISO ou null.
+- PUT /api/teams/:id/members/:agentId → adiciona um integrante; duplicata é recusada e a inclusão acontece só quando nenhuma execução está aberta.
+- DELETE /api/teams/:id/members/:agentId → 409. Integrante de equipe persistida não sai: a composição só cresce, no editor e no armazenamento.
 - PUT /api/teams/:id/leader com {leaderAgentId: UUID|null} → define ou limpa liderança.
-- GET /api/teams/:id/executions → {executions:[{id,objective,status}]}.
+- GET /api/teams/:id/executions → {executions:[{id,objective,status}],activeExecution:{id,status}|null}.
+- GET /api/teams/:id/events → {events:[{id,type,agentId,detail,createdAt}]}, na ordem em que aconteceram.
 
 Payload de criação: {name, description?, members:[UUID,...], leaderAgentId?:UUID|null}.
-Equipes têm 1–8 integrantes únicos, existentes; líder deve ser integrante. Ordem é preservada. Remover o último integrante é recusado. Não há equipe vazia neste contrato; a futura migração da biblioteca do navegador deve tratar rascunhos vazios explicitamente.
+Equipes têm 1–8 integrantes únicos, existentes; líder deve ser integrante. Ordem é preservada. Uma vez persistida, a composição da equipe só cresce: nenhum integrante sai, nem pelo editor, nem por PUT, nem pelo armazenamento, que recusa o encolhimento. Não há equipe vazia neste contrato; a futura migração da biblioteca do navegador deve tratar rascunhos vazios explicitamente.
+
+Todo time guarda um `revision` inteiro, começando em 1 e subindo a cada escrita — edição, fixação, arquivamento e restauração. Um PUT pode levar `expectedRevision` opcional: se o número lido não for mais o número gravado, a escrita é recusada com 409 em vez de sobrescrever o que outro escritor já mudou. Um `{expectedRevision}` sozinho não é uma atualização e volta 400.
+
+Cada mudança de composição, nome, descrição, liderança, fixação, arquivamento e restauração grava uma linha em `team_events`, com `type`, o `agent_id` envolvido quando houver, um `detail_json` mínimo e a hora. Uma escrita que não muda nada não registra nada, então uma tentativa repetida não enche o histórico de duplicatas. As linhas pertencem ao time: excluir a equipe exclui seu rastro, o que evita registro órfão.
+
+Uma execução "aberta" é aquela que o scheduler ainda pode retomar sozinho: planned, executing ou reviewing. Enquanto houver uma, a equipe não ganha integrante nem é arquivada, e as duas rotas retornam 409. Uma missão em draft, que nunca rodou, não prende a equipe — e uma parada esperando uma decisão humana (`awaiting_approval`, `needs_attention`) também não, porque a repetição relê a composição que a execução gravou quando nasceu: mexer na equipe depois não alcança nada dela. O estado pode ser lido em `activeExecution` antes de avisar o usuário quando a mudança terá efeito.
 
 ## Execuções
 
@@ -41,11 +50,11 @@ Vincular uma execução organiza seu histórico; não significa que os integrant
 
 ## Erros
 
-- 400: conteúdo inválido, UUID inválido, duplicata, limite de integrantes, líder fora da equipe, atualização vazia ou teamId inexistente/arquivado.
+- 400: conteúdo inválido, UUID inválido, duplicata, limite de integrantes, líder fora da equipe, atualização vazia, restaurar uma equipe ativa ou expectedRevision inválido.
 - 401: perfil existente sem sessão autenticada.
 - 403/415: recusa da fronteira do navegador.
 - 404: recurso inexistente nas rotas de gerenciamento.
-- 409: exclusividade conflitante, provedor inexistente, remoção de agente vinculado ou equipe com histórico.
+- 409: exclusividade conflitante, provedor inexistente, remoção de agente vinculado, equipe com histórico, edição de uma equipe arquivada, execução aberta travando inclusão ou arquivamento, ou revisão desatualizada.
 - 405: método não suportado.
 - 503: servidor embutido sem armazenamento de equipes disponível.
 
@@ -54,8 +63,9 @@ Vincular uma execução organiza seu histórico; não significa que os integrant
 hane agent add --name "Orion" [--description "..."] [--instructions "..."] [--provider label] [--exclusive]
 hane agent list|show|remove [id]
 hane team add --name "Dev Team" --member UUID [--member UUID]
-hane team list|show|archive|remove [id]
-hane team member add|remove TEAM_UUID AGENT_UUID
+hane team list|show|archive|restore|pin|unpin|remove|events [id]
+hane team member add TEAM_UUID AGENT_UUID
+hane team member remove ... → recusa: a composição de uma equipe persistida só cresce.
 hane team leader set TEAM_UUID AGENT_UUID|none
 hane run "Objetivo" --team TEAM_UUID
 

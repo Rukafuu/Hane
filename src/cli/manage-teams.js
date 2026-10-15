@@ -34,6 +34,9 @@ export async function manageTeamsCommand({kind,args,stdout,dependencies}) {
       if(action==='show')result=store.get(id);
       else if(action==='remove')result={removed:store.remove(id)};
       else if(action==='archive'&&kind==='team')result=teams.archive(id);
+      else if(action==='restore'&&kind==='team')result=teams.restore(id);
+      else if((action==='pin'||action==='unpin')&&kind==='team')result=teams.pin(id,action==='pin');
+      else if(action==='events'&&kind==='team')result=teams.events(id);
       else throw new TeamError(400,'Unknown '+kind+' command.');
     }
     stdout.write(JSON.stringify(result,null,values.json?0:2)+'\n');return 0;

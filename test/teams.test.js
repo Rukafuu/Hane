@@ -47,6 +47,45 @@ test('execution links survive reconstruction, are immutable and prevent history 
   assert.throws(()=>db.prepare('DELETE FROM teams WHERE id=?').run(group.id),/FOREIGN KEY/);teams.archive(group.id);assert.equal(teams.executions(group.id)[0].id,task.id);assert.throws(()=>teams.requireActive(group.id),/active/);
   const legacy=new TaskRun({id:randomUUID(),objective:'Legacy execution'});repository.save(legacy.snapshot());assert.equal(Object.hasOwn(repository.findById(legacy.id),'teamId'),false);
 });
+test('pin, archive and restore are stored state and each one leaves a trail',t=>{
+  const {agents,teams}=fixture(t),a=agents.upsert(agent()),b=agents.upsert(agent()),group=teams.save(team([a.id]));
+  assert.equal(group.pinnedAt,null);assert.equal(group.revision,1);
+  const pinned=teams.pin(group.id,true);assert.ok(pinned.pinnedAt);assert.equal(pinned.revision,2);
+  assert.equal(teams.pin(group.id,false).pinnedAt,null);
+  assert.equal(teams.archive(group.id).archivedAt!==null,true);
+  assert.throws(()=>teams.save({...group,name:'Renamed'}),/archived/);
+  assert.throws(()=>teams.restore(randomUUID()),/Unknown team/);
+  const restored=teams.restore(group.id);assert.equal(restored.archivedAt,null);assert.equal(restored.name,'Team');assert.deepEqual(restored.members,[a.id]);
+  assert.throws(()=>teams.restore(group.id),/not archived/);
+  teams.setMember(group.id,b.id,true);teams.setLeader(group.id,b.id);
+  assert.deepEqual(teams.events(group.id).map(event=>event.type),['created','pinned','unpinned','archived','restored','member_added','leader_set']);
+  const joined=teams.events(group.id).find(event=>event.type==='member_added');assert.equal(joined.agentId,b.id);assert.equal(joined.detail.position,1);
+  const before=teams.events(group.id).length;
+  teams.save(teams.get(group.id));
+  assert.equal(teams.events(group.id).length,before);
+});
+test('an execution that can still move holds the team open, a draft does not',t=>{
+  const {db,agents,teams}=fixture(t),a=agents.upsert(agent()),b=agents.upsert(agent()),group=teams.save(team([a.id])),repository=new SqliteTaskRepository({database:db});
+  const draft=new TaskRun({id:randomUUID(),objective:'Waiting for its turn',teamId:group.id});repository.save(draft.snapshot());
+  assert.equal(teams.activeExecution(group.id),null);teams.archive(group.id);teams.restore(group.id);
+  const open={...new TaskRun({id:randomUUID(),objective:'Reading the workspace',teamId:group.id}).snapshot(),status:'executing'};
+  repository.save(open);
+  assert.equal(teams.activeExecution(group.id).id,open.id);
+  assert.throws(()=>teams.setMember(group.id,b.id,true),/execution in progress/);
+  assert.throws(()=>teams.archive(group.id),/execution running/);
+  assert.deepEqual(teams.get(group.id).members,[a.id]);
+  repository.save({...open,status:'completed'});
+  assert.equal(teams.activeExecution(group.id),null);assert.equal(teams.archive(group.id).archivedAt!==null,true);
+});
+test('a save that lost the race is refused instead of overwriting',t=>{
+  const {agents,teams}=fixture(t),a=agents.upsert(agent()),group=teams.save(team([a.id]));
+  const read=teams.get(group.id);
+  assert.equal(teams.save({...read,name:'First Writer'},{expectedRevision:read.revision}).name,'First Writer');
+  assert.throws(()=>teams.save({...read,name:'Second Writer'},{expectedRevision:read.revision}),/changed since it was read/);
+  assert.equal(teams.get(group.id).name,'First Writer');
+  assert.throws(()=>teams.save({...read,name:'Negative'},{expectedRevision:-1}),/non-negative/);
+  assert.equal(teams.pin(group.id,true).revision,3);
+});
 test('team and agent data survive closing and reopening the actual SQLite file',t=>{
   const dir=mkdtempSync(path.join(os.tmpdir(),'hane-teams-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const filename=path.join(dir,'teams.sqlite');
   let db=openHaneDatabase(filename);let agents=new SqliteAgentStore({database:db}),teams=new SqliteTeamStore({database:db});const a=agents.upsert(agent({instructions:'Preserve these instructions'})),g=teams.save(team([a.id]));db.close();

@@ -94,6 +94,9 @@ test('CLI creates eight-member teams, rejects ninth and persists the execution l
   assert.equal((await cli(['run','CLI linked execution','--team',randomUUID()])).code,1);
   const run=await cli(['run','CLI linked execution','--team',id]);assert.equal(run.code,0);assert.equal(run.output.teamId,id);
   assert.equal((await cli(['team','remove',id])).code,1);assert.equal((await cli(['team','archive',id])).code,0);
+  assert.equal((await cli(['team','restore',id])).output.archivedAt,null);
+  assert.ok((await cli(['team','pin',id])).output.pinnedAt);
+  assert.deepEqual((await cli(['team','events',id])).output.map(event=>event.type),['created','leader_set','archived','restored','pinned']);
   assert.equal((await cli(['team','show',id])).output.id,id);
 });
 
@@ -150,6 +153,49 @@ test('the server owns the execution budget and refuses a client beyond its ceili
   const tools=await h.request('/api/missions','POST',{objective:'Ask for too many tool calls',maxToolCalls:25});
   assert.equal(tools.status,400);assert.match(tools.body.error,/maxToolCalls/);
   assert.equal((await h.request('/api/missions')).body.missions.length,0);
+});
+test('pin, restore and the team trail answer over HTTP and survive a restart',async t=>{
+  const dir=mkdtempSync(path.join(os.tmpdir(),'hane-team-manage-')),filename=path.join(dir,'manage.sqlite');let h=await harness(filename);
+  t.after(async()=>{if(h)await h.close();rmSync(dir,{recursive:true,force:true});});
+  const a=await h.request('/api/agents','POST',{name:'Pinned Agent'});
+  const g=await h.request('/api/teams','POST',{name:'Pinned Team',members:[a.body.id]});
+  const url='/api/teams/'+g.body.id;
+  assert.ok((await h.request(url+'/pin','POST')).body.pinnedAt);
+  assert.equal((await h.request(url+'/unpin','POST')).body.pinnedAt,null);
+  assert.equal((await h.request(url+'/archive','POST')).status,200);
+  assert.equal((await h.request(url,'PUT',{name:'While archived'})).status,409);
+  assert.equal((await h.request(url+'/restore','POST')).body.archivedAt,null);
+  assert.equal((await h.request(url+'/restore','POST')).status,400);
+  assert.deepEqual((await h.request(url+'/events')).body.events.map(e=>e.type),['created','pinned','unpinned','archived','restored']);
+  assert.equal((await h.request(url,'PUT',{name:'Stale write',expectedRevision:1})).status,409);
+  const revision=(await h.request(url)).body.revision;
+  assert.equal((await h.request(url,'PUT',{name:'Renamed',expectedRevision:revision})).body.name,'Renamed');
+  assert.equal((await h.request(url,'PUT',{expectedRevision:revision})).status,400);
+  assert.equal((await h.request(url+'/pin/'+randomUUID(),'POST')).status,405);
+  assert.equal((await h.request('/api/teams/'+randomUUID()+'/pin','POST',{},{origin:'http://localhost:5173'})).status,403);
+  await h.close();h=await harness(filename);
+  const after=(await h.request(url)).body;
+  assert.equal(after.name,'Renamed');assert.equal(after.pinnedAt,null);assert.equal(after.archivedAt,null);
+  assert.equal((await h.request(url+'/events')).body.events.length,6);
+});
+test('an execution still open refuses a new member and an archive over HTTP, without its own words',async t=>{
+  const h=await harness();t.after(()=>h.close());
+  const a=await h.request('/api/agents','POST',{name:'Busy Agent'}),b=await h.request('/api/agents','POST',{name:'Late Agent'});
+  const g=await h.request('/api/teams','POST',{name:'Busy Team',members:[a.body.id]});
+  const url='/api/teams/'+g.body.id;
+  h.database.prepare('INSERT INTO task_runs (id,objective,status,max_provider_calls,provider_calls,team_id) VALUES (?,?,?,?,?,?)')
+    .run(randomUUID(),'Holding the team open','executing',10,1,g.body.id);
+  assert.equal((await h.request(url+'/executions')).body.activeExecution.status,'executing');
+  const refused=await h.request(url+'/members/'+b.body.id,'PUT');
+  assert.equal(refused.status,409);assert.match(refused.body.error,/execution in progress/);
+  assert.equal((await h.request(url+'/archive','POST')).status,409);
+  assert.deepEqual((await h.request(url)).body.members,[a.body.id]);
+  assert.deepEqual((await h.request(url+'/events')).body.events.map(e=>e.type),['created']);
+  assert.equal((await h.request(url+'/pin','POST')).status,200);
+  assert.doesNotMatch(JSON.stringify(refused.body),/team_events|SQLITE|prepare|constraint/i);
+  h.database.prepare('UPDATE task_runs SET status=? WHERE team_id=?').run('completed',g.body.id);
+  assert.equal((await h.request(url+'/members/'+b.body.id,'PUT')).status,200);
+  assert.equal((await h.request(url+'/archive','POST')).status,200);
 });
 test('an imported agent cannot claim the onboarding slot',async t=>{
   const h=await harness();t.after(()=>h.close());

@@ -8,7 +8,7 @@ import { assertId, assertObject, TeamError } from '../teams/domain.js';
 export function createTeamsApi({ agentStore, teamStore, readJsonBody, respondJson }) {
   return async function handle({ request, response, isAuthorized }) {
     const pathname = new URL(request.url,'http://127.0.0.1').pathname;
-    const match = pathname.match(/^\/api\/(agents|teams)(?:\/([^/]+))?(?:\/(members|leader|executions|archive)(?:\/([^/]+))?)?$/);
+    const match = pathname.match(/^\/api\/(agents|teams)(?:\/([^/]+))?(?:\/(members|leader|executions|archive|pin|unpin|restore|events)(?:\/([^/]+))?)?$/);
     const importing = pathname === '/api/library/import';
     if (!match && !importing) return false;
     const reply = (status,payload) => { respondJson(response,status,payload); return true; };
@@ -52,8 +52,11 @@ export function createTeamsApi({ agentStore, teamStore, readJsonBody, respondJso
       if (!existing) return reply(404,{error:'Unknown '+kind.slice(0,-1)+'.'});
       if (action) {
         if (kind!=='teams') return reply(404,{error:'Unknown route.'});
-        if (action==='executions' && method==='GET' && !memberId) return reply(200,{executions:teamStore.executions(id)});
+        if (action==='executions' && method==='GET' && !memberId) return reply(200,{executions:teamStore.executions(id),activeExecution:teamStore.activeExecution(id)});
+        if (action==='events' && method==='GET' && !memberId) return reply(200,{events:teamStore.events(id)});
         if (action==='archive' && method==='POST' && !memberId) return reply(200,teamStore.archive(id));
+        if (action==='restore' && method==='POST' && !memberId) return reply(200,teamStore.restore(id));
+        if ((action==='pin'||action==='unpin') && method==='POST' && !memberId) return reply(200,teamStore.pin(id,action==='pin'));
         if (action==='members' && memberId && method==='DELETE') return reply(200,teamStore.setMember(id,memberId,false));
         if (action==='members' && memberId && method==='PUT') return reply(200,teamStore.setMember(id,memberId,true));
         if (action==='leader' && !memberId && method==='PUT') {
@@ -68,10 +71,13 @@ export function createTeamsApi({ agentStore, teamStore, readJsonBody, respondJso
       if (method==='DELETE') { store.remove(id); return reply(200,{removed:true}); }
       if (method==='PUT') {
         const body=await readJsonBody(request,kind==='agents'?7*1024*1024:65536); assertObject(body);
-        if (!Object.keys(body).length) throw new TeamError(400,'An update must contain fields.');
+        // expectedRevision is the caller's read token, not a stored field: a writer
+        // that saw revision 4 refuses to overwrite a row the server already moved to 5.
+        const {expectedRevision,...fields}=body;
+        if (!Object.keys(fields).length) throw new TeamError(400,'An update must contain fields.');
         if (!isAuthorized()) return reply(401,{error:'Local session is locked.'});
-        const candidate=kind==='agents'?{...existing,...await prepareAgent(body,existing),id}:{...existing,...body,id};
-        return reply(200,kind==='agents'?store.upsert(candidate):store.save(candidate));
+        const candidate=kind==='agents'?{...existing,...await prepareAgent(fields,existing),id}:{...existing,...fields,id};
+        return reply(200,kind==='agents'?store.upsert(candidate):store.save(candidate,{expectedRevision}));
       }
       return reply(405,{error:'Method not allowed.'});
     } catch (error) {

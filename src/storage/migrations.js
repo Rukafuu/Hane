@@ -311,6 +311,33 @@ const MIGRATIONS = Object.freeze([
   ]) }),
   // Id 16 is reserved for the per-execution backend choice (mission sandbox
   // selection). Take a later id, or claim 16 explicitly, instead of colliding.
+
+  // Managing a Team that already exists: a pin the sidebar can render after a
+  // restart, and a revision counter that is the token two writers compare
+  // against. Both default to the state a stored Team is already in, so nothing
+  // existing moves.
+  Object.freeze({ id: 26, name: 'team_pin_and_revision', statements: Object.freeze([
+    'ALTER TABLE teams ADD COLUMN pinned_at TEXT;',
+    'ALTER TABLE teams ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0);',
+    'CREATE INDEX teams_pinned ON teams(pinned_at, created_at) WHERE pinned_at IS NOT NULL;',
+  ]) }),
+  // The composition of a Team can only grow, so "who joined, and when" has to be
+  // a record rather than a guess made later from the member list. Rows belong to
+  // the Team: deleting it deletes its trail, which is what keeps the trail from
+  // outliving the thing it describes.
+  Object.freeze({ id: 27, name: 'team_composition_events', statements: Object.freeze([
+    `CREATE TABLE team_events (
+      id TEXT PRIMARY KEY,
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK(type IN ('created','renamed','description_changed','member_added','leader_set','leader_cleared','pinned','unpinned','archived','restored')),
+      agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
+      detail_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;`,
+    // SQLite refuses rowid inside an index, so the trail orders itself by insertion
+    // and the index only bounds the rows a single Team owns.
+    'CREATE INDEX team_events_team ON team_events(team_id);',
+  ]) }),
 ]);
 
 export function latestMigrationId() {
